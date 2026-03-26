@@ -413,7 +413,7 @@ if (this.debug) {
 // Строим все возможные структуры
 const structures = structureManager.buildStructures(
     anchorsForValidation,
-    allGraphTriangles,  // ← все треугольники графа
+    allTriangles,  // ← это 24 треугольника-якоря
     exactGraph,
     existingModel.graph,
     morphologyMap,
@@ -3396,6 +3396,136 @@ generateStructureColors(structures) {
         return triangles;
     }
 
+/**
+* Получает граничные рёбра структуры
+*/
+getBoundaryEdgesFromStructure(structure) {
+    const edges = [];
+    for (const [edgeKey, edgeData] of structure.boundaryEdges) {
+        edges.push({
+            key: edgeKey,
+            v1: edgeData.v1,
+            v2: edgeData.v2
+        });
+    }
+    return edges;
+}
+
+/**
+* Находит соседний треугольник в графе по ребру
+*/
+findNeighborTriangleInGraph(edge, allTriangles, structure) {
+    const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
+   
+    for (const triangle of allTriangles) {
+        if (structure.triangleIds.has(triangle.id)) continue;
+       
+        for (const triEdge of triangle.edges) {
+            const triEdgeKey = [triEdge.v1.id, triEdge.v2.id].sort().join('--');
+            if (triEdgeKey === edgeKey) {
+                return triangle;
+            }
+        }
+    }
+    return null;
+}
+
+/**
+* Пытается добавить треугольник по геометрии (без якорей)
+*/
+tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+    // Находим общее ребро
+    const commonEdge = this.findCommonEdgeInTriangle(triangle, structure);
+    if (!commonEdge) return false;
+   
+    // Находим новую точку
+    const newPoint = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+        p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
+    );
+    if (!newPoint) return false;
+   
+    // Получаем модель существующих точек
+    const modelV1 = this.getModelPointFromStructure(commonEdge.v1.id, structure);
+    const modelV2 = this.getModelPointFromStructure(commonEdge.v2.id, structure);
+    if (!modelV1 || !modelV2) return false;
+   
+    // Проецируем новую точку через transform
+    let modelNew;
+    if (structure.transform) {
+        const projected = this.applyTransform(newPoint, structure.transform);
+        modelNew = { x: projected.x, y: projected.y };
+    } else {
+        return false;
+    }
+   
+    // Вычисляем углы
+    const anglePhoto = this.calcAngleInTriangle(commonEdge.v1, newPoint, commonEdge.v2);
+    const angleModel = this.calcAngleInTriangle(modelV1, modelNew, modelV2);
+    const angleDiff = Math.abs(anglePhoto - angleModel);
+   
+    // Допуск 8°
+    if (angleDiff > 8) return false;
+   
+    // Добавляем треугольник
+    structure.addTriangle(triangle);
+    return true;
+}
+
+/**
+* Находит общее ребро между треугольником и структурой
+*/
+findCommonEdgeInTriangle(triangle, structure) {
+    for (const edge of triangle.edges) {
+        if (structure.pointIds.has(edge.v1.id) && structure.pointIds.has(edge.v2.id)) {
+            return edge;
+        }
+    }
+    return null;
+}
+
+/**
+* Получает модель точки из структуры
+*/
+getModelPointFromStructure(pointId, structure) {
+    const anchors = structure.getAnchors();
+    for (const anchor of anchors) {
+        if (anchor.pointA === pointId) {
+            return anchor.pointB;
+        }
+    }
+    return null;
+}
+
+/**
+* Применяет трансформацию к точке
+*/
+applyTransform(point, transform) {
+    const { scale, rotation, translation } = transform;
+    const xRot = point.x * Math.cos(rotation) - point.y * Math.sin(rotation);
+    const yRot = point.x * Math.sin(rotation) + point.y * Math.cos(rotation);
+    return {
+        x: xRot * scale + translation.x,
+        y: yRot * scale + translation.y
+    };
+}
+
+/**
+* Вычисляет угол между тремя точками
+*/
+calcAngleInTriangle(a, b, c) {
+    const v1x = b.x - a.x;
+    const v1y = b.y - a.y;
+    const v2x = c.x - a.x;
+    const v2y = c.y - a.y;
+   
+    const dot = v1x * v2x + v1y * v2y;
+    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
+    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
+   
+    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
+    return Math.acos(cos) * 180 / Math.PI;
+}
+ 
     /**
     * Проверяет равенство массивов (для сравнения треугольников)
     */
