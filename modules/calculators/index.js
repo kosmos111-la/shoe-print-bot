@@ -505,38 +505,41 @@ function initialize() {
 
     // Вспомогательные функции форматирования (внутри initialize)
     function formatWeatherShort(data, weatherService) {
-        const currentHour = new Date().getHours();
-        const timeIcon = (currentHour >= 6 && currentHour < 18) ? '☀️' : '🌙';
-
-        let message = `🌤️ <b>${data.location.toUpperCase()}</b> ${timeIcon}\n\n`;
-
-        message += `📊 <b>Сейчас:</b> ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-        message += `${data.current.condition} | 💨 ${data.current.wind_speed} м/с | 💧 ${data.current.humidity}%\n\n`;
-
-        if (data.forecast && data.forecast[0]) {
-            const today = data.forecast[0];
-            message += `📈 <b>Сегодня:</b> День ${weatherService.formatTemperature(today.day_temp)} / Ночь ${weatherService.formatTemperature(today.night_temp)}\n`;
-            message += `${today.condition}`;
-            if (today.precipitation > 0) {
-                message += ` | 🌧️ ${today.precipitation}мм`;
-            }
-            message += `\n\n`;
+    const currentHour = new Date().getHours();
+    const timeIcon = (currentHour >= 6 && currentHour < 18) ? '☀️' : '🌙';
+   
+    let message = `🌤️ <b>${data.location.toUpperCase()}</b> ${timeIcon}\n\n`;
+   
+    message += `📊 <b>Сейчас:</b> ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
+    message += `${data.current.condition} | 💨 ${data.current.wind_speed} м/с | 💧 ${data.current.humidity}%\n\n`;
+   
+    if (data.forecast && data.forecast[0]) {
+        const today = data.forecast[0];
+        message += `📈 <b>Сегодня:</b> День ${weatherService.formatTemperature(today.day_temp)} / Ночь ${weatherService.formatTemperature(today.night_temp)}\n`;
+        message += `${today.condition}`;
+        if (today.precipitation > 0) {
+            message += ` | 🌧️ ${today.precipitation}мм`;
         }
-
-        if (data.current.temperature < 5) {
-            message += `🧥 Рекомендация: теплая одежда`;
-        } else if (data.current.temperature < 15) {
-            message += `🧥 Рекомендация: куртка или ветровка`;
-        } else {
-            message += `👕 Рекомендация: легкая одежда`;
-        }
-
-        if (data.current.wind_speed > 5) {
-            message += `, ветрозащита`;
-        }
-
-        return message;
+        message += `\n\n`;
     }
+   
+    if (data.current.temperature < 5) {
+        message += `🧥 Рекомендация: теплая одежда`;
+    } else if (data.current.temperature < 15) {
+        message += `🧥 Рекомендация: куртка или ветровка`;
+    } else {
+        message += `👕 Рекомендация: легкая одежда`;
+    }
+   
+    if (data.current.wind_speed > 5) {
+        message += `, ветрозащита`;
+    }
+   
+    // Добавляем ссылку на полный отчет
+    message += `\n\n📋 <i>Подробный отчет отправлен ниже 👇</i>`;
+   
+    return message;
+}
 
     function formatWeatherFull(data, weatherService) {
         let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
@@ -639,6 +642,9 @@ function initialize() {
 
         // Формируем полный текстовый отчет (как было раньше)
         const fullTextReport = formatWeatherFull(data, weatherService);
+       
+        // Формируем краткую подпись для графика (ограничиваем до 900 символов)
+        const shortCaption = formatWeatherShort(data, weatherService);
 
         // Пытаемся отправить график
         if (chatId && bot) {
@@ -651,12 +657,16 @@ function initialize() {
                 );
 
                 if (graphBuffer) {
-                    // Отправляем график с полным текстовым отчетом в качестве подписи
+                    // Отправляем график с краткой подписью
                     await bot.sendPhoto(chatId, graphBuffer, {
-                        caption: fullTextReport,
+                        caption: shortCaption,
                         parse_mode: 'HTML'
                     });
-                    return null; // График отправлен, текст не нужен
+                   
+                    // Отправляем полный текстовый отчет отдельным сообщением
+                    await bot.sendMessage(chatId, fullTextReport, { parse_mode: 'HTML' });
+                   
+                    return null; // Все отправлено
                 }
             } catch (graphError) {
                 console.log('⚠️ Ошибка генерации графика:', graphError.message);
