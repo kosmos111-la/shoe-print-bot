@@ -528,13 +528,18 @@ async getSnowData(lat, lon, days = 7) {
         });
 
         const daily = response.data.daily;
+       
+        if (!daily || !daily.time || daily.time.length === 0) {
+            return [];
+        }
+
         const snowData = [];
 
         for (let i = 0; i < daily.time.length; i++) {
             snowData.push({
                 date: new Date(daily.time[i]).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
-                snowfall: daily.snowfall_sum[i] || 0,      // выпало снега за день (мм водного эквивалента)
-                snowDepth: daily.snow_depth[i] || 0        // глубина снежного покрова (см)
+                snowfall: daily.snowfall_sum ? (daily.snowfall_sum[i] || 0) : 0,
+                snowDepth: daily.snow_depth ? (daily.snow_depth[i] || 0) : 0
             });
         }
 
