@@ -297,22 +297,21 @@ if (anchorsForValidation.length === 0) {
                     console.log(`   • Сдвиг: (${baseTransform.translation.x.toFixed(1)}, ${baseTransform.translation.y.toFixed(1)})`);
                 }
 
-               // 🔥 ЭТАП 2: Построение топологических структур (НОВЫЙ ПОДХОД)
+              // 🔥 ЭТАП 2: Построение топологических структур (НОВЫЙ ПОДХОД)
 console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
 
 // Создаём менеджер структур
+const structureManager = new StructureManager(validator, {
+    debug: this.debug,
+    minConfidence: 0.7,
+    maxScaleDeviation: 0.1,
+    maxRotationDeviation: 5
+});
 
- const structureManager = new StructureManager(validator, {
-                    debug: this.debug,
-                    minConfidence: 0.7,
-                    maxScaleDeviation: 0.1,
-                    maxRotationDeviation: 5
-                });
-
-                // Подготавливаем все треугольники для строителя
-const allTriangles = [];
-
+// 🔥 ПОЛУЧАЕМ ВСЕ ТРЕУГОЛЬНИКИ ИЗ ГРАФА
+const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
 console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
+console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
 console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
 
 // Проверяем, есть ли externalPoint в исходных треугольниках
@@ -334,46 +333,47 @@ if (triangleResult.triangles && triangleResult.triangles.length > 0) {
 const anchorsByTriangle = new Map();
 
 for (const anchor of anchorsForValidation) {
-    // У каждого якоря должен быть triangleId
     const triId = anchor.triangleId;
     if (!triId) {
         if (this.debug) console.log(`   ⚠️ Якорь без triangleId: ${anchor.pointA}`);
         continue;
     }
-   
+
     if (!anchorsByTriangle.has(triId)) {
         anchorsByTriangle.set(triId, []);
     }
     anchorsByTriangle.get(triId).push(anchor);
 }
 
-console.log(`   • Найдено уникальных треугольников: ${anchorsByTriangle.size}`);
+console.log(`   • Найдено уникальных треугольников-якорей: ${anchorsByTriangle.size}`);
 
-// Для каждого треугольника собираем 3 якоря
+// 🔥 СОЗДАЁМ МАПУ ЯКОРНЫХ ТРЕУГОЛЬНИКОВ ДЛЯ БЫСТРОГО ДОСТУПА
+const anchorTrianglesMap = new Map();
+
+// Для каждого якорного треугольника собираем 3 якоря и сохраняем в мапу
 for (const [triId, anchors] of anchorsByTriangle) {
     if (anchors.length !== 3) continue;
-   
-    // 🔥 НАХОДИМ ОРИГИНАЛЬНЫЙ ТРЕУГОЛЬНИК ИЗ triangleResult
+
+    // Находим оригинальный треугольник из triangleResult
     const originalTriangle = triangleResult.triangles?.find(t => t.id === triId);
-   
+
     const a1 = anchors[0];
     const a2 = anchors[1];
     const a3 = anchors[2];
-   
+
     const p1 = exactGraph.nodes.get(a1.pointA);
     const p2 = exactGraph.nodes.get(a2.pointA);
     const p3 = exactGraph.nodes.get(a3.pointA);
-   
+
     const pB1 = existingModel.graph.nodes.get(a1.pointB);
     const pB2 = existingModel.graph.nodes.get(a2.pointB);
     const pB3 = existingModel.graph.nodes.get(a3.pointB);
-   
+
     if (p1.id === p2.id || p1.id === p3.id || p2.id === p3.id) continue;
-   
-    // 🔥 СОЗДАЁМ РЁБРА С СОХРАНЕНИЕМ externalPoint
+
+    // Создаём рёбра с сохранением externalPoint
     const edges = [];
     if (originalTriangle && originalTriangle.edges) {
-        // Берём externalPoint из оригинального треугольника
         for (let i = 0; i < originalTriangle.edges.length; i++) {
             const origEdge = originalTriangle.edges[i];
             edges.push({
@@ -384,15 +384,15 @@ for (const [triId, anchors] of anchorsByTriangle) {
             });
         }
     } else {
-        // fallback
         edges = [
             { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
             { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
             { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
         ];
     }
-   
-    allTriangles.push({
+
+    // Сохраняем якорный треугольник в мапу
+    anchorTrianglesMap.set(triId, {
         id: triId,
         p1, p2, p3,
         pB1, pB2, pB3,
@@ -401,19 +401,36 @@ for (const [triId, anchors] of anchorsByTriangle) {
     });
 }
 
-console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${allTriangles.length}`);
+console.log(`   • Создано якорных треугольников: ${anchorTrianglesMap.size}`);
 
-                // Строим все возможные структуры
-                const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
-if (this.debug) {
-    console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
-    console.log(`   • Якорей для структур: ${anchorsForValidation.length}`);
-}
+// 🔥 ОБЪЕДИНЯЕМ: берём ВСЕ треугольники графа, обогащаем якорными данными
+const enrichedTriangles = allGraphTriangles.map(t => {
+    const anchorTriangle = anchorTrianglesMap.get(t.id);
+    if (anchorTriangle) {
+        // Это якорный треугольник — добавляем соответствия
+        return {
+            ...t,
+            pB1: anchorTriangle.pB1,
+            pB2: anchorTriangle.pB2,
+            pB3: anchorTriangle.pB3,
+            confidence: anchorTriangle.confidence,
+            edges: t.edges.map((edge, idx) => ({
+                ...edge,
+                externalPoint: anchorTriangle.edges[idx]?.externalPoint || edge.externalPoint
+            }))
+        };
+    }
+    // Не якорный треугольник — нет соответствий, но есть геометрия
+    return t;
+});
 
-// Строим все возможные структуры
+console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${enrichedTriangles.length} (${anchorTrianglesMap.size} якорных, ${enrichedTriangles.length - anchorTrianglesMap.size} без якорей)`);
+console.log(`   • Якорей для структур: ${anchorsForValidation.length}`);
+
+// Строим все возможные структуры из ВСЕХ треугольников графа
 const structures = structureManager.buildStructures(
     anchorsForValidation,
-    allTriangles,  // ← это 24 треугольника-якоря
+    enrichedTriangles,  // ← теперь это 141 треугольник, обогащённый якорными данными
     exactGraph,
     existingModel.graph,
     morphologyMap,
@@ -423,38 +440,37 @@ const structures = structureManager.buildStructures(
 // ==================== ЭТАП 2: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ ====================
 if (structures.length > 0 && !this.fastMode) {
     console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
-   
+
     // Берём главную структуру (самую большую)
     const mainStructure = structures[0];
-   
-    // Получаем все треугольники графа
-    const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
+
+    // Получаем все треугольники графа (уже есть allGraphTriangles)
     console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
-   
+
     // Расширяем структуру
     let expanded = true;
     let iteration = 0;
     const maxIterations = 10;
-   
+
     while (expanded && iteration < maxIterations) {
         expanded = false;
         iteration++;
-       
+
         // Получаем граничные рёбра структуры
         const boundaryEdges = this.getBoundaryEdgesFromStructure(mainStructure);
         console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
-       
+
         for (const edge of boundaryEdges) {
             // Ищем соседний треугольник в графе
             const neighbor = this.findNeighborTriangleInGraph(edge, allGraphTriangles, mainStructure);
-           
+
             if (neighbor) {
                 // Пытаемся добавить геометрически
                 const added = this.tryAddGeometricTriangle(
                     neighbor, mainStructure, exactGraph, existingModel.graph,
                     morphologyMap, existingModel.morphologyMap
                 );
-               
+
                 if (added) {
                     expanded = true;
                     console.log(`      ✅ Добавлен треугольник при геометрическом расширении`);
@@ -462,9 +478,9 @@ if (structures.length > 0 && !this.fastMode) {
             }
         }
     }
-   
+
     console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
-}             
+}        
              
 // Сохраняем структуры в модель
 if (existingModel) {
