@@ -102,92 +102,95 @@ class WeatherService {
 }
 
     async getCurrentWeather(lat, lon) {
-        try {
-            const response = await axios.get(this.openMeteoURL, {
-                params: {
-                    latitude: lat,
-                    longitude: lon,
-                    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation',
-                    timezone: 'auto'
-                },
-                timeout: 10000
-            });
+    try {
+        const response = await axios.get(this.openMeteoURL, {
+            params: {
+                latitude: lat,
+                longitude: lon,
+                current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation',
+                timezone: 'auto'  // ← уже есть, должно работать
+            },
+            timeout: 10000
+        });
 
-            const current = response.data.current;
-            return {
-                time: new Date().toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-                temperature: Math.round(current.temperature_2m),
-                feels_like: Math.round(current.apparent_temperature),
-                condition: this.getWeatherCondition(current.weather_code),
-                wind_speed: current.wind_speed_10m.toFixed(1),
-                humidity: current.relative_humidity_2m,
-                precipitation: current.precipitation,
-                cloudiness: this.getCloudiness(current.weather_code)
-            };
-        } catch (error) {
-            console.log('⚠️ Ошибка получения текущей погоды:', error.message);
-            throw new Error('Не удалось получить текущую погоду');
-        }
+        const current = response.data.current;
+        // Время из API уже в местном часовом поясе
+        const localTime = new Date(current.time);
+       
+        return {
+            time: localTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+            temperature: Math.round(current.temperature_2m),
+            feels_like: Math.round(current.apparent_temperature),
+            condition: this.getWeatherCondition(current.weather_code),
+            wind_speed: current.wind_speed_10m.toFixed(1),
+            humidity: current.relative_humidity_2m,
+            precipitation: current.precipitation,
+            cloudiness: this.getCloudiness(current.weather_code)
+        };
+    } catch (error) {
+        console.log('⚠️ Ошибка получения текущей погоды:', error.message);
+        throw new Error('Не удалось получить текущую погоду');
     }
+}
 
     async getHourlyForecast(lat, lon) {
-        try {
-            const response = await axios.get(this.openMeteoURL, {
-                params: {
-                    latitude: lat,
-                    longitude: lon,
-                    hourly: 'temperature_2m,weather_code,precipitation',
-                    forecast_days: 2,
-                    timezone: 'auto'
-                },
-                timeout: 10000
-            });
+    try {
+        const response = await axios.get(this.openMeteoURL, {
+            params: {
+                latitude: lat,
+                longitude: lon,
+                hourly: 'temperature_2m,weather_code,precipitation',
+                forecast_days: 2,
+                timezone: 'auto'  // ← уже есть
+            },
+            timeout: 10000
+        });
 
-            const hourly = response.data.hourly;
-            const forecast = [];
-            const now = new Date();
+        const hourly = response.data.hourly;
+        const forecast = [];
+        const now = new Date(); // текущее местное время
 
-            let addedCount = 0;
+        let addedCount = 0;
+       
+        for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
+            const forecastTime = new Date(hourly.time[i]); // уже в местном времени
            
-            for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
-                const forecastTime = new Date(hourly.time[i]);
-               
-                if (forecastTime < now) {
-                    continue;
-                }
-               
-                const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
-               
-                let timeDisplay;
-                if (hoursDiff === 0) {
-                    timeDisplay = "Сейчас";
-                } else if (hoursDiff === 1) {
-                    timeDisplay = "+1 час";
-                } else if (hoursDiff >= 2 && hoursDiff <= 4) {
-                    timeDisplay = `+${hoursDiff} часа`;
-                } else {
-                    timeDisplay = `+${hoursDiff} часов`;
-                }
-               
-                const hourNum = forecastTime.getHours();
-               
-                forecast.push({
-                    time: timeDisplay,
-                    hour: hourNum,
-                    temperature: Math.round(hourly.temperature_2m[i]),
-                    condition: this.getWeatherCondition(hourly.weather_code[i]),
-                    precipitation: hourly.precipitation[i]
-                });
-               
-                addedCount++;
+            if (forecastTime < now) {
+                continue;
             }
-
-            return forecast;
-        } catch (error) {
-            console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
-            return [];
+           
+            const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
+           
+            let timeDisplay;
+            if (hoursDiff === 0) {
+                timeDisplay = "Сейчас";
+            } else if (hoursDiff === 1) {
+                timeDisplay = "+1 час";
+            } else if (hoursDiff >= 2 && hoursDiff <= 4) {
+                timeDisplay = `+${hoursDiff} часа`;
+            } else {
+                timeDisplay = `+${hoursDiff} часов`;
+            }
+           
+            const hourNum = forecastTime.getHours();
+           
+            forecast.push({
+                time: timeDisplay,
+                hour: hourNum,
+                temperature: Math.round(hourly.temperature_2m[i]),
+                condition: this.getWeatherCondition(hourly.weather_code[i]),
+                precipitation: hourly.precipitation[i]
+            });
+           
+            addedCount++;
         }
+
+        return forecast;
+    } catch (error) {
+        console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
+        return [];
     }
+}
 
     async getDailyForecast(lat, lon) {
         try {
@@ -472,7 +475,7 @@ async getHourlyPrecipitation(lat, lon, days = 7) {
                 start_date: startDate.toISOString().split('T')[0],
                 end_date: endDate.toISOString().split('T')[0],
                 hourly: 'precipitation,weather_code,temperature_2m',
-                timezone: 'auto'
+                timezone: 'auto'  // ← добавляем!
             },
             timeout: 10000
         });
@@ -481,11 +484,10 @@ async getHourlyPrecipitation(lat, lon, days = 7) {
         const result = [];
 
         for (let i = 0; i < hourly.time.length; i++) {
-            const date = new Date(hourly.time[i]);
+            const date = new Date(hourly.time[i]); // уже в местном времени
             const hour = date.getHours();
             let timeOfDay;
 
-            // Определяем время суток
             if (hour >= 6 && hour < 12) timeOfDay = 'morning';
             else if (hour >= 12 && hour < 18) timeOfDay = 'day';
             else if (hour >= 18 && hour < 22) timeOfDay = 'evening';
@@ -522,7 +524,7 @@ async getSnowData(lat, lon, days = 7) {
                 start_date: startDate.toISOString().split('T')[0],
                 end_date: endDate.toISOString().split('T')[0],
                 daily: 'snowfall_sum,snow_depth',
-                timezone: 'auto'
+                timezone: 'auto'  // ← добавляем!
             },
             timeout: 10000
         });
@@ -536,8 +538,9 @@ async getSnowData(lat, lon, days = 7) {
         const snowData = [];
 
         for (let i = 0; i < daily.time.length; i++) {
+            const date = new Date(daily.time[i]); // уже в местном времени
             snowData.push({
-                date: new Date(daily.time[i]).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
                 snowfall: daily.snowfall_sum ? (daily.snowfall_sum[i] || 0) : 0,
                 snowDepth: daily.snow_depth ? (daily.snow_depth[i] || 0) : 0
             });
