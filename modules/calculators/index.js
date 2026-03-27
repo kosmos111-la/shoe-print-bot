@@ -651,10 +651,11 @@ function initialize() {
             try {
                 const weatherGraph = new WeatherGraph();
                 const graphBuffer = await weatherGraph.generateWeatherGraph(
-                    data.history,
-                    data.forecast,
-                    data.location
-                );
+    data.history,
+    data.forecast,
+    data.location,
+    data.hourlyPrecipitation  // ← передаем почасовые осадки
+);
 
                 if (graphBuffer) {
                     // Отправляем график с краткой подписью
