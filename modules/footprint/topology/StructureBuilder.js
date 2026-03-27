@@ -136,15 +136,15 @@ class StructureBuilder {
     }
 
     tryAddTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
-        if (!triangle) return false;
+    if (!triangle) return false;
 
-        if ((triangle.confidence || 0) < this.minConfidence) {
-            this.stats.rejections.lowConfidence++;
-            if (this.debug) {
-                console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
-            }
-            return false;
+    if ((triangle.confidence || 0) < this.minConfidence) {
+        this.stats.rejections.lowConfidence++;
+        if (this.debug) {
+            console.log(`      ❌ Низкая уверенность: ${(triangle.confidence*100).toFixed(1)}% < ${this.minConfidence*100}%`);
         }
+        return false;
+    }
 
         const newPoints = [];
         [triangle.p1, triangle.p2, triangle.p3].forEach(p => {
@@ -233,30 +233,86 @@ class StructureBuilder {
         }
 
         if (badRays > maxAllowedBadRays) {
-            if (this.debug) {
-                console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
-            }
-            this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
-            const incomingEdge = this.getIncomingEdge(triangle, structure);
-            if (incomingEdge) {
-                const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
-                if (!this.rejectedCandidates.has(edgeKey)) {
-                    this.rejectedCandidates.set(edgeKey, []);
-                }
-                this.rejectedCandidates.get(edgeKey).push({
-                    triangle,
-                    reason: 'bad_rays',
-                    badRays,
-                    maxAllowedBadRays,
-                    timestamp: Date.now()
-                });
-            }
-            return false;
+        if (this.debug) {
+            console.log(`      ❌ Отвергнуто: ${badRays} неудачных лучей (допустимо ${maxAllowedBadRays})`);
         }
-
+        this.stats.rejections.rayMismatch = (this.stats.rejections.rayMismatch || 0) + 1;
+       
+        // 🔥 НОВОЕ: ДИАГНОСТИКА ОТВЕРГНУТЫХ ТРЕУГОЛЬНИКОВ
+        if (this.debug && triangle && triangle.id) {
+            const reasons = [];
+           
+            if ((triangle.confidence || 0) < this.minConfidence) {
+                reasons.push(`low_confidence:${(triangle.confidence*100).toFixed(1)}%<${this.minConfidence*100}%`);
+            }
+           
+            if (badRays > maxAllowedBadRays) {
+                reasons.push(`bad_rays:${badRays}>${maxAllowedBadRays}`);
+            }
+           
+            // Проверка transform, если структура уже имеет transform
+            if (structure && structure.transform && triangle) {
+                const testTransform = this.testTransformWithTriangle(structure, triangle, graphA, graphB);
+                if (testTransform && testTransform.rejected) {
+                    reasons.push(testTransform.reason);
+                }
+            }
+           
+            if (reasons.length > 0) {
+                console.log(`      ❌ Треугольник ${triangle.id.substring(0,12)} отвергнут: ${reasons.join(', ')}`);
+               
+                // Сохраняем в rejectedCandidates для возможного повторного рассмотрения
+                const incomingEdge = this.getIncomingEdge(triangle, structure);
+                if (incomingEdge) {
+                    const edgeKey = [incomingEdge.v1.id, incomingEdge.v2.id].sort().join('--');
+                    if (!this.rejectedCandidates.has(edgeKey)) {
+                        this.rejectedCandidates.set(edgeKey, []);
+                    }
+                    this.rejectedCandidates.get(edgeKey).push({
+                        triangle,
+                        reason: reasons.join(', '),
+                        badRays,
+                        maxAllowedBadRays,
+                        confidence: triangle.confidence,
+                        timestamp: Date.now()
+                    });
+                }
+            }
+        }
+       
         return false;
     }
 
+    
+    }
+ testTransformWithTriangle(structure, newTriangle, graphA, graphB) {
+        if (!structure.transform) return null;
+
+        const existingAnchors = structure.getAnchors ? structure.getAnchors() : [];
+        const newAnchors = this.collectAnchors(null, newTriangle);
+        const testAnchors = [...existingAnchors, ...newAnchors];
+
+        if (testAnchors.length < 3) return null;
+
+        const testTransform = this.validator.calculateTransform(testAnchors, graphA, graphB);
+        if (!testTransform) {
+            return { rejected: true, reason: 'transform_failed' };
+        }
+
+        const scaleDiff = Math.abs(testTransform.scale - structure.transform.scale) /
+                          Math.max(structure.transform.scale, 0.001);
+        const rotDiff = Math.abs(testTransform.rotation - structure.transform.rotation) * 180 / Math.PI;
+
+        if (scaleDiff > this.maxScaleDeviation) {
+            return { rejected: true, reason: `scale_mismatch:${(scaleDiff*100).toFixed(1)}%>${this.maxScaleDeviation*100}%` };
+        }
+
+        if (rotDiff > this.maxRotationDeviation) {
+            return { rejected: true, reason: `rotation_mismatch:${rotDiff.toFixed(1)}°>${this.maxRotationDeviation}°` };
+        }
+
+        return { rejected: false };
+    }
     getPointToModelMap(structure) {
         const map = new Map();
         const anchors = structure.getAnchors();
@@ -502,6 +558,7 @@ class StructureBuilder {
             }
         };
     }
+
 }
 
 module.exports = StructureBuilder;
