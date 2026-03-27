@@ -34,67 +34,72 @@ class WeatherService {
     }
 
     async getWeatherData(options = {}) {
-        try {
-            let locationName = 'Неизвестно';
-            let lat, lon;
+    try {
+        let locationName = 'Неизвестно';
+        let lat, lon;
 
-            if (options.coordinates) {
-                lat = options.coordinates.lat;
-                lon = options.coordinates.lon;
-                locationName = await this.getLocationName(lat, lon);
-            } else if (options.location) {
-                const geoData = await this.getCoordinates(options.location);
-                if (!geoData) {
-                    throw new Error('Город не найден');
-                }
-                lat = geoData.lat;
-                lon = geoData.lon;
-                locationName = options.location;
-            } else {
-                return {
-                    success: false,
-                    error: 'Не указано местоположение'
-                };
+        if (options.coordinates) {
+            lat = options.coordinates.lat;
+            lon = options.coordinates.lon;
+            locationName = await this.getLocationName(lat, lon);
+        } else if (options.location) {
+            const geoData = await this.getCoordinates(options.location);
+            if (!geoData) {
+                throw new Error('Город не найден');
             }
+            lat = geoData.lat;
+            lon = geoData.lon;
+            locationName = options.location;
+        } else {
+            return {
+                success: false,
+                error: 'Не указано местоположение'
+            };
+        }
 
-            const isSimpleMode = options.simple === true;
+        const isSimpleMode = options.simple === true;
 
-            if (isSimpleMode) {
-                const currentWeather = await this.getCurrentWeather(lat, lon);
-                return {
-                    success: true,
-                    result: {
-                        location: locationName,
-                        current: currentWeather
-                    }
-                };
-            }
-
+        if (isSimpleMode) {
             const currentWeather = await this.getCurrentWeather(lat, lon);
-            const hourlyForecast = await this.getHourlyForecast(lat, lon);
-            const dailyForecast = await this.getDailyForecast(lat, lon);
-            const weatherHistory = await this.getWeatherHistory(lat, lon, 7);
-
             return {
                 success: true,
                 result: {
                     location: locationName,
-                    current: currentWeather,
-                    hourly: hourlyForecast,
-                    forecast: dailyForecast,
-                    history: weatherHistory,
-                    searchSummary: this.generateSearchSummary(currentWeather, locationName, hourlyForecast, weatherHistory)
+                    current: currentWeather
                 }
             };
-
-        } catch (error) {
-            console.log('❌ Ошибка получения погоды:', error.message);
-            return {
-                success: false,
-                error: `Ошибка получения погоды: ${error.message}`
-            };
         }
+
+        // Получаем все данные
+        const currentWeather = await this.getCurrentWeather(lat, lon);
+        const hourlyForecast = await this.getHourlyForecast(lat, lon);
+        const dailyForecast = await this.getDailyForecast(lat, lon);
+        const weatherHistory = await this.getWeatherHistory(lat, lon, 7);
+       
+        // 🆕 ПОЛУЧАЕМ ПОЧАСОВЫЕ ОСАДКИ
+        const hourlyPrecipitation = await this.getHourlyPrecipitation(lat, lon, 7);
+
+        return {
+            success: true,
+            result: {
+                location: locationName,
+                current: currentWeather,
+                hourly: hourlyForecast,
+                forecast: dailyForecast,
+                history: weatherHistory,
+                hourlyPrecipitation: hourlyPrecipitation, // 🆕 добавляем
+                searchSummary: this.generateSearchSummary(currentWeather, locationName, hourlyForecast, weatherHistory)
+            }
+        };
+
+    } catch (error) {
+        console.log('❌ Ошибка получения погоды:', error.message);
+        return {
+            success: false,
+            error: `Ошибка получения погоды: ${error.message}`
+        };
     }
+}
 
     async getCurrentWeather(lat, lon) {
         try {
@@ -453,6 +458,56 @@ class WeatherService {
         }
         return { rain, wetSnow };
     }
+// 🌧️ ПОЛУЧЕНИЕ ПОЧАСОВЫХ ДАННЫХ ОСАДКОВ
+async getHourlyPrecipitation(lat, lon, days = 7) {
+    try {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - days);
+
+        const response = await axios.get(this.openMeteoArchiveURL, {
+            params: {
+                latitude: lat,
+                longitude: lon,
+                start_date: startDate.toISOString().split('T')[0],
+                end_date: endDate.toISOString().split('T')[0],
+                hourly: 'precipitation,weather_code,temperature_2m',
+                timezone: 'auto'
+            },
+            timeout: 10000
+        });
+
+        const hourly = response.data.hourly;
+        const result = [];
+
+        for (let i = 0; i < hourly.time.length; i++) {
+            const date = new Date(hourly.time[i]);
+            const hour = date.getHours();
+            let timeOfDay;
+
+            // Определяем время суток
+            if (hour >= 6 && hour < 12) timeOfDay = 'morning';
+            else if (hour >= 12 && hour < 18) timeOfDay = 'day';
+            else if (hour >= 18 && hour < 22) timeOfDay = 'evening';
+            else timeOfDay = 'night';
+
+            result.push({
+                date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                hour: hour,
+                timeOfDay: timeOfDay,
+                precipitation: hourly.precipitation[i] || 0,
+                temperature: hourly.temperature_2m[i],
+                weather_code: hourly.weather_code[i]
+            });
+        }
+
+        return result;
+    } catch (error) {
+        console.log('⚠️ Ошибка получения почасовых осадков:', error.message);
+        return [];
+    }
+}
+  
 }
 
 module.exports = { WeatherService };
