@@ -16,12 +16,12 @@ class WeatherGraph {
         };
     }
 
-    async generateWeatherGraph(history, forecast, location, hourlyData = null) {
-        const allDays = await this.prepareDataWithHourly(history, forecast, hourlyData);
-        if (allDays.length === 0) return null;
+    async generateWeatherGraph(history, forecast, location, hourlyPrecipitation = null, snowData = null) {
+    const allDays = await this.prepareDataWithHourly(history, forecast, hourlyPrecipitation);
+    if (allDays.length === 0) return null;
 
-        const canvas = createCanvas(1800, 1100);
-        const ctx = canvas.getContext('2d');
+    const canvas = createCanvas(1800, 1200); // увеличиваем высоту для снега
+    const ctx = canvas.getContext('2d');
 
         ctx.fillStyle = this.colors.background;
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -44,32 +44,27 @@ class WeatherGraph {
 
         const ranges = this.calculateRanges(allDays);
        
-        ctx.save();
-        ctx.translate(margins.left, margins.top);
+         ctx.save();
+    ctx.translate(margins.left, margins.top);
 
-        this.drawGrid(ctx, graphWidth, graphHeight, ranges);
-        this.drawSeparator(ctx, allDays, graphWidth, graphHeight);
-       
-        // Рисуем плавную линию температуры
-        this.drawSmoothTemperatureLine(ctx, allDays, graphWidth, graphHeight, ranges);
-       
-        // Рисуем вертикальные линии для разделения времени суток
-        this.drawTimeDividers(ctx, allDays, graphWidth, graphHeight);
-       
-        // Рисуем столбцы осадков
-        this.drawPrecipitationBars(ctx, allDays, graphWidth, graphHeight, ranges);
-       
-        // Рисуем точки температур
-        this.drawTemperaturePoints(ctx, graphWidth, graphHeight);
-       
-        this.drawLabels(ctx, allDays, graphWidth, graphHeight);
-        this.drawHeader(ctx, canvas.width, margins.top, location);
-        this.drawLegend(ctx, canvas.width, margins.top);
-       
-        ctx.restore();
+    this.drawGrid(ctx, graphWidth, graphHeight, ranges);
+    this.drawSeparator(ctx, allDays, graphWidth, graphHeight);
+    this.drawSmoothTemperatureLine(ctx, allDays, graphWidth, graphHeight, ranges);
+    this.drawTimeDividers(ctx, allDays, graphWidth, graphHeight);
+    this.drawPrecipitationBars(ctx, allDays, graphWidth, graphHeight, ranges, hourlyPrecipitation);
+   
+    // 🆕 Рисуем снежный покров
+    this.drawSnowLayer(ctx, allDays, snowData, graphWidth, graphHeight, ranges);
+   
+    this.drawTemperaturePoints(ctx, graphWidth, graphHeight);
+    this.drawLabels(ctx, allDays, graphWidth, graphHeight);
+    this.drawHeader(ctx, canvas.width, margins.top, location);
+    this.drawLegend(ctx, canvas.width, margins.top);
+   
+    ctx.restore();
 
-        return canvas.toBuffer();
-    }
+    return canvas.toBuffer();
+}
 
     async prepareDataWithHourly(history, forecast, hourlyData) {
         const allDays = [];
@@ -565,6 +560,62 @@ drawPrecipitationBars(ctx, allDays, width, height, ranges, hourlyPrecipitation) 
        
         ctx.restore();
     }
+// ❄️ ОТРИСОВКА СНЕЖНОГО ПОКРОВА
+drawSnowLayer(ctx, allDays, snowData, width, height, ranges) {
+    if (!snowData || snowData.length === 0) return;
+   
+    const totalPoints = allDays.length * 4;
+    const stepX = width / (totalPoints - 1);
+   
+    // Максимальная высота снега для масштабирования
+    const maxSnowDepth = Math.max(...snowData.map(s => s.snowDepth), 50);
+    const maxSnowHeight = height * 0.25; // занимает 25% высоты графика
+   
+    for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
+        const baseIndex = dayIndex * 4;
+        const dayDate = allDays[dayIndex].date;
+       
+        // Находим данные о снеге для этого дня
+        const snowForDay = snowData.find(s => s.date === dayDate);
+        if (!snowForDay) continue;
+       
+        const snowDepth = snowForDay.snowDepth;
+        const snowfall = snowForDay.snowfall;
+       
+        if (snowDepth > 0) {
+            // Позиция столбца в центре дня
+            const x = (baseIndex + 1.5) * stepX;
+            const barWidth = stepX * 1.2;
+            const barHeight = (snowDepth / maxSnowDepth) * maxSnowHeight;
+            const y = height - barHeight;
+           
+            // Градиент для снега (от белого к голубому)
+            const gradient = ctx.createLinearGradient(x, y, x + barWidth, y + barHeight);
+            gradient.addColorStop(0, '#e0f2fe');
+            gradient.addColorStop(1, '#7dd3fc');
+           
+            ctx.fillStyle = gradient;
+            ctx.fillRect(x - barWidth / 2, y, barWidth, barHeight);
+           
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+            ctx.strokeRect(x - barWidth / 2, y, barWidth, barHeight);
+           
+            // Подпись глубины снега
+            ctx.fillStyle = this.colors.text;
+            ctx.font = '9px "Segoe UI", Arial';
+            ctx.fillText(`${snowDepth} см`, x - barWidth / 2 + 5, y - 3);
+           
+            // Если был снегопад, добавляем иконку
+            if (snowfall > 0) {
+                ctx.fillStyle = '#ffffff';
+                ctx.font = '12px "Segoe UI", Arial';
+                ctx.fillText('❄️', x + barWidth / 2 - 10, y - 8);
+            }
+        }
+    }
+}
+  
 }
 
 module.exports = { WeatherGraph };
