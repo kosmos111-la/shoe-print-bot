@@ -75,9 +75,8 @@ class WeatherService {
         const hourlyForecast = await this.getHourlyForecast(lat, lon);
         const dailyForecast = await this.getDailyForecast(lat, lon);
         const weatherHistory = await this.getWeatherHistory(lat, lon, 7);
-       
-        // 🆕 ПОЛУЧАЕМ ПОЧАСОВЫЕ ОСАДКИ
         const hourlyPrecipitation = await this.getHourlyPrecipitation(lat, lon, 7);
+        const snowData = await this.getSnowData(lat, lon, 7);  // 🆕 данные о снеге
 
         return {
             success: true,
@@ -87,7 +86,8 @@ class WeatherService {
                 hourly: hourlyForecast,
                 forecast: dailyForecast,
                 history: weatherHistory,
-                hourlyPrecipitation: hourlyPrecipitation, // 🆕 добавляем
+                hourlyPrecipitation: hourlyPrecipitation,
+                snowData: snowData,  // 🆕 добавляем
                 searchSummary: this.generateSearchSummary(currentWeather, locationName, hourlyForecast, weatherHistory)
             }
         };
@@ -504,6 +504,43 @@ async getHourlyPrecipitation(lat, lon, days = 7) {
         return result;
     } catch (error) {
         console.log('⚠️ Ошибка получения почасовых осадков:', error.message);
+        return [];
+    }
+}
+
+// ❄️ ПОЛУЧЕНИЕ ДАННЫХ О СНЕЖНОМ ПОКРОВЕ
+async getSnowData(lat, lon, days = 7) {
+    try {
+        const endDate = new Date();
+        const startDate = new Date();
+        startDate.setDate(endDate.getDate() - days);
+
+        const response = await axios.get(this.openMeteoArchiveURL, {
+            params: {
+                latitude: lat,
+                longitude: lon,
+                start_date: startDate.toISOString().split('T')[0],
+                end_date: endDate.toISOString().split('T')[0],
+                daily: 'snowfall_sum,snow_depth',
+                timezone: 'auto'
+            },
+            timeout: 10000
+        });
+
+        const daily = response.data.daily;
+        const snowData = [];
+
+        for (let i = 0; i < daily.time.length; i++) {
+            snowData.push({
+                date: new Date(daily.time[i]).toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                snowfall: daily.snowfall_sum[i] || 0,      // выпало снега за день (мм водного эквивалента)
+                snowDepth: daily.snow_depth[i] || 0        // глубина снежного покрова (см)
+            });
+        }
+
+        return snowData;
+    } catch (error) {
+        console.log('⚠️ Ошибка получения данных о снеге:', error.message);
         return [];
     }
 }
