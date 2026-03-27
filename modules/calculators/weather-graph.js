@@ -338,72 +338,71 @@ class WeatherGraph {
     }
 
     drawPrecipitationBars(ctx, allDays, width, height, ranges, hourlyPrecipitation) {
-        const totalPoints = allDays.length * 4;
-        const stepX = width / (totalPoints - 1);
-        const maxBarHeight = height * 0.35;
+    const totalPoints = allDays.length * 4;
+    const stepX = width / (totalPoints - 1);
+    const maxBarHeight = height * 0.35;
 
-        for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
-            const baseIndex = dayIndex * 4;
-            const dayDate = allDays[dayIndex].date;
+    for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
+        const baseIndex = dayIndex * 4;
+        const dayDate = allDays[dayIndex].date;
 
-            const dayPrecipitations = { morning: 0, day: 0, evening: 0, night: 0 };
+        const dayPrecipitations = { morning: 0, day: 0, evening: 0, night: 0 };
 
-            if (hourlyPrecipitation) {
-                const dayHours = hourlyPrecipitation.filter(h => h.date === dayDate);
-                dayHours.forEach(hour => {
-                    if (hour.timeOfDay === 'morning') dayPrecipitations.morning += hour.precipitation;
-                    else if (hour.timeOfDay === 'day') dayPrecipitations.day += hour.precipitation;
-                    else if (hour.timeOfDay === 'evening') dayPrecipitations.evening += hour.precipitation;
-                    else if (hour.timeOfDay === 'night') dayPrecipitations.night += hour.precipitation;
-                });
-            } else {
-                const totalPrecip = allDays[dayIndex].precipitation;
-                dayPrecipitations.morning = totalPrecip * 0.2;
-                dayPrecipitations.day = totalPrecip * 0.4;
-                dayPrecipitations.evening = totalPrecip * 0.3;
-                dayPrecipitations.night = totalPrecip * 0.1;
-            }
-
-            const positions = [
-                { time: 'morning', x: (baseIndex + 0.5) * stepX, precip: dayPrecipitations.morning },
-                { time: 'day', x: (baseIndex + 1.5) * stepX, precip: dayPrecipitations.day },
-                { time: 'evening', x: (baseIndex + 2.5) * stepX, precip: dayPrecipitations.evening },
-                { time: 'night', x: (baseIndex + 3.5) * stepX, precip: dayPrecipitations.night }
-            ];
-
-            const barWidth = stepX * 0.5;
-
-            positions.forEach(pos => {
-                if (pos.precip > 0) {
-                    const barHeight = (pos.precip / ranges.maxPrecip) * maxBarHeight;
-                    const x = pos.x - barWidth / 2;
-                    const y = height - barHeight;
-
-                    const gradient = ctx.createLinearGradient(x, y, x + barWidth, y + barHeight);
-                    if (allDays[dayIndex].type === 'forecast') {
-                        gradient.addColorStop(0, '#c084fc');
-                        gradient.addColorStop(1, '#a855f7');
-                    } else {
-                        gradient.addColorStop(0, '#06b6d4');
-                        gradient.addColorStop(1, '#0891b2');
-                    }
-
-                    ctx.fillStyle = gradient;
-                    ctx.fillRect(x, y, barWidth, barHeight);
-
-                    ctx.strokeStyle = '#ffffff';
-                    ctx.lineWidth = 1;
-                    ctx.strokeRect(x, y, barWidth, barHeight);
-
-                    if (pos.precip > 1) {
-                        ctx.fillStyle = this.colors.text;
-                        ctx.font = '9px "Segoe UI", Arial';
-                        ctx.fillText(`${pos.precip.toFixed(1)}мм`, x + barWidth / 2 - 14, y - 5);
-                    }
-                }
+        if (hourlyPrecipitation) {
+            const dayHours = hourlyPrecipitation.filter(h => h.date === dayDate);
+            dayHours.forEach(hour => {
+                if (hour.timeOfDay === 'morning') dayPrecipitations.morning += hour.precipitation;
+                else if (hour.timeOfDay === 'day') dayPrecipitations.day += hour.precipitation;
+                else if (hour.timeOfDay === 'evening') dayPrecipitations.evening += hour.precipitation;
+                else if (hour.timeOfDay === 'night') dayPrecipitations.night += hour.precipitation;
             });
+        } else {
+            const totalPrecip = allDays[dayIndex].precipitation;
+            dayPrecipitations.morning = totalPrecip * 0.2;
+            dayPrecipitations.day = totalPrecip * 0.4;
+            dayPrecipitations.evening = totalPrecip * 0.3;
+            dayPrecipitations.night = totalPrecip * 0.1;
         }
+
+        const positions = [
+            { time: 'morning', x: (baseIndex + 0.5) * stepX, precip: dayPrecipitations.morning },
+            { time: 'day', x: (baseIndex + 1.5) * stepX, precip: dayPrecipitations.day },
+            { time: 'evening', x: (baseIndex + 2.5) * stepX, precip: dayPrecipitations.evening },
+            { time: 'night', x: (baseIndex + 3.5) * stepX, precip: dayPrecipitations.night }
+        ];
+
+        const barWidth = stepX * 0.5;
+
+        positions.forEach(pos => {
+            if (pos.precip > 0) {
+                const barHeight = (pos.precip / ranges.maxPrecip) * maxBarHeight;
+                const x = pos.x - barWidth / 2;
+                const y = height - barHeight;
+
+                const gradient = ctx.createLinearGradient(x, y, x + barWidth, y + barHeight);
+                if (allDays[dayIndex].type === 'forecast') {
+                    gradient.addColorStop(0, '#c084fc');
+                    gradient.addColorStop(1, '#a855f7');
+                } else {
+                    gradient.addColorStop(0, '#06b6d4');
+                    gradient.addColorStop(1, '#0891b2');
+                }
+
+                ctx.fillStyle = gradient;
+                ctx.fillRect(x, y, barWidth, barHeight);
+
+                ctx.strokeStyle = '#ffffff';
+                ctx.lineWidth = 1;
+                ctx.strokeRect(x, y, barWidth, barHeight);
+
+                // 🔥 УБРАНО УСЛОВИЕ: показываем подписи для всех осадков
+                ctx.fillStyle = this.colors.text;
+                ctx.font = '9px "Segoe UI", Arial';
+                ctx.fillText(`${pos.precip.toFixed(1)}мм`, x + barWidth / 2 - 14, y - 5);
+            }
+        });
     }
+}
 
     drawSnowLayer(ctx, allDays, snowData, width, height, ranges) {
         if (!snowData || snowData.length === 0) return;
