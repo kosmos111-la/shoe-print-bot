@@ -654,7 +654,8 @@ function initialize() {
     data.history,
     data.forecast,
     data.location,
-    data.hourlyPrecipitation  // ← передаем почасовые осадки
+    data.hourlyPrecipitation,
+    data.snowData  // 🆕 передаем данные о снеге
 );
 
                 if (graphBuffer) {
