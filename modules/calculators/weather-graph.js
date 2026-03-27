@@ -363,21 +363,55 @@ class WeatherGraph {
         }
     }
 
-    drawPrecipitationBars(ctx, allDays, width, height, ranges) {
-        const totalPoints = allDays.length * 4;
-        const stepX = width / (totalPoints - 1);
+drawPrecipitationBars(ctx, allDays, width, height, ranges, hourlyPrecipitation) {
+    const totalPoints = allDays.length * 4;
+    const stepX = width / (totalPoints - 1);
+    const maxBarHeight = height * 0.35;
+   
+    // Для каждого дня рисуем 4 столбца (утро, день, вечер, ночь)
+    for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
+        const baseIndex = dayIndex * 4;
+        const dayDate = allDays[dayIndex].date;
        
-        for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
-            const baseIndex = dayIndex * 4;
-            const precip = allDays[dayIndex].precipitation;
-           
-            if (precip > 0) {
-                // Столбец осадков в центре дня (между утром и вечером)
-                const barCenterX = (baseIndex + 1.5) * stepX;
-                const barWidth = stepX * 1.2;
-                const maxBarHeight = height * 0.35;
-                const barHeight = (precip / ranges.maxPrecip) * maxBarHeight;
-                const x = barCenterX - barWidth / 2;
+        // Получаем осадки по времени суток для этого дня
+        const dayPrecipitations = {
+            morning: 0,
+            day: 0,
+            evening: 0,
+            night: 0
+        };
+       
+        if (hourlyPrecipitation) {
+            const dayHours = hourlyPrecipitation.filter(h => h.date === dayDate);
+            dayHours.forEach(hour => {
+                if (hour.timeOfDay === 'morning') dayPrecipitations.morning += hour.precipitation;
+                else if (hour.timeOfDay === 'day') dayPrecipitations.day += hour.precipitation;
+                else if (hour.timeOfDay === 'evening') dayPrecipitations.evening += hour.precipitation;
+                else if (hour.timeOfDay === 'night') dayPrecipitations.night += hour.precipitation;
+            });
+        } else {
+            // Fallback: используем общие осадки за день
+            const totalPrecip = allDays[dayIndex].precipitation;
+            dayPrecipitations.morning = totalPrecip * 0.2;
+            dayPrecipitations.day = totalPrecip * 0.4;
+            dayPrecipitations.evening = totalPrecip * 0.3;
+            dayPrecipitations.night = totalPrecip * 0.1;
+        }
+       
+        // Позиции для каждого времени суток
+        const positions = [
+            { time: 'morning', x: (baseIndex + 0.5) * stepX, precip: dayPrecipitations.morning },
+            { time: 'day', x: (baseIndex + 1.5) * stepX, precip: dayPrecipitations.day },
+            { time: 'evening', x: (baseIndex + 2.5) * stepX, precip: dayPrecipitations.evening },
+            { time: 'night', x: (baseIndex + 3.5) * stepX, precip: dayPrecipitations.night }
+        ];
+       
+        const barWidth = stepX * 0.5;
+       
+        positions.forEach(pos => {
+            if (pos.precip > 0) {
+                const barHeight = (pos.precip / ranges.maxPrecip) * maxBarHeight;
+                const x = pos.x - barWidth / 2;
                 const y = height - barHeight;
                
                 const gradient = ctx.createLinearGradient(x, y, x + barWidth, y + barHeight);
@@ -396,12 +430,16 @@ class WeatherGraph {
                 ctx.lineWidth = 1;
                 ctx.strokeRect(x, y, barWidth, barHeight);
                
-                ctx.fillStyle = this.colors.text;
-                ctx.font = '10px "Segoe UI", Arial';
-                ctx.fillText(`${precip.toFixed(1)}мм`, x + barWidth / 2 - 14, y - 5);
+                // Подпись только для значительных осадков (>1мм)
+                if (pos.precip > 1) {
+                    ctx.fillStyle = this.colors.text;
+                    ctx.font = '9px "Segoe UI", Arial';
+                    ctx.fillText(`${pos.precip.toFixed(1)}мм`, x + barWidth / 2 - 14, y - 5);
+                }
             }
-        }
+        });
     }
+}
 
     drawTemperaturePoints(ctx, width, height) {
         if (!this.temperaturePoints) return;
