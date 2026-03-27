@@ -347,10 +347,10 @@ for (const anchor of anchorsForValidation) {
 
 console.log(`   • Найдено уникальных треугольников-якорей: ${anchorsByTriangle.size}`);
 
-// 🔥 СОЗДАЁМ МАПУ ЯКОРНЫХ ТРЕУГОЛЬНИКОВ ДЛЯ БЫСТРОГО ДОСТУПА
-const anchorTrianglesMap = new Map();
+// 🔥 СОЗДАЁМ МАПУ ЯКОРНЫХ ТРЕУГОЛЬНИКОВ (только те, у которых есть 3 якоря)
+const anchorTrianglesMap = new Map();      // якорные треугольники (24 шт)
+const anchorTriangleIds = new Set();       // ID якорных треугольников
 
-// Для каждого якорного треугольника собираем 3 якоря и сохраняем в мапу
 for (const [triId, anchors] of anchorsByTriangle) {
     if (anchors.length !== 3) continue;
 
@@ -391,46 +391,33 @@ for (const [triId, anchors] of anchorsByTriangle) {
         ];
     }
 
-    // Сохраняем якорный треугольник в мапу
-    anchorTrianglesMap.set(triId, {
+    // Сохраняем якорный треугольник
+    const anchorTriangle = {
         id: triId,
         p1, p2, p3,
         pB1, pB2, pB3,
         confidence: (a1.confidence + a2.confidence + a3.confidence) / 3,
         edges: edges
-    });
+    };
+   
+    anchorTrianglesMap.set(triId, anchorTriangle);
+    anchorTriangleIds.add(triId);
 }
 
 console.log(`   • Создано якорных треугольников: ${anchorTrianglesMap.size}`);
 
-// 🔥 ОБЪЕДИНЯЕМ: берём ВСЕ треугольники графа, обогащаем якорными данными
-const enrichedTriangles = allGraphTriangles.map(t => {
-    const anchorTriangle = anchorTrianglesMap.get(t.id);
-    if (anchorTriangle) {
-        // Это якорный треугольник — добавляем соответствия
-        return {
-            ...t,
-            pB1: anchorTriangle.pB1,
-            pB2: anchorTriangle.pB2,
-            pB3: anchorTriangle.pB3,
-            confidence: anchorTriangle.confidence,
-            edges: t.edges.map((edge, idx) => ({
-                ...edge,
-                externalPoint: anchorTriangle.edges[idx]?.externalPoint || edge.externalPoint
-            }))
-        };
-    }
-    // Не якорный треугольник — нет соответствий, но есть геометрия
-    return t;
-});
+// 🔥 СОЗДАЁМ МАПУ ТРЕУГОЛЬНИКОВ-КАНДИДАТОВ (все остальные, без якорей)
+// Это треугольники, которые НЕ входят в якорные, но могут быть присоединены геометрически
+const candidateTriangles = allGraphTriangles.filter(t => !anchorTriangleIds.has(t.id));
+console.log(`   • Треугольников-кандидатов для расширения: ${candidateTriangles.length}`);
 
-console.log(`\n📊 СОЗДАНО ТРЕУГОЛЬНИКОВ: ${enrichedTriangles.length} (${anchorTrianglesMap.size} якорных, ${enrichedTriangles.length - anchorTrianglesMap.size} без якорей)`);
-console.log(`   • Якорей для структур: ${anchorsForValidation.length}`);
+// 🔥 ПЕРЕДАЁМ В STRUCTUREBUILDER ТОЛЬКО ЯКОРНЫЕ ТРЕУГОЛЬНИКИ (24 шт)
+// Структура строится ТОЛЬКО из них, без мусора
+console.log(`\n📊 ПЕРЕДАЮ В STRUCTUREBUILDER: ${anchorTrianglesMap.size} якорных треугольников`);
 
-// Строим все возможные структуры из ВСЕХ треугольников графа
 const structures = structureManager.buildStructures(
     anchorsForValidation,
-    enrichedTriangles,  // ← теперь это 141 треугольник, обогащённый якорными данными
+    Array.from(anchorTrianglesMap.values()),  // ← только 24 якоря!
     exactGraph,
     existingModel.graph,
     morphologyMap,
@@ -443,11 +430,9 @@ if (structures.length > 0 && !this.fastMode) {
 
     // Берём главную структуру (самую большую)
     const mainStructure = structures[0];
+    console.log(`   • Исходная структура: ${mainStructure.triangleIds.size} треугольников`);
 
-    // Получаем все треугольники графа (уже есть allGraphTriangles)
-    console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
-
-    // Расширяем структуру
+    // Расширяем структуру, используя ТОЛЬКО треугольники-кандидаты (без якорей)
     let expanded = true;
     let iteration = 0;
     const maxIterations = 10;
@@ -461,8 +446,12 @@ if (structures.length > 0 && !this.fastMode) {
         console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
 
         for (const edge of boundaryEdges) {
-            // Ищем соседний треугольник в графе
-            const neighbor = this.findNeighborTriangleInGraph(edge, allGraphTriangles, mainStructure);
+            // Ищем соседний треугольник СРЕДИ КАНДИДАТОВ (не в структуре)
+            const neighbor = this.findNeighborTriangleInGraph(
+                edge,
+                candidateTriangles,  // ← ищем только среди кандидатов!
+                mainStructure
+            );
 
             if (neighbor) {
                 // Пытаемся добавить геометрически
@@ -473,14 +462,18 @@ if (structures.length > 0 && !this.fastMode) {
 
                 if (added) {
                     expanded = true;
-                    console.log(`      ✅ Добавлен треугольник при геометрическом расширении`);
+                    // 🔥 Удаляем добавленный треугольник из кандидатов
+                    const idx = candidateTriangles.findIndex(t => t.id === neighbor.id);
+                    if (idx !== -1) candidateTriangles.splice(idx, 1);
+                    console.log(`      ✅ Добавлен треугольник ${neighbor.id.substring(0,12)} (осталось кандидатов: ${candidateTriangles.length})`);
                 }
             }
         }
     }
 
     console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
-}        
+    console.log(`   • Осталось кандидатов: ${candidateTriangles.length}`);
+}   
              
 // Сохраняем структуры в модель
 if (existingModel) {
