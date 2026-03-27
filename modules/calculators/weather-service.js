@@ -386,50 +386,120 @@ class WeatherService {
                `👕 <b>РЕКОМЕНДАЦИИ ПО ОДЕЖДЕ:</b>\n${clothingRecommendations}`;
     }
 
-    generateClothingRecommendations(currentData, hourlyForecast, weatherHistory) {
-        const recommendations = [];
+generateClothingRecommendations(currentData, hourlyForecast, weatherHistory) {
+    const recommendations = [];
+    const month = new Date().getMonth(); // 0-11, где 0-январь
+    const isWinter = month >= 11 || month <= 2; // декабрь, январь, февраль
+    const isSummer = month >= 5 && month <= 7; // июнь, июль, август
+   
+    const last24hPrecipitation = this.getLast24hPrecipitation(weatherHistory);
+    const hasRecentRain = last24hPrecipitation > 0;
+   
+    const next8hPrecipitation = this.getNext8hPrecipitation(hourlyForecast);
+    const hasUpcomingRain = next8hPrecipitation.rain > 0;
+    const hasUpcomingWetSnow = next8hPrecipitation.wetSnow > 0;
 
-        const last24hPrecipitation = this.getLast24hPrecipitation(weatherHistory);
-        const hasRecentRain = last24hPrecipitation > 0;
-
-        const next8hPrecipitation = this.getNext8hPrecipitation(hourlyForecast);
-        const hasUpcomingRain = next8hPrecipitation.rain > 0;
-        const hasUpcomingWetSnow = next8hPrecipitation.wetSnow > 0;
-
-        if (currentData.temperature < 5) {
-            recommendations.push('• 🧥 Теплая куртка, шапка, перчатки');
-        } else if (currentData.temperature < 15) {
-            recommendations.push('• 🧥 Куртка или ветровка');
-        } else {
-            recommendations.push('• 👕 Легкая одежда');
-        }
-
-        if (hasRecentRain || currentData.humidity > 85) {
-            recommendations.push('• 🌧️ Одеваться на "мокрый лес" - влагоотталкивающая одежда');
-        }
-
-        if (hasUpcomingRain || hasUpcomingWetSnow) {
-            recommendations.push('• 🎒 Взять с собой защиту от дождя/мокрого снега');
-        }
-
-        if (currentData.wind_speed > 5) {
-            recommendations.push('• 💨 Ветрозащитная одежда');
-        }
-
-        if (hasRecentRain) {
-            recommendations.push('⚠️ В последние сутки шел дождь - лес мокрый');
-        }
-
-        if (hasUpcomingRain) {
-            recommendations.push('⚠️ В ближайшие 8 часов ожидается дождь');
-        }
-
-        if (hasUpcomingWetSnow) {
-            recommendations.push('⚠️ В ближайшие 8 часов ожидается мокрый снег');
-        }
-
-        return recommendations.join('\n');
+    // ========== БАЗОВАЯ ОДЕЖДА ПО ТЕМПЕРАТУРЕ ==========
+    if (currentData.temperature < -15) {
+        recommendations.push('🧥 ЭКСТРЕМАЛЬНЫЙ ХОЛОД:');
+        recommendations.push('• Многослойная экипировка (термобелье, флис, пуховик)');
+        recommendations.push('• Утепленная обувь, две пары носков');
+        recommendations.push('• Шапка-ушанка, балаклава, теплые перчатки');
+        recommendations.push('⚠️ Контроль обморожений каждые 30 минут');
     }
+    else if (currentData.temperature < -5) {
+        recommendations.push('🧥 СИЛЬНЫЙ МОРОЗ:');
+        recommendations.push('• Теплая куртка, шапка, перчатки');
+        recommendations.push('• Утепленная обувь');
+        recommendations.push('• Шарф или балаклава');
+    }
+    else if (currentData.temperature < 5) {
+        recommendations.push('🧥 ХОЛОДНО:');
+        recommendations.push('• Теплая куртка, шапка, перчатки');
+        recommendations.push('• Непромокаемая обувь');
+    }
+    else if (currentData.temperature < 15) {
+        recommendations.push('🧥 ПРОХЛАДНО:');
+        recommendations.push('• Куртка или ветровка');
+        recommendations.push('• Головной убор по желанию');
+    }
+    else if (currentData.temperature < 25) {
+        recommendations.push('👕 ТЕПЛО:');
+        recommendations.push('• Легкая дышащая одежда');
+        recommendations.push('• Головной убор от солнца');
+    }
+    else {
+        recommendations.push('☀️ ЖАРА:');
+        recommendations.push('• Легкая светлая одежда');
+        recommendations.push('• Обязательно головной убор');
+        recommendations.push('💧 Питьевой режим: 0.5-1 литр в час');
+        recommendations.push('⚠️ Риск теплового удара, делайте перерывы в тени');
+    }
+
+    // ========== СЕЗОННЫЕ РЕКОМЕНДАЦИИ ==========
+    if (isWinter) {
+        recommendations.push('❄️ ЗИМНИЙ СЕЗОН:');
+        recommendations.push('• Сокращение светового дня (с 16:00 темнеет)');
+        recommendations.push('• Запасные батареи для фонарей');
+        recommendations.push('• Термос с горячим чаем');
+        recommendations.push('• Следите за признаками обморожения');
+    }
+   
+    if (isSummer) {
+        recommendations.push('☀️ ЛЕТНИЙ СЕЗОН:');
+        recommendations.push('• Защита от клещей (обработка одежды, осмотры)');
+        recommendations.push('• Репелленты от комаров и мошки');
+        recommendations.push('• Солнцезащитный крем');
+        recommendations.push('• Достаточный запас воды');
+    }
+
+    // ========== ОСАДКИ И ВЛАЖНОСТЬ ==========
+    if (hasRecentRain || currentData.humidity > 85) {
+        recommendations.push('🌧️ ВЛАЖНОСТЬ:');
+        recommendations.push('• Влагоотталкивающая одежда');
+        recommendations.push('• Обувь с мембраной');
+        recommendations.push('• Защита документов и электроники');
+    }
+
+    if (hasUpcomingRain) {
+        recommendations.push('🎒 В БЛИЖАЙШИЕ ЧАСЫ ДОЖДЬ:');
+        recommendations.push('• Взять с собой дождевик');
+        recommendations.push('• Защитить технику от влаги');
+    }
+
+    if (hasUpcomingWetSnow) {
+        recommendations.push('🌨️ В БЛИЖАЙШИЕ ЧАСЫ МОКРЫЙ СНЕГ:');
+        recommendations.push('• Одежда с хорошей гидроизоляцией');
+        recommendations.push('• Смена одежды в рюкзаке');
+    }
+
+    // ========== ВЕТЕР ==========
+    if (currentData.wind_speed > 10) {
+        recommendations.push('💨 СИЛЬНЫЙ ВЕТЕР:');
+        recommendations.push('• Ветрозащитная одежда');
+        recommendations.push('• Учитывать ветер при поиске (звук, следы)');
+        recommendations.push('• Ветроустойчивая палатка при ночевке');
+    }
+    else if (currentData.wind_speed > 5) {
+        recommendations.push('💨 ВЕТРЕНО:');
+        recommendations.push('• Ветрозащитная одежда');
+    }
+
+    // ========== ДОПОЛНИТЕЛЬНЫЕ ПРЕДУПРЕЖДЕНИЯ ==========
+    if (hasRecentRain) {
+        recommendations.push('⚠️ В последние сутки был дождь:');
+        recommendations.push('• Лес мокрый, дороги скользкие');
+        recommendations.push('• Следы могут быть размыты');
+    }
+
+    if (currentData.temperature > 0 && currentData.temperature < 5 && hasUpcomingRain) {
+        recommendations.push('⚠️ ОПАСНОСТЬ ГОЛОЛЕДА:');
+        recommendations.push('• Дороги и тропы скользкие');
+        recommendations.push('• Треккинговые палки');
+    }
+
+    return recommendations.join('\n');
+}
 
     getLast24hPrecipitation(weatherHistory) {
         if (!weatherHistory || weatherHistory.length === 0) return 0;
