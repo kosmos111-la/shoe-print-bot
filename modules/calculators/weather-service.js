@@ -34,163 +34,173 @@ class WeatherService {
     }
 
     async getWeatherData(options = {}) {
-    try {
-        let locationName = 'Неизвестно';
-        let lat, lon;
+        try {
+            let locationName = 'Неизвестно';
+            let lat, lon;
 
-        if (options.coordinates) {
-            lat = options.coordinates.lat;
-            lon = options.coordinates.lon;
-            locationName = await this.getLocationName(lat, lon);
-        } else if (options.location) {
-            const geoData = await this.getCoordinates(options.location);
-            if (!geoData) {
-                throw new Error('Город не найден');
+            if (options.coordinates) {
+                lat = options.coordinates.lat;
+                lon = options.coordinates.lon;
+                locationName = await this.getLocationName(lat, lon);
+            } else if (options.location) {
+                const geoData = await this.getCoordinates(options.location);
+                if (!geoData) {
+                    throw new Error('Город не найден');
+                }
+                lat = geoData.lat;
+                lon = geoData.lon;
+                locationName = options.location;
+            } else {
+                return {
+                    success: false,
+                    error: 'Не указано местоположение'
+                };
             }
-            lat = geoData.lat;
-            lon = geoData.lon;
-            locationName = options.location;
-        } else {
-            return {
-                success: false,
-                error: 'Не указано местоположение'
-            };
-        }
 
-        const isSimpleMode = options.simple === true;
+            const isSimpleMode = options.simple === true;
 
-        if (isSimpleMode) {
+            if (isSimpleMode) {
+                const currentWeather = await this.getCurrentWeather(lat, lon);
+                return {
+                    success: true,
+                    result: {
+                        location: locationName,
+                        current: currentWeather
+                    }
+                };
+            }
+
+            // Получаем все данные
             const currentWeather = await this.getCurrentWeather(lat, lon);
+            const hourlyForecast = await this.getHourlyForecast(lat, lon);
+            const dailyForecast = await this.getDailyForecast(lat, lon);
+            const weatherHistory = await this.getWeatherHistory(lat, lon, 7);
+            const hourlyPrecipitation = await this.getHourlyPrecipitation(lat, lon, 7);
+            const snowData = await this.getSnowData(lat, lon, 7);
+            const sunTimes = await this.getSunTimes(lat, lon);
+           
+            // Формируем поисковую сводку
+            const searchSummary = this.generateSearchSummary(
+                currentWeather,
+                locationName,
+                hourlyForecast,
+                weatherHistory,
+                sunTimes
+            );
+
             return {
                 success: true,
                 result: {
                     location: locationName,
-                    current: currentWeather
+                    current: currentWeather,
+                    hourly: hourlyForecast,
+                    forecast: dailyForecast,
+                    history: weatherHistory,
+                    hourlyPrecipitation: hourlyPrecipitation,
+                    snowData: snowData,
+                    sunTimes: sunTimes,
+                    searchSummary: searchSummary
                 }
             };
+
+        } catch (error) {
+            console.log('❌ Ошибка получения погоды:', error.message);
+            return {
+                success: false,
+                error: `Ошибка получения погоды: ${error.message}`
+            };
         }
-
-        // Получаем все данные
-        const currentWeather = await this.getCurrentWeather(lat, lon);
-        const hourlyForecast = await this.getHourlyForecast(lat, lon);
-        const dailyForecast = await this.getDailyForecast(lat, lon);
-        const weatherHistory = await this.getWeatherHistory(lat, lon, 7);
-        const hourlyPrecipitation = await this.getHourlyPrecipitation(lat, lon, 7);
-        const snowData = await this.getSnowData(lat, lon, 7);  // 🆕 данные о снеге
-
-        return {
-            success: true,
-            result: {
-                location: locationName,
-                current: currentWeather,
-                hourly: hourlyForecast,
-                forecast: dailyForecast,
-                history: weatherHistory,
-                hourlyPrecipitation: hourlyPrecipitation,
-                snowData: snowData,  // 🆕 добавляем
-                searchSummary: this.generateSearchSummary(currentWeather, locationName, hourlyForecast, weatherHistory)
-            }
-        };
-
-    } catch (error) {
-        console.log('❌ Ошибка получения погоды:', error.message);
-        return {
-            success: false,
-            error: `Ошибка получения погоды: ${error.message}`
-        };
     }
-}
 
     async getCurrentWeather(lat, lon) {
-    try {
-        const response = await axios.get(this.openMeteoURL, {
-            params: {
-                latitude: lat,
-                longitude: lon,
-                current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation',
-                timezone: 'auto'  // ← уже есть, должно работать
-            },
-            timeout: 10000
-        });
+        try {
+            const response = await axios.get(this.openMeteoURL, {
+                params: {
+                    latitude: lat,
+                    longitude: lon,
+                    current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation',
+                    timezone: 'auto'
+                },
+                timeout: 10000
+            });
 
-        const current = response.data.current;
-        // Время из API уже в местном часовом поясе
-        const localTime = new Date(current.time);
-       
-        return {
-            time: localTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-            temperature: Math.round(current.temperature_2m),
-            feels_like: Math.round(current.apparent_temperature),
-            condition: this.getWeatherCondition(current.weather_code),
-            wind_speed: current.wind_speed_10m.toFixed(1),
-            humidity: current.relative_humidity_2m,
-            precipitation: current.precipitation,
-            cloudiness: this.getCloudiness(current.weather_code)
-        };
-    } catch (error) {
-        console.log('⚠️ Ошибка получения текущей погоды:', error.message);
-        throw new Error('Не удалось получить текущую погоду');
+            const current = response.data.current;
+            const localTime = new Date(current.time);
+
+            return {
+                time: localTime.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                temperature: Math.round(current.temperature_2m),
+                feels_like: Math.round(current.apparent_temperature),
+                condition: this.getWeatherCondition(current.weather_code),
+                wind_speed: current.wind_speed_10m.toFixed(1),
+                humidity: current.relative_humidity_2m,
+                precipitation: current.precipitation,
+                cloudiness: this.getCloudiness(current.weather_code)
+            };
+        } catch (error) {
+            console.log('⚠️ Ошибка получения текущей погоды:', error.message);
+            throw new Error('Не удалось получить текущую погоду');
+        }
     }
-}
 
     async getHourlyForecast(lat, lon) {
-    try {
-        const response = await axios.get(this.openMeteoURL, {
-            params: {
-                latitude: lat,
-                longitude: lon,
-                hourly: 'temperature_2m,weather_code,precipitation',
-                forecast_days: 2,
-                timezone: 'auto'  // ← уже есть
-            },
-            timeout: 10000
-        });
-
-        const hourly = response.data.hourly;
-        const forecast = [];
-        const now = new Date(); // текущее местное время
-
-        let addedCount = 0;
-       
-        for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
-            const forecastTime = new Date(hourly.time[i]); // уже в местном времени
-           
-            if (forecastTime < now) {
-                continue;
-            }
-           
-            const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
-           
-            let timeDisplay;
-            if (hoursDiff === 0) {
-                timeDisplay = "Сейчас";
-            } else if (hoursDiff === 1) {
-                timeDisplay = "+1 час";
-            } else if (hoursDiff >= 2 && hoursDiff <= 4) {
-                timeDisplay = `+${hoursDiff} часа`;
-            } else {
-                timeDisplay = `+${hoursDiff} часов`;
-            }
-           
-            const hourNum = forecastTime.getHours();
-           
-            forecast.push({
-                time: timeDisplay,
-                hour: hourNum,
-                temperature: Math.round(hourly.temperature_2m[i]),
-                condition: this.getWeatherCondition(hourly.weather_code[i]),
-                precipitation: hourly.precipitation[i]
+        try {
+            const response = await axios.get(this.openMeteoURL, {
+                params: {
+                    latitude: lat,
+                    longitude: lon,
+                    hourly: 'temperature_2m,weather_code,precipitation',
+                    forecast_days: 2,
+                    timezone: 'auto'
+                },
+                timeout: 10000
             });
-           
-            addedCount++;
-        }
 
-        return forecast;
-    } catch (error) {
-        console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
-        return [];
+            const hourly = response.data.hourly;
+            const forecast = [];
+            const now = new Date();
+
+            let addedCount = 0;
+
+            for (let i = 0; i < hourly.time.length && addedCount < 6; i++) {
+                const forecastTime = new Date(hourly.time[i]);
+
+                if (forecastTime < now) {
+                    continue;
+                }
+
+                const hoursDiff = Math.round((forecastTime - now) / (1000 * 60 * 60));
+
+                let timeDisplay;
+                if (hoursDiff === 0) {
+                    timeDisplay = "Сейчас";
+                } else if (hoursDiff === 1) {
+                    timeDisplay = "+1 час";
+                } else if (hoursDiff >= 2 && hoursDiff <= 4) {
+                    timeDisplay = `+${hoursDiff} часа`;
+                } else {
+                    timeDisplay = `+${hoursDiff} часов`;
+                }
+
+                const hourNum = forecastTime.getHours();
+
+                forecast.push({
+                    time: timeDisplay,
+                    hour: hourNum,
+                    temperature: Math.round(hourly.temperature_2m[i]),
+                    condition: this.getWeatherCondition(hourly.weather_code[i]),
+                    precipitation: hourly.precipitation[i]
+                });
+
+                addedCount++;
+            }
+
+            return forecast;
+        } catch (error) {
+            console.log('⚠️ Ошибка получения почасового прогноза:', error.message);
+            return [];
+        }
     }
-}
 
     async getDailyForecast(lat, lon) {
         try {
@@ -264,7 +274,6 @@ class WeatherService {
         }
     }
 
-    // 🔧 ИСПРАВЛЕННЫЙ МЕТОД ГЕОКОДИНГА
     async getCoordinates(locationName) {
         try {
             const response = await axios.get(this.geocodingAPI, {
@@ -294,7 +303,6 @@ class WeatherService {
         }
     }
 
-    // 🔧 ИСПРАВЛЕННЫЙ МЕТОД ПОЛУЧЕНИЯ НАЗВАНИЯ
     async getLocationName(lat, lon) {
         try {
             const response = await axios.get(this.geocodingAPI, {
@@ -366,7 +374,7 @@ class WeatherService {
         return 50;
     }
 
-    generateSearchSummary(currentData, location, hourlyForecast, weatherHistory) {
+    generateSearchSummary(currentData, location, hourlyForecast, weatherHistory, sunTimes = null) {
         const temp = currentData.temperature;
         let conditions = '';
 
@@ -381,125 +389,152 @@ class WeatherService {
         }
 
         const clothingRecommendations = this.generateClothingRecommendations(currentData, hourlyForecast, weatherHistory);
+       
+        // Добавляем информацию о световом дне
+        let daylightInfo = '';
+        if (sunTimes) {
+            const daylight = this.calculateEffectiveDaylight(sunTimes, currentData.cloudiness);
+            if (daylight) {
+                daylightInfo = `\n\n🌅 <b>СВЕТОВОЙ ДЕНЬ:</b>\n`;
+                daylightInfo += `• Восход: ${sunTimes.sunriseStr}\n`;
+                daylightInfo += `• Закат: ${sunTimes.sunsetStr}\n`;
+                daylightInfo += `• Длительность: ${daylight.baseDayLength.toFixed(1)} ч\n`;
+               
+                if (currentData.cloudiness > 50) {
+                    daylightInfo += `☁️ Облачность ${currentData.cloudiness}% — темнеет раньше\n`;
+                    daylightInfo += `• Эффективный закат: ~${daylight.effectiveSunset.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })}\n`;
+                }
+               
+                if (daylight.hoursUntilSunset < 2 && daylight.hoursUntilSunset > 0) {
+                    daylightInfo += `⚠️ <b>До заката менее ${Math.round(daylight.hoursUntilSunset)} часов!</b>\n`;
+                    daylightInfo += `• Планируйте возвращение или подготовьте фонари\n`;
+                } else if (daylight.isDark) {
+                    daylightInfo += `🌙 <b>УЖЕ ТЕМНО</b>\n`;
+                    daylightInfo += `• Используйте фонари, работайте в группе\n`;
+                    daylightInfo += `• Будьте внимательны при передвижении\n`;
+                }
+            }
+        }
 
         return `🔍 <b>УСЛОВИЯ ДЛЯ ПОИСКА В ${location.toUpperCase()}:</b>\n${conditions}\n\n` +
-               `👕 <b>РЕКОМЕНДАЦИИ ПО ОДЕЖДЕ:</b>\n${clothingRecommendations}`;
+               `👕 <b>РЕКОМЕНДАЦИИ ПО ОДЕЖДЕ:</b>\n${clothingRecommendations}` +
+               daylightInfo;
     }
 
-generateClothingRecommendations(currentData, hourlyForecast, weatherHistory) {
-    const recommendations = [];
-    const month = new Date().getMonth(); // 0-11, где 0-январь
-    const isWinter = month >= 11 || month <= 2; // декабрь, январь, февраль
-    const isSummer = month >= 5 && month <= 7; // июнь, июль, август
-   
-    const last24hPrecipitation = this.getLast24hPrecipitation(weatherHistory);
-    const hasRecentRain = last24hPrecipitation > 0;
-   
-    const next8hPrecipitation = this.getNext8hPrecipitation(hourlyForecast);
-    const hasUpcomingRain = next8hPrecipitation.rain > 0;
-    const hasUpcomingWetSnow = next8hPrecipitation.wetSnow > 0;
+    generateClothingRecommendations(currentData, hourlyForecast, weatherHistory) {
+        const recommendations = [];
+        const month = new Date().getMonth();
+        const isWinter = month >= 11 || month <= 2;
+        const isSummer = month >= 5 && month <= 7;
 
-    // ========== БАЗОВАЯ ОДЕЖДА ПО ТЕМПЕРАТУРЕ ==========
-    if (currentData.temperature < -15) {
-        recommendations.push('🧥 ЭКСТРЕМАЛЬНЫЙ ХОЛОД:');
-        recommendations.push('• Многослойная экипировка (термобелье, флис, пуховик)');
-        recommendations.push('• Утепленная обувь, две пары носков');
-        recommendations.push('• Шапка-ушанка, балаклава, теплые перчатки');
-        recommendations.push('⚠️ Контроль обморожений каждые 30 минут');
-    }
-    else if (currentData.temperature < -5) {
-        recommendations.push('🧥 СИЛЬНЫЙ МОРОЗ:');
-        recommendations.push('• Теплая куртка, шапка, перчатки');
-        recommendations.push('• Утепленная обувь');
-        recommendations.push('• Шарф или балаклава');
-    }
-    else if (currentData.temperature < 5) {
-        recommendations.push('🧥 ХОЛОДНО:');
-        recommendations.push('• Теплая куртка, шапка, перчатки');
-        recommendations.push('• Непромокаемая обувь');
-    }
-    else if (currentData.temperature < 15) {
-        recommendations.push('🧥 ПРОХЛАДНО:');
-        recommendations.push('• Куртка или ветровка');
-        recommendations.push('• Головной убор по желанию');
-    }
-    else if (currentData.temperature < 25) {
-        recommendations.push('👕 ТЕПЛО:');
-        recommendations.push('• Легкая дышащая одежда');
-        recommendations.push('• Головной убор от солнца');
-    }
-    else {
-        recommendations.push('☀️ ЖАРА:');
-        recommendations.push('• Легкая светлая одежда');
-        recommendations.push('• Обязательно головной убор');
-        recommendations.push('💧 Питьевой режим: 0.5-1 литр в час');
-        recommendations.push('⚠️ Риск теплового удара, делайте перерывы в тени');
-    }
+        const last24hPrecipitation = this.getLast24hPrecipitation(weatherHistory);
+        const hasRecentRain = last24hPrecipitation > 0;
 
-    // ========== СЕЗОННЫЕ РЕКОМЕНДАЦИИ ==========
-    if (isWinter) {
-        recommendations.push('❄️ ЗИМНИЙ СЕЗОН:');
-        recommendations.push('• Сокращение светового дня (с 16:00 темнеет)');
-        recommendations.push('• Запасные батареи для фонарей');
-        recommendations.push('• Термос с горячим чаем');
-        recommendations.push('• Следите за признаками обморожения');
-    }
-   
-    if (isSummer) {
-        recommendations.push('☀️ ЛЕТНИЙ СЕЗОН:');
-        recommendations.push('• Защита от клещей (обработка одежды, осмотры)');
-        recommendations.push('• Репелленты от комаров и мошки');
-        recommendations.push('• Солнцезащитный крем');
-        recommendations.push('• Достаточный запас воды');
-    }
+        const next8hPrecipitation = this.getNext8hPrecipitation(hourlyForecast);
+        const hasUpcomingRain = next8hPrecipitation.rain > 0;
+        const hasUpcomingWetSnow = next8hPrecipitation.wetSnow > 0;
 
-    // ========== ОСАДКИ И ВЛАЖНОСТЬ ==========
-    if (hasRecentRain || currentData.humidity > 85) {
-        recommendations.push('🌧️ ВЛАЖНОСТЬ:');
-        recommendations.push('• Влагоотталкивающая одежда');
-        recommendations.push('• Обувь с мембраной');
-        recommendations.push('• Защита документов и электроники');
-    }
+        // ========== БАЗОВАЯ ОДЕЖДА ПО ТЕМПЕРАТУРЕ ==========
+        if (currentData.temperature < -15) {
+            recommendations.push('🧥 ЭКСТРЕМАЛЬНЫЙ ХОЛОД:');
+            recommendations.push('• Многослойная экипировка (термобелье, флис, пуховик)');
+            recommendations.push('• Утепленная обувь, две пары носков');
+            recommendations.push('• Шапка-ушанка, балаклава, теплые перчатки');
+            recommendations.push('⚠️ Контроль обморожений каждые 30 минут');
+        }
+        else if (currentData.temperature < -5) {
+            recommendations.push('🧥 СИЛЬНЫЙ МОРОЗ:');
+            recommendations.push('• Теплая куртка, шапка, перчатки');
+            recommendations.push('• Утепленная обувь');
+            recommendations.push('• Шарф или балаклава');
+        }
+        else if (currentData.temperature < 5) {
+            recommendations.push('🧥 ХОЛОДНО:');
+            recommendations.push('• Теплая куртка, шапка, перчатки');
+            recommendations.push('• Непромокаемая обувь');
+        }
+        else if (currentData.temperature < 15) {
+            recommendations.push('🧥 ПРОХЛАДНО:');
+            recommendations.push('• Куртка или ветровка');
+            recommendations.push('• Головной убор по желанию');
+        }
+        else if (currentData.temperature < 25) {
+            recommendations.push('👕 ТЕПЛО:');
+            recommendations.push('• Легкая дышащая одежда');
+            recommendations.push('• Головной убор от солнца');
+        }
+        else {
+            recommendations.push('☀️ ЖАРА:');
+            recommendations.push('• Легкая светлая одежда');
+            recommendations.push('• Обязательно головной убор');
+            recommendations.push('💧 Питьевой режим: 0.5-1 литр в час');
+            recommendations.push('⚠️ Риск теплового удара, делайте перерывы в тени');
+        }
 
-    if (hasUpcomingRain) {
-        recommendations.push('🎒 В БЛИЖАЙШИЕ ЧАСЫ ДОЖДЬ:');
-        recommendations.push('• Взять с собой дождевик');
-        recommendations.push('• Защитить технику от влаги');
-    }
+        // ========== СЕЗОННЫЕ РЕКОМЕНДАЦИИ ==========
+        if (isWinter) {
+            recommendations.push('❄️ ЗИМНИЙ СЕЗОН:');
+            recommendations.push('• Сокращение светового дня (с 16:00 темнеет)');
+            recommendations.push('• Запасные батареи для фонарей');
+            recommendations.push('• Термос с горячим чаем');
+            recommendations.push('• Следите за признаками обморожения');
+        }
 
-    if (hasUpcomingWetSnow) {
-        recommendations.push('🌨️ В БЛИЖАЙШИЕ ЧАСЫ МОКРЫЙ СНЕГ:');
-        recommendations.push('• Одежда с хорошей гидроизоляцией');
-        recommendations.push('• Смена одежды в рюкзаке');
-    }
+        if (isSummer) {
+            recommendations.push('☀️ ЛЕТНИЙ СЕЗОН:');
+            recommendations.push('• Защита от клещей (обработка одежды, осмотры)');
+            recommendations.push('• Репелленты от комаров и мошки');
+            recommendations.push('• Солнцезащитный крем');
+            recommendations.push('• Достаточный запас воды');
+        }
 
-    // ========== ВЕТЕР ==========
-    if (currentData.wind_speed > 10) {
-        recommendations.push('💨 СИЛЬНЫЙ ВЕТЕР:');
-        recommendations.push('• Ветрозащитная одежда');
-        recommendations.push('• Учитывать ветер при поиске (звук, следы)');
-        recommendations.push('• Ветроустойчивая палатка при ночевке');
-    }
-    else if (currentData.wind_speed > 5) {
-        recommendations.push('💨 ВЕТРЕНО:');
-        recommendations.push('• Ветрозащитная одежда');
-    }
+        // ========== ОСАДКИ И ВЛАЖНОСТЬ ==========
+        if (hasRecentRain || currentData.humidity > 85) {
+            recommendations.push('🌧️ ВЛАЖНОСТЬ:');
+            recommendations.push('• Влагоотталкивающая одежда');
+            recommendations.push('• Обувь с мембраной');
+            recommendations.push('• Защита документов и электроники');
+        }
 
-    // ========== ДОПОЛНИТЕЛЬНЫЕ ПРЕДУПРЕЖДЕНИЯ ==========
-    if (hasRecentRain) {
-        recommendations.push('⚠️ В последние сутки был дождь:');
-        recommendations.push('• Лес мокрый, дороги скользкие');
-        recommendations.push('• Следы могут быть размыты');
-    }
+        if (hasUpcomingRain) {
+            recommendations.push('🎒 В БЛИЖАЙШИЕ ЧАСЫ ДОЖДЬ:');
+            recommendations.push('• Взять с собой дождевик');
+            recommendations.push('• Защитить технику от влаги');
+        }
 
-    if (currentData.temperature > 0 && currentData.temperature < 5 && hasUpcomingRain) {
-        recommendations.push('⚠️ ОПАСНОСТЬ ГОЛОЛЕДА:');
-        recommendations.push('• Дороги и тропы скользкие');
-        recommendations.push('• Треккинговые палки');
-    }
+        if (hasUpcomingWetSnow) {
+            recommendations.push('🌨️ В БЛИЖАЙШИЕ ЧАСЫ МОКРЫЙ СНЕГ:');
+            recommendations.push('• Одежда с хорошей гидроизоляцией');
+            recommendations.push('• Смена одежды в рюкзаке');
+        }
 
-    return recommendations.join('\n');
-}
+        // ========== ВЕТЕР ==========
+        if (currentData.wind_speed > 10) {
+            recommendations.push('💨 СИЛЬНЫЙ ВЕТЕР:');
+            recommendations.push('• Ветрозащитная одежда');
+            recommendations.push('• Учитывать ветер при поиске (звук, следы)');
+            recommendations.push('• Ветроустойчивая палатка при ночевке');
+        }
+        else if (currentData.wind_speed > 5) {
+            recommendations.push('💨 ВЕТРЕНО:');
+            recommendations.push('• Ветрозащитная одежда');
+        }
+
+        // ========== ДОПОЛНИТЕЛЬНЫЕ ПРЕДУПРЕЖДЕНИЯ ==========
+        if (hasRecentRain) {
+            recommendations.push('⚠️ В последние сутки был дождь:');
+            recommendations.push('• Лес мокрый, дороги скользкие');
+            recommendations.push('• Следы могут быть размыты');
+        }
+
+        if (currentData.temperature > 0 && currentData.temperature < 5 && hasUpcomingRain) {
+            recommendations.push('⚠️ ОПАСНОСТЬ ГОЛОЛЕДА:');
+            recommendations.push('• Дороги и тропы скользкие');
+            recommendations.push('• Треккинговые палки');
+        }
+
+        return recommendations.join('\n');
+    }
 
     getLast24hPrecipitation(weatherHistory) {
         if (!weatherHistory || weatherHistory.length === 0) return 0;
@@ -531,98 +566,166 @@ generateClothingRecommendations(currentData, hourlyForecast, weatherHistory) {
         }
         return { rain, wetSnow };
     }
-// 🌧️ ПОЛУЧЕНИЕ ПОЧАСОВЫХ ДАННЫХ ОСАДКОВ
-async getHourlyPrecipitation(lat, lon, days = 7) {
-    try {
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(endDate.getDate() - days);
 
-        const response = await axios.get(this.openMeteoArchiveURL, {
-            params: {
-                latitude: lat,
-                longitude: lon,
-                start_date: startDate.toISOString().split('T')[0],
-                end_date: endDate.toISOString().split('T')[0],
-                hourly: 'precipitation,weather_code,temperature_2m',
-                timezone: 'auto'  // ← добавляем!
-            },
-            timeout: 10000
-        });
+    async getHourlyPrecipitation(lat, lon, days = 7) {
+        try {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(endDate.getDate() - days);
 
-        const hourly = response.data.hourly;
-        const result = [];
-
-        for (let i = 0; i < hourly.time.length; i++) {
-            const date = new Date(hourly.time[i]); // уже в местном времени
-            const hour = date.getHours();
-            let timeOfDay;
-
-            if (hour >= 6 && hour < 12) timeOfDay = 'morning';
-            else if (hour >= 12 && hour < 18) timeOfDay = 'day';
-            else if (hour >= 18 && hour < 22) timeOfDay = 'evening';
-            else timeOfDay = 'night';
-
-            result.push({
-                date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
-                hour: hour,
-                timeOfDay: timeOfDay,
-                precipitation: hourly.precipitation[i] || 0,
-                temperature: hourly.temperature_2m[i],
-                weather_code: hourly.weather_code[i]
+            const response = await axios.get(this.openMeteoArchiveURL, {
+                params: {
+                    latitude: lat,
+                    longitude: lon,
+                    start_date: startDate.toISOString().split('T')[0],
+                    end_date: endDate.toISOString().split('T')[0],
+                    hourly: 'precipitation,weather_code,temperature_2m',
+                    timezone: 'auto'
+                },
+                timeout: 10000
             });
-        }
 
-        return result;
-    } catch (error) {
-        console.log('⚠️ Ошибка получения почасовых осадков:', error.message);
-        return [];
-    }
-}
+            const hourly = response.data.hourly;
+            const result = [];
 
-// ❄️ ПОЛУЧЕНИЕ ДАННЫХ О СНЕЖНОМ ПОКРОВЕ
-async getSnowData(lat, lon, days = 7) {
-    try {
-        const endDate = new Date();
-        const startDate = new Date();
-        startDate.setDate(endDate.getDate() - days);
+            for (let i = 0; i < hourly.time.length; i++) {
+                const date = new Date(hourly.time[i]);
+                const hour = date.getHours();
+                let timeOfDay;
 
-        const response = await axios.get(this.openMeteoArchiveURL, {
-            params: {
-                latitude: lat,
-                longitude: lon,
-                start_date: startDate.toISOString().split('T')[0],
-                end_date: endDate.toISOString().split('T')[0],
-                daily: 'snowfall_sum,snow_depth',
-                timezone: 'auto'  // ← добавляем!
-            },
-            timeout: 10000
-        });
+                if (hour >= 6 && hour < 12) timeOfDay = 'morning';
+                else if (hour >= 12 && hour < 18) timeOfDay = 'day';
+                else if (hour >= 18 && hour < 22) timeOfDay = 'evening';
+                else timeOfDay = 'night';
 
-        const daily = response.data.daily;
-       
-        if (!daily || !daily.time || daily.time.length === 0) {
+                result.push({
+                    date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                    hour: hour,
+                    timeOfDay: timeOfDay,
+                    precipitation: hourly.precipitation[i] || 0,
+                    temperature: hourly.temperature_2m[i],
+                    weather_code: hourly.weather_code[i]
+                });
+            }
+
+            return result;
+        } catch (error) {
+            console.log('⚠️ Ошибка получения почасовых осадков:', error.message);
             return [];
         }
+    }
 
-        const snowData = [];
+    async getSnowData(lat, lon, days = 7) {
+        try {
+            const endDate = new Date();
+            const startDate = new Date();
+            startDate.setDate(endDate.getDate() - days);
 
-        for (let i = 0; i < daily.time.length; i++) {
-            const date = new Date(daily.time[i]); // уже в местном времени
-            snowData.push({
-                date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
-                snowfall: daily.snowfall_sum ? (daily.snowfall_sum[i] || 0) : 0,
-                snowDepth: daily.snow_depth ? (daily.snow_depth[i] || 0) : 0
+            const response = await axios.get(this.openMeteoArchiveURL, {
+                params: {
+                    latitude: lat,
+                    longitude: lon,
+                    start_date: startDate.toISOString().split('T')[0],
+                    end_date: endDate.toISOString().split('T')[0],
+                    daily: 'snowfall_sum,snow_depth',
+                    timezone: 'auto'
+                },
+                timeout: 10000
             });
+
+            const daily = response.data.daily;
+
+            if (!daily || !daily.time || daily.time.length === 0) {
+                return [];
+            }
+
+            const snowData = [];
+
+            for (let i = 0; i < daily.time.length; i++) {
+                const date = new Date(daily.time[i]);
+                snowData.push({
+                    date: date.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                    snowfall: daily.snowfall_sum ? (daily.snowfall_sum[i] || 0) : 0,
+                    snowDepth: daily.snow_depth ? (daily.snow_depth[i] || 0) : 0
+                });
+            }
+
+            return snowData;
+        } catch (error) {
+            console.log('⚠️ Ошибка получения данных о снеге:', error.message);
+            return [];
+        }
+    }
+
+    async getSunTimes(lat, lon) {
+        try {
+            const response = await axios.get(this.openMeteoURL, {
+                params: {
+                    latitude: lat,
+                    longitude: lon,
+                    daily: 'sunrise,sunset',
+                    timezone: 'auto',
+                    forecast_days: 1
+                },
+                timeout: 10000
+            });
+
+            const daily = response.data.daily;
+
+            if (!daily || !daily.sunrise || !daily.sunset) {
+                return null;
+            }
+
+            const sunrise = new Date(daily.sunrise[0]);
+            const sunset = new Date(daily.sunset[0]);
+
+            return {
+                sunrise: sunrise,
+                sunset: sunset,
+                sunriseStr: sunrise.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                sunsetStr: sunset.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                dayLength: Math.round((sunset - sunrise) / 1000 / 60 / 60 * 10) / 10
+            };
+        } catch (error) {
+            console.log('⚠️ Ошибка получения времени восхода/заката:', error.message);
+            return null;
+        }
+    }
+
+    calculateEffectiveDaylight(sunTimes, cloudiness, currentTime = new Date()) {
+        if (!sunTimes) return null;
+
+        const sunrise = sunTimes.sunrise;
+        const sunset = sunTimes.sunset;
+
+        const baseDayLength = (sunset - sunrise) / 1000 / 60 / 60;
+
+        let cloudFactor = 1;
+        if (cloudiness > 80) {
+            cloudFactor = 0.7;
+        } else if (cloudiness > 50) {
+            cloudFactor = 0.85;
+        } else if (cloudiness > 20) {
+            cloudFactor = 0.95;
         }
 
-        return snowData;
-    } catch (error) {
-        console.log('⚠️ Ошибка получения данных о снеге:', error.message);
-        return [];
+        const effectiveSunset = new Date(sunset.getTime() - (sunset.getTime() - sunrise.getTime()) * (1 - cloudFactor));
+        const effectiveDayLength = (effectiveSunset - sunrise) / 1000 / 60 / 60;
+
+        const msUntilSunset = effectiveSunset - currentTime;
+        const hoursUntilSunset = Math.max(0, msUntilSunset / 1000 / 60 / 60);
+
+        return {
+            sunrise: sunrise,
+            sunset: sunset,
+            effectiveSunset: effectiveSunset,
+            baseDayLength: baseDayLength,
+            effectiveDayLength: effectiveDayLength,
+            hoursUntilSunset: hoursUntilSunset,
+            cloudFactor: cloudFactor,
+            isDark: currentTime >= effectiveSunset
+        };
     }
-}
-  
 }
 
 module.exports = { WeatherService };
