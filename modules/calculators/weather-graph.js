@@ -510,56 +510,7 @@ drawPrecipitationBars(ctx, allDays, width, height, ranges, hourlyPrecipitation) 
         ctx.restore();
     }
 
-    drawLegend(ctx, width, topMargin) {
-        ctx.save();
-       
-        const startX = width - 320;
-        const startY = topMargin - 40;
-       
-        ctx.font = 'bold 12px "Segoe UI", Arial';
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('📖 ЛЕГЕНДА:', startX, startY);
-       
-        // Температура
-        ctx.fillStyle = this.colors.temperature;
-        ctx.beginPath();
-        ctx.arc(startX + 12, startY + 20, 6, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.fillStyle = this.colors.text;
-        ctx.font = '11px "Segoe UI", Arial';
-        ctx.fillText('Температура (плавная линия)', startX + 28, startY + 24);
-       
-        // Вертикальные линии
-        ctx.beginPath();
-        ctx.strokeStyle = this.colors.timeDivider;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.moveTo(startX + 12, startY + 44);
-        ctx.lineTo(startX + 24, startY + 44);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('Разделение времени суток', startX + 32, startY + 48);
-       
-        // Осадки
-        ctx.fillStyle = this.colors.precipitation;
-        ctx.fillRect(startX + 12, startY + 66, 12, 12);
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('Осадки (история)', startX + 32, startY + 78);
-       
-        ctx.fillStyle = this.colors.forecastPrecip;
-        ctx.fillRect(startX + 12, startY + 94, 12, 12);
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('Осадки (прогноз)', startX + 32, startY + 106);
-       
-        ctx.fillStyle = this.colors.textMuted;
-        ctx.font = '10px "Segoe UI", Arial';
-        ctx.fillText('⏰ 4 равномерные точки в сутки:', startX, startY + 130);
-        ctx.fillText('   Утро → День → Вечер → Ночь', startX + 10, startY + 148);
-        ctx.fillText('📈 Плавная линия температуры', startX, startY + 168);
-       
-        ctx.restore();
-    }
+    drawLegend
 // ❄️ ОТРИСОВКА СНЕЖНОГО ПОКРОВА
 drawSnowLayer(ctx, allDays, snowData, width, height, ranges) {
     if (!snowData || snowData.length === 0) return;
