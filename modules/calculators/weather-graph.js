@@ -492,23 +492,85 @@ drawPrecipitationBars(ctx, allDays, width, height, ranges, hourlyPrecipitation) 
     }
 
     drawHeader(ctx, width, topMargin, location) {
-        ctx.save();
-       
-        ctx.font = 'bold 28px "Segoe UI", Arial';
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText(`🌤️ Погода: ${location.toUpperCase()}`, 40, topMargin - 40);
-       
-        ctx.font = '14px "Segoe UI", Arial';
-        ctx.fillStyle = this.colors.textMuted;
-        const today = new Date().toLocaleDateString('ru-RU', {
-            day: 'numeric',
-            month: 'long',
-            year: 'numeric'
-        });
-        ctx.fillText(`Актуально на ${today} | История 7 дней + прогноз 2 дня | 4 точки в сутки`, 40, topMargin - 15);
-       
-        ctx.restore();
-    }
+    ctx.save();
+
+    ctx.font = 'bold 28px "Segoe UI", Arial';
+    ctx.fillStyle = this.colors.text;
+    ctx.fillText(`🌤️ Погода: ${location.toUpperCase()}`, 40, topMargin - 40);
+
+    ctx.font = '14px "Segoe UI", Arial';
+    ctx.fillStyle = this.colors.textMuted;
+    const today = new Date().toLocaleDateString('ru-RU', {
+        day: 'numeric',
+        month: 'long',
+        year: 'numeric'
+    });
+    ctx.fillText(`Актуально на ${today} | История 7 дней + прогноз 2 дня | 4 точки в сутки`, 40, topMargin - 15);
+
+    ctx.restore();
+}
+
+// 👇 ВСТАВЬТЕ ЭТОТ МЕТОД СЮДА, ПОСЛЕ drawHeader
+drawLegend(ctx, width, topMargin) {
+    ctx.save();
+   
+    const startX = width - 320;
+    const startY = topMargin - 40;
+   
+    ctx.font = 'bold 12px "Segoe UI", Arial';
+    ctx.fillStyle = this.colors.text;
+    ctx.fillText('📖 ЛЕГЕНДА:', startX, startY);
+   
+    // Температура
+    ctx.fillStyle = this.colors.temperature;
+    ctx.beginPath();
+    ctx.arc(startX + 12, startY + 20, 6, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = this.colors.text;
+    ctx.font = '11px "Segoe UI", Arial';
+    ctx.fillText('Температура (плавная линия)', startX + 28, startY + 24);
+   
+    // Вертикальные линии
+    ctx.beginPath();
+    ctx.strokeStyle = this.colors.timeDivider;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]);
+    ctx.moveTo(startX + 12, startY + 44);
+    ctx.lineTo(startX + 24, startY + 44);
+    ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.fillStyle = this.colors.text;
+    ctx.fillText('Разделение времени суток', startX + 32, startY + 48);
+   
+    // Осадки (дождь)
+    ctx.fillStyle = this.colors.precipitation;
+    ctx.fillRect(startX + 12, startY + 66, 12, 12);
+    ctx.fillStyle = this.colors.text;
+    ctx.fillText('Осадки (дождь, мм)', startX + 32, startY + 78);
+   
+    // Осадки (прогноз)
+    ctx.fillStyle = this.colors.forecastPrecip;
+    ctx.fillRect(startX + 12, startY + 94, 12, 12);
+    ctx.fillStyle = this.colors.text;
+    ctx.fillText('Осадки (прогноз)', startX + 32, startY + 106);
+   
+    // Снег
+    const gradient = ctx.createLinearGradient(startX + 12, startY + 122, startX + 24, startY + 134);
+    gradient.addColorStop(0, '#e0f2fe');
+    gradient.addColorStop(1, '#7dd3fc');
+    ctx.fillStyle = gradient;
+    ctx.fillRect(startX + 12, startY + 122, 12, 12);
+    ctx.fillStyle = this.colors.text;
+    ctx.fillText('❄️ Снежный покров (см)', startX + 32, startY + 134);
+   
+    ctx.fillStyle = this.colors.textMuted;
+    ctx.font = '10px "Segoe UI", Arial';
+    ctx.fillText('⏰ 4 точки в сутки: Утро → День → Вечер → Ночь', startX, startY + 160);
+    ctx.fillText('📈 Плавная линия температуры', startX, startY + 178);
+    ctx.fillText('❄️ Голубые столбцы - высота снега', startX, startY + 196);
+   
+    ctx.restore();
+}
 
     drawLegend
 // ❄️ ОТРИСОВКА СНЕЖНОГО ПОКРОВА
