@@ -474,7 +474,7 @@ class WeatherService {
         // ========== СЕЗОННЫЕ РЕКОМЕНДАЦИИ ==========
         if (isWinter) {
             recommendations.push('❄️ ЗИМНИЙ СЕЗОН:');
-            recommendations.push('• Сокращение светового дня (с 16:00 темнеет)');
+           
             recommendations.push('• Запасные батареи для фонарей');
             recommendations.push('• Термос с горячим чаем');
             recommendations.push('• Следите за признаками обморожения');
