@@ -3588,7 +3588,16 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
     }
    
     // ========== ПРОВЕРКА 1: УГОЛ ==========
-    const anglePhoto = this.calcAngleInTriangle(commonEdge.v1, newPoint, commonEdge.v2);
+ 
+    // 🔥 ДИАГНОСТИКА ПЕРЕД ВЫЧИСЛЕНИЕМ УГЛА
+if (this.debug) {
+    console.log(`      🔍 Данные для угла:`);
+    console.log(`         commonEdge.v1: ${commonEdge.v1?.id} (${commonEdge.v1?.x},${commonEdge.v1?.y})`);
+    console.log(`         commonEdge.v2: ${commonEdge.v2?.id} (${commonEdge.v2?.x},${commonEdge.v2?.y})`);
+    console.log(`         newPoint: ${newPoint?.id} (${newPoint?.x},${newPoint?.y})`);
+}
+
+const anglePhoto = this.calcAngleInTriangle(commonEdge.v1, newPoint, commonEdge.v2);
     const angleModel = this.calcAngleInTriangle(modelV1, modelNew, modelV2);
     const angleDiff = Math.abs(anglePhoto - angleModel);
    
@@ -3775,6 +3784,12 @@ calcDistance(p1, p2) {
 findCommonEdgeInTriangle(triangle, structure) {
     for (const edge of triangle.edges) {
         if (structure.pointIds.has(edge.v1.id) && structure.pointIds.has(edge.v2.id)) {
+            // 🔥 ДИАГНОСТИКА
+            if (this.debug) {
+                console.log(`      🔍 Найдено общее ребро:`);
+                console.log(`         v1: ${edge.v1.id.substring(0,12)} (${edge.v1?.x},${edge.v1?.y})`);
+                console.log(`         v2: ${edge.v2.id.substring(0,12)} (${edge.v2?.x},${edge.v2?.y})`);
+            }
             return edge;
         }
     }
