@@ -3450,7 +3450,22 @@ generateStructureColors(structures) {
                     const p2 = graph.nodes.get(b);
                     const p3 = graph.nodes.get(c);
 
-                    // 🔥 ДОБАВЛЯЕМ ПОЛЕ edges
+                    // 🔥 ДИАГНОСТИКА
+                    if (!p1 || !p2 || !p3) {
+                        if (this.debug) console.log(`⚠️ Треугольник ${a},${b},${c}: одна из точек не найдена`);
+                        continue;
+                    }
+                   
+                    if (typeof p1.x !== 'number' || typeof p2.x !== 'number' || typeof p3.x !== 'number') {
+                        if (this.debug) {
+                            console.log(`⚠️ Треугольник ${a},${b},${c}: координаты не числа`);
+                            console.log(`   p1: ${p1?.x},${p1?.y}`);
+                            console.log(`   p2: ${p2?.x},${p2?.y}`);
+                            console.log(`   p3: ${p3?.x},${p3?.y}`);
+                        }
+                        continue;
+                    }
+
                     const triangleEdges = [
                         { v1: p1, v2: p2, externalPoint: null, neighborTriangles: [] },
                         { v1: p2, v2: p3, externalPoint: null, neighborTriangles: [] },
@@ -3467,6 +3482,11 @@ generateStructureColors(structures) {
             }
         }
     }
+   
+    if (this.debug) {
+        console.log(`📊 extractTrianglesFromGraph: найдено ${triangles.length} треугольников`);
+    }
+   
     return triangles;
 }
 
@@ -3490,18 +3510,24 @@ getBoundaryEdgesFromStructure(structure) {
 */
 findNeighborTriangleInGraph(edge, allTriangles, structure) {
     const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
-   
+
     for (const triangle of allTriangles) {
         if (structure.triangleIds.has(triangle.id)) continue;
-       
-        // 🔥 ПРОВЕРКА: есть ли у треугольника edges
         if (!triangle.edges) continue;
-       
+
         for (const triEdge of triangle.edges) {
             if (!triEdge.v1 || !triEdge.v2) continue;
             const triEdgeKey = [triEdge.v1.id, triEdge.v2.id].sort().join('--');
             if (triEdgeKey === edgeKey) {
-                return triangle;
+                // 🔥 ВОЗВРАЩАЕМ ТРЕУГОЛЬНИК С ГАРАНТИРОВАННЫМИ ПОЛЯМИ
+                return {
+                    id: triangle.id,
+                    p1: triangle.p1,
+                    p2: triangle.p2,
+                    p3: triangle.p3,
+                    edges: triangle.edges,
+                    confidence: triangle.confidence || 0.5
+                };
             }
         }
     }
@@ -3512,6 +3538,13 @@ findNeighborTriangleInGraph(edge, allTriangles, structure) {
 * Пытается добавить треугольник по геометрии (без якорей)
 */
 tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+    // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
+    if (this.debug) {
+        console.log(`      🔍 tryAddGeometricTriangle: проверка треугольника ${triangle?.id?.substring(0,12)}`);
+        console.log(`         p1: ${triangle?.p1?.id?.substring(0,8)} (${triangle?.p1?.x},${triangle?.p1?.y})`);
+        console.log(`         p2: ${triangle?.p2?.id?.substring(0,8)} (${triangle?.p2?.x},${triangle?.p2?.y})`);
+        console.log(`         p3: ${triangle?.p3?.id?.substring(0,8)} (${triangle?.p3?.x},${triangle?.p3?.y})`);
+    }
     // 🔥 ПРОВЕРКА НАЛИЧИЯ ВАЛИДАТОРА
     if (!this.validator) {
         if (this.debug) console.log(`      ❌ Нет валидатора!`);
