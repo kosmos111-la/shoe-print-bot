@@ -3737,23 +3737,7 @@ applyTransform(point, transform) {
     };
 }
 
-/**
-* Вычисляет угол между тремя точками
-*/
-calcAngleInTriangle(a, b, c) {
-    const v1x = b.x - a.x;
-    const v1y = b.y - a.y;
-    const v2x = c.x - a.x;
-    const v2y = c.y - a.y;
-   
-    const dot = v1x * v2x + v1y * v2y;
-    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
-    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
-   
-    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
-    return Math.acos(cos) * 180 / Math.PI;
-}
- 
+
     /**
     * Проверяет равенство массивов (для сравнения треугольников)
     */
