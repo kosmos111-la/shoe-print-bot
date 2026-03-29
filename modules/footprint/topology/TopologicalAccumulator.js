@@ -87,6 +87,14 @@ class TopologicalAccumulator {
         this.modelRelations = new Map();
         this.photoToModel = new Map();
 
+ // 🔥 ДОБАВИТЬ ВАЛИДАТОР
+    const ValidationModule = require('../validation/ValidationModule');
+    this.validator = new ValidationModule({
+        debug: this.debug,
+        positionThreshold: 0.15,
+        morphologyThreshold: 0.85
+    });
+      
         // Статистика
         this.stats = {
             totalModels: 0,
@@ -3504,6 +3512,11 @@ findNeighborTriangleInGraph(edge, allTriangles, structure) {
 * Пытается добавить треугольник по геометрии (без якорей)
 */
 tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+    // 🔥 ПРОВЕРКА НАЛИЧИЯ ВАЛИДАТОРА
+    if (!this.validator) {
+        if (this.debug) console.log(`      ❌ Нет валидатора!`);
+        return false;
+    }
     // 🔥 ПРОВЕРКА: есть ли у треугольника edges
     if (!triangle || !triangle.edges) return false;
    
@@ -3668,15 +3681,30 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
 * Вычисляет угол между тремя точками (вершина в точке b)
 */
 calcAngleInTriangle(a, b, c) {
+    // 🔥 ЗАЩИТА ОТ UNDEFINED
+    if (!a || !b || !c) {
+        if (this.debug) console.log(`      ⚠️ calcAngleInTriangle: undefined точки`);
+        return 0;
+    }
+    if (typeof a.x !== 'number' || typeof b.x !== 'number' || typeof c.x !== 'number') {
+        if (this.debug) console.log(`      ⚠️ calcAngleInTriangle: координаты не числа`);
+        return 0;
+    }
+   
     const v1x = a.x - b.x;
     const v1y = a.y - b.y;
     const v2x = c.x - b.x;
     const v2y = c.y - b.y;
    
-    const dot = v1x * v2x + v1y * v2y;
     const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
     const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
    
+    if (mag1 === 0 || mag2 === 0) {
+        if (this.debug) console.log(`      ⚠️ calcAngleInTriangle: нулевая длина вектора`);
+        return 0;
+    }
+   
+    const dot = v1x * v2x + v1y * v2y;
     const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
     return Math.acos(cos) * 180 / Math.PI;
 }
@@ -3694,6 +3722,15 @@ findModelPointForPhoto(photoPointId, structure) {
 * Вычисляет расстояние между двумя точками
 */
 calcDistance(p1, p2) {
+    if (!p1 || !p2) {
+        if (this.debug) console.log(`      ⚠️ calcDistance: undefined точки`);
+        return 0;
+    }
+    if (typeof p1.x !== 'number' || typeof p1.y !== 'number' ||
+        typeof p2.x !== 'number' || typeof p2.y !== 'number') {
+        if (this.debug) console.log(`      ⚠️ calcDistance: координаты не числа`);
+        return 0;
+    }
     const dx = p1.x - p2.x;
     const dy = p1.y - p2.y;
     return Math.sqrt(dx * dx + dy * dy);
