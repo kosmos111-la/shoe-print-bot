@@ -3562,44 +3562,52 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
    
     // Находим новую точку (вершину треугольника, не лежащую на общем ребре)
     const newPoint = [triangle.p1, triangle.p2, triangle.p3].find(p =>
-        p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
-    );
-    if (!newPoint) {
-        if (this.debug) console.log(`      ⚠️ Не найдена новая точка в треугольнике`);
-        return false;
-    }
-   
-    // Получаем модель существующих точек из структуры
-    const modelV1 = this.getModelPointFromStructure(commonEdge.v1.id, structure);
-    const modelV2 = this.getModelPointFromStructure(commonEdge.v2.id, structure);
-    if (!modelV1 || !modelV2) {
-        if (this.debug) console.log(`      ⚠️ Не найдены модели точек в структуре`);
-        return false;
-    }
-   
-    // Проецируем новую точку через transform структуры
-    let modelNew;
-    if (structure.transform) {
-        const projected = this.applyTransform(newPoint, structure.transform);
-        modelNew = { x: projected.x, y: projected.y };
-    } else {
-        if (this.debug) console.log(`      ⚠️ Нет transform у структуры`);
-        return false;
-    }
-   
-    // ========== ПРОВЕРКА 1: УГОЛ ==========
- 
-    // 🔥 ДИАГНОСТИКА ПЕРЕД ВЫЧИСЛЕНИЕМ УГЛА
-if (this.debug) {
-    console.log(`      🔍 Данные для угла:`);
-    console.log(`         commonEdge.v1: ${commonEdge.v1?.id} (${commonEdge.v1?.x},${commonEdge.v1?.y})`);
-    console.log(`         commonEdge.v2: ${commonEdge.v2?.id} (${commonEdge.v2?.x},${commonEdge.v2?.y})`);
-    console.log(`         newPoint: ${newPoint?.id} (${newPoint?.x},${newPoint?.y})`);
+    p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
+);
+if (!newPoint) {
+    if (this.debug) console.log(`      ⚠️ Не найдена новая точка в треугольнике`);
+    return false;
 }
 
-const anglePhoto = this.calcAngleInTriangle(commonEdge.v1, newPoint, commonEdge.v2);
-    const angleModel = this.calcAngleInTriangle(modelV1, modelNew, modelV2);
-    const angleDiff = Math.abs(anglePhoto - angleModel);
+// 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ГРАФА (гарантированно с координатами)
+const photoA = graphA.nodes.get(commonEdge.v1.id);
+const photoB = graphA.nodes.get(commonEdge.v2.id);
+const photoC = graphA.nodes.get(newPoint.id);
+
+if (!photoA || !photoB || !photoC) {
+    if (this.debug) console.log(`      ❌ Не найдены точки в графе`);
+    return false;
+}
+
+if (this.debug) {
+    console.log(`      🔍 Точки из графа:`);
+    console.log(`         photoA: ${photoA.id.substring(0,12)} (${photoA.x},${photoA.y})`);
+    console.log(`         photoB: ${photoB.id.substring(0,12)} (${photoB.x},${photoB.y})`);
+    console.log(`         photoC: ${photoC.id.substring(0,12)} (${photoC.x},${photoC.y})`);
+}
+
+// Получаем модель существующих точек из структуры
+const modelA = this.getModelPointFromStructure(photoA.id, structure);
+const modelB = this.getModelPointFromStructure(photoB.id, structure);
+if (!modelA || !modelB) {
+    if (this.debug) console.log(`      ⚠️ Не найдены модели точек в структуре`);
+    return false;
+}
+
+// Проецируем новую точку через transform структуры
+let modelC;
+if (structure.transform) {
+    const projected = this.applyTransform(photoC, structure.transform);
+    modelC = { x: projected.x, y: projected.y };
+} else {
+    if (this.debug) console.log(`      ⚠️ Нет transform у структуры`);
+    return false;
+}
+
+// ========== ПРОВЕРКА 1: УГОЛ ==========
+const anglePhoto = this.calcAngleInTriangle(photoA, photoC, photoB);
+const angleModel = this.calcAngleInTriangle(modelA, modelC, modelB);
+const angleDiff = Math.abs(anglePhoto - angleModel);
    
     // Динамический допуск на угол: чем больше структура, тем больше допуск
     const angleTolerance = Math.min(25, 12 + Math.floor(structure.triangleIds.size / 3));
