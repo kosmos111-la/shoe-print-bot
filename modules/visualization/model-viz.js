@@ -239,9 +239,34 @@ for (const structure of structures) {
 
         let stats = { red: 0, orange: 0, yellow: 0, blue: 0, gray: 0, matched: 0 };
 
-        for (const point of points) {
-            const x = this.projectX(point.x, bounds, scale, width);
-            const y = this.projectY(point.y, bounds, scale, height);
+        // Группируем близкие точки для усреднения
+const groupedPoints = new Map();
+const GROUP_THRESHOLD = 5; // пикселей в координатах модели
+
+for (const point of points) {
+    let found = false;
+    for (const [key, existing] of groupedPoints) {
+        const dx = existing.x - point.x;
+        const dy = existing.y - point.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < GROUP_THRESHOLD) {
+            existing.x = (existing.x + point.x) / 2;
+            existing.y = (existing.y + point.y) / 2;
+            existing.confirmationCount = (existing.confirmationCount || 1) + (point.confirmationCount || 1);
+            existing.count++;
+            found = true;
+            break;
+        }
+    }
+    if (!found) {
+        groupedPoints.set(point.id, { ...point, count: 1 });
+    }
+}
+
+// Рисуем усреднённые точки
+for (const point of groupedPoints.values()) {
+    const x = this.projectX(point.x, bounds, scale, width);
+    const y = this.projectY(point.y, bounds, scale, height);
 
             const confirmations = point.confirmationCount || 0;
             const isMatched = matchedModelPoints.has(point.id);
