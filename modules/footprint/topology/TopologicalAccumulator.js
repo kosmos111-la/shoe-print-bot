@@ -3647,44 +3647,8 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
 * Вычисляет угол между тремя точками (вершина в точке b)
 */
 calcAngleInTriangle(a, b, c) {
-    // 🔥 МАКСИМАЛЬНАЯ ДИАГНОСТИКА
-    if (this.debug) {
-        console.log(`      🔍 calcAngleInTriangle входные данные:`);
-        console.log(`         a:`, a);
-        console.log(`         a.type: ${typeof a}, a.id: ${a?.id}, a.x: ${a?.x}, a.y: ${a?.y}`);
-        console.log(`         b:`, b);
-        console.log(`         b.type: ${typeof b}, b.id: ${b?.id}, b.x: ${b?.x}, b.y: ${b?.y}`);
-        console.log(`         c:`, c);
-        console.log(`         c.type: ${typeof c}, c.id: ${c?.id}, c.x: ${c?.x}, c.y: ${c?.y}`);
-    }
-   
-    // Проверяем, что все точки существуют
-    if (!a || !b || !c) {
-        if (this.debug) console.log(`      ⚠️ calcAngleInTriangle: undefined точка`);
-        return 0;
-    }
-   
-    // Проверяем, что у точек есть координаты
-    if (a.x === undefined || b.x === undefined || c.x === undefined) {
-        if (this.debug) console.log(`      ⚠️ calcAngleInTriangle: отсутствуют координаты`);
-        if (this.debug) {
-            console.log(`         a.x: ${a.x}, a.y: ${a.y}`);
-            console.log(`         b.x: ${b.x}, b.y: ${b.y}`);
-            console.log(`         c.x: ${c.x}, c.y: ${c.y}`);
-        }
-        return 0;
-    }
-   
-    // Проверяем, что координаты — числа
-    if (typeof a.x !== 'number' || typeof b.x !== 'number' || typeof c.x !== 'number') {
-        if (this.debug) {
-            console.log(`      ⚠️ calcAngleInTriangle: координаты не числа`);
-            console.log(`         typeof a.x: ${typeof a.x}, a.x: ${a.x}`);
-            console.log(`         typeof b.x: ${typeof b.x}, b.x: ${b.x}`);
-            console.log(`         typeof c.x: ${typeof c.x}, c.x: ${c.x}`);
-        }
-        return 0;
-    }
+    if (!a || !b || !c) return 0;
+    if (typeof a.x !== 'number' || typeof b.x !== 'number' || typeof c.x !== 'number') return 0;
    
     const v1x = a.x - b.x;
     const v1y = a.y - b.y;
@@ -3694,20 +3658,11 @@ calcAngleInTriangle(a, b, c) {
     const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
     const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
    
-    if (mag1 === 0 || mag2 === 0) {
-        if (this.debug) console.log(`      ⚠️ calcAngleInTriangle: нулевая длина вектора`);
-        return 0;
-    }
+    if (mag1 === 0 || mag2 === 0) return 0;
    
     const dot = v1x * v2x + v1y * v2y;
     const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
-    const angle = Math.acos(cos) * 180 / Math.PI;
-   
-    if (this.debug) {
-        console.log(`         угол: ${angle.toFixed(1)}°`);
-    }
-   
-    return angle;
+    return Math.acos(cos) * 180 / Math.PI;
 }
 
 /**
