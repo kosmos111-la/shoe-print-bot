@@ -3574,30 +3574,34 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
         console.log(`         photoC: ${photoC.id.substring(0,12)} (${photoC.x},${photoC.y})`);
     }
 
-    // 🔥 ПОЛУЧАЕМ МОДЕЛЬНЫЕ ТОЧКИ ИЗ СТРУКТУРЫ (ГАРАНТИРОВАННО ОБЪЕКТЫ)
-    const modelA = this.getModelPointFromStructure(photoA.id, structure);
-    const modelB = this.getModelPointFromStructure(photoB.id, structure);
+    // 🔥 ИСПРАВЛЕНО: используем let вместо const
+    let modelA = this.getModelPointFromStructure(photoA.id, structure);
+    let modelB = this.getModelPointFromStructure(photoB.id, structure);
    
     if (!modelA || !modelB) {
         if (this.debug) console.log(`      ⚠️ Не найдены модели точек в структуре`);
         return false;
     }
 
-    // Убеждаемся, что modelA и modelB — объекты с координатами
+    // Если modelA — строка (ID), ищем в graphB
     if (typeof modelA === 'string') {
-        if (this.debug) console.log(`      ⚠️ modelA — строка, ищу в graphB`);
+        if (this.debug) console.log(`      🔍 modelA — строка, ищу в graphB: ${modelA.substring(0,12)}`);
         const found = graphB.nodes.get(modelA);
         if (found) {
             modelA = found;
         } else {
+            if (this.debug) console.log(`      ❌ Не найдена модель для ${modelA.substring(0,12)}`);
             return false;
         }
     }
+   
     if (typeof modelB === 'string') {
+        if (this.debug) console.log(`      🔍 modelB — строка, ищу в graphB: ${modelB.substring(0,12)}`);
         const found = graphB.nodes.get(modelB);
         if (found) {
             modelB = found;
         } else {
+            if (this.debug) console.log(`      ❌ Не найдена модель для ${modelB.substring(0,12)}`);
             return false;
         }
     }
@@ -3617,7 +3621,6 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
     const angleModel = this.calcAngleInTriangle(modelA, modelC, modelB);
     const angleDiff = Math.abs(anglePhoto - angleModel);
 
-    // Динамический допуск на угол
     const angleTolerance = Math.min(25, 12 + Math.floor(structure.triangleIds.size / 3));
 
     if (angleDiff > angleTolerance) {
@@ -3667,7 +3670,9 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
 
     // ========== ПРОВЕРКА 4: МОРФОЛОГИЯ ==========
     const photoMorph = morphologyMap?.get(photoC.id);
-    const modelMorph = modelMorphology?.get(modelC.id) || modelMorphology?.get(modelC);
+    // modelC может быть объектом с id или без
+    const modelIdForMorph = modelC.id || (modelC.pointB || modelC);
+    const modelMorph = modelMorphology?.get(modelIdForMorph);
 
     let morphScore = 0.5;
     if (photoMorph && modelMorph) {
