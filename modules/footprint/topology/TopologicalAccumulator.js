@@ -3538,120 +3538,125 @@ findNeighborTriangleInGraph(edge, allTriangles, structure) {
 * Пытается добавить треугольник по геометрии (без якорей)
 */
 tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
-    // 🔥 ДИАГНОСТИКА ВХОДНЫХ ДАННЫХ
-    if (this.debug) {
-        console.log(`      🔍 tryAddGeometricTriangle: проверка треугольника ${triangle?.id?.substring(0,12)}`);
-        console.log(`         p1: ${triangle?.p1?.id?.substring(0,8)} (${triangle?.p1?.x},${triangle?.p1?.y})`);
-        console.log(`         p2: ${triangle?.p2?.id?.substring(0,8)} (${triangle?.p2?.x},${triangle?.p2?.y})`);
-        console.log(`         p3: ${triangle?.p3?.id?.substring(0,8)} (${triangle?.p3?.x},${triangle?.p3?.y})`);
-    }
-    // 🔥 ПРОВЕРКА НАЛИЧИЯ ВАЛИДАТОРА
-    if (!this.validator) {
-        if (this.debug) console.log(`      ❌ Нет валидатора!`);
-        return false;
-    }
     // 🔥 ПРОВЕРКА: есть ли у треугольника edges
     if (!triangle || !triangle.edges) return false;
-   
+
     // Находим общее ребро с существующей структурой
     const commonEdge = this.findCommonEdgeInTriangle(triangle, structure);
     if (!commonEdge) {
         if (this.debug) console.log(`      ⚠️ Нет общего ребра со структурой`);
         return false;
     }
-   
+
     // Находим новую точку (вершину треугольника, не лежащую на общем ребре)
     const newPoint = [triangle.p1, triangle.p2, triangle.p3].find(p =>
-    p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
-);
-if (!newPoint) {
-    if (this.debug) console.log(`      ⚠️ Не найдена новая точка в треугольнике`);
-    return false;
-}
+        p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
+    );
+    if (!newPoint) {
+        if (this.debug) console.log(`      ⚠️ Не найдена новая точка в треугольнике`);
+        return false;
+    }
 
-// 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ГРАФА (гарантированно с координатами)
-const photoA = graphA.nodes.get(commonEdge.v1.id);
-const photoB = graphA.nodes.get(commonEdge.v2.id);
-const photoC = graphA.nodes.get(newPoint.id);
+    // 🔥 ПОЛУЧАЕМ ТОЧКИ ИЗ ГРАФА (гарантированно с координатами)
+    const photoA = graphA.nodes.get(commonEdge.v1.id);
+    const photoB = graphA.nodes.get(commonEdge.v2.id);
+    const photoC = graphA.nodes.get(newPoint.id);
 
-if (!photoA || !photoB || !photoC) {
-    if (this.debug) console.log(`      ❌ Не найдены точки в графе`);
-    return false;
-}
+    if (!photoA || !photoB || !photoC) {
+        if (this.debug) console.log(`      ❌ Не найдены точки в графе`);
+        return false;
+    }
 
-if (this.debug) {
-    console.log(`      🔍 Точки из графа:`);
-    console.log(`         photoA: ${photoA.id.substring(0,12)} (${photoA.x},${photoA.y})`);
-    console.log(`         photoB: ${photoB.id.substring(0,12)} (${photoB.x},${photoB.y})`);
-    console.log(`         photoC: ${photoC.id.substring(0,12)} (${photoC.x},${photoC.y})`);
-}
+    if (this.debug) {
+        console.log(`      🔍 Точки из графа:`);
+        console.log(`         photoA: ${photoA.id.substring(0,12)} (${photoA.x},${photoA.y})`);
+        console.log(`         photoB: ${photoB.id.substring(0,12)} (${photoB.x},${photoB.y})`);
+        console.log(`         photoC: ${photoC.id.substring(0,12)} (${photoC.x},${photoC.y})`);
+    }
 
-// Получаем модель существующих точек из структуры
-const modelA = this.getModelPointFromStructure(photoA.id, structure);
-const modelB = this.getModelPointFromStructure(photoB.id, structure);
-if (!modelA || !modelB) {
-    if (this.debug) console.log(`      ⚠️ Не найдены модели точек в структуре`);
-    return false;
-}
-
-// Проецируем новую точку через transform структуры
-let modelC;
-if (structure.transform) {
-    const projected = this.applyTransform(photoC, structure.transform);
-    modelC = { x: projected.x, y: projected.y };
-} else {
-    if (this.debug) console.log(`      ⚠️ Нет transform у структуры`);
-    return false;
-}
-
-// ========== ПРОВЕРКА 1: УГОЛ ==========
-const anglePhoto = this.calcAngleInTriangle(photoA, photoC, photoB);
-const angleModel = this.calcAngleInTriangle(modelA, modelC, modelB);
-const angleDiff = Math.abs(anglePhoto - angleModel);
+    // 🔥 ПОЛУЧАЕМ МОДЕЛЬНЫЕ ТОЧКИ ИЗ СТРУКТУРЫ (ГАРАНТИРОВАННО ОБЪЕКТЫ)
+    const modelA = this.getModelPointFromStructure(photoA.id, structure);
+    const modelB = this.getModelPointFromStructure(photoB.id, structure);
    
-    // Динамический допуск на угол: чем больше структура, тем больше допуск
+    if (!modelA || !modelB) {
+        if (this.debug) console.log(`      ⚠️ Не найдены модели точек в структуре`);
+        return false;
+    }
+
+    // Убеждаемся, что modelA и modelB — объекты с координатами
+    if (typeof modelA === 'string') {
+        if (this.debug) console.log(`      ⚠️ modelA — строка, ищу в graphB`);
+        const found = graphB.nodes.get(modelA);
+        if (found) {
+            modelA = found;
+        } else {
+            return false;
+        }
+    }
+    if (typeof modelB === 'string') {
+        const found = graphB.nodes.get(modelB);
+        if (found) {
+            modelB = found;
+        } else {
+            return false;
+        }
+    }
+
+    // Проецируем новую точку через transform структуры
+    let modelC;
+    if (structure.transform) {
+        const projected = this.applyTransform(photoC, structure.transform);
+        modelC = { x: projected.x, y: projected.y };
+    } else {
+        if (this.debug) console.log(`      ⚠️ Нет transform у структуры`);
+        return false;
+    }
+
+    // ========== ПРОВЕРКА 1: УГОЛ ==========
+    const anglePhoto = this.calcAngleInTriangle(photoA, photoC, photoB);
+    const angleModel = this.calcAngleInTriangle(modelA, modelC, modelB);
+    const angleDiff = Math.abs(anglePhoto - angleModel);
+
+    // Динамический допуск на угол
     const angleTolerance = Math.min(25, 12 + Math.floor(structure.triangleIds.size / 3));
-   
+
     if (angleDiff > angleTolerance) {
         if (this.debug) {
             console.log(`      ❌ Угол не сошёлся: ${angleDiff.toFixed(1)}° > ${angleTolerance}°`);
         }
         return false;
     }
-   
+
     // ========== ПРОВЕРКА 2: ПРОПОРЦИИ СТОРОН ==========
-    const sidePhoto1 = this.calcDistance(commonEdge.v1, newPoint);
-    const sidePhoto2 = this.calcDistance(commonEdge.v2, newPoint);
-    const sidePhoto3 = this.calcDistance(commonEdge.v1, commonEdge.v2);
-   
-    const sideModel1 = this.calcDistance(modelV1, modelNew);
-    const sideModel2 = this.calcDistance(modelV2, modelNew);
-    const sideModel3 = this.calcDistance(modelV1, modelV2);
-   
-    // Проверяем, что отношение двух сторон сохраняется
+    const sidePhoto1 = this.calcDistance(photoA, photoC);
+    const sidePhoto2 = this.calcDistance(photoB, photoC);
+    const sidePhoto3 = this.calcDistance(photoA, photoB);
+
+    const sideModel1 = this.calcDistance(modelA, modelC);
+    const sideModel2 = this.calcDistance(modelB, modelC);
+    const sideModel3 = this.calcDistance(modelA, modelB);
+
     const ratioPhoto = sidePhoto1 / sidePhoto2;
     const ratioModel = sideModel1 / sideModel2;
     const ratioDiff = Math.abs(ratioPhoto - ratioModel) / Math.max(ratioModel, 0.001);
-   
-    const ratioTolerance = 0.25; // 25% допуск
-   
+
+    const ratioTolerance = 0.25;
+
     if (ratioDiff > ratioTolerance) {
         if (this.debug) {
             console.log(`      ❌ Пропорции не сошлись: ${(ratioDiff*100).toFixed(1)}% > ${ratioTolerance*100}%`);
-            console.log(`         фото: ${sidePhoto1.toFixed(1)} / ${sidePhoto2.toFixed(1)} = ${ratioPhoto.toFixed(3)}`);
-            console.log(`         модель: ${sideModel1.toFixed(1)} / ${sideModel2.toFixed(1)} = ${ratioModel.toFixed(3)}`);
         }
         return false;
     }
-   
-    // ========== ПРОВЕРКА 3: МАСШТАБ (опционально) ==========
+
+    // ========== ПРОВЕРКА 3: МАСШТАБ ==========
     const sumPhoto = sidePhoto1 + sidePhoto2 + sidePhoto3;
     const sumModel = sideModel1 + sideModel2 + sideModel3;
     const scaleEstimate = sumModel / sumPhoto;
     const scaleDiff = Math.abs(scaleEstimate - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
-   
-    const scaleTolerance = 0.2; // 20% допуск
-   
+
+    const scaleTolerance = 0.2;
+
     if (scaleDiff > scaleTolerance) {
         if (this.debug) {
             console.log(`      ❌ Масштаб не сошёлся: ${(scaleDiff*100).toFixed(1)}% > ${scaleTolerance*100}%`);
@@ -3659,42 +3664,39 @@ const angleDiff = Math.abs(anglePhoto - angleModel);
         }
         return false;
     }
-   
-    // ========== ПРОВЕРКА 4: МОРФОЛОГИЯ (если есть) ==========
-    const photoMorph = morphologyMap?.get(newPoint.id);
-    const modelMorph = modelMorphology?.get(this.findModelPointForPhoto(newPoint.id, structure));
-   
-    let morphScore = 0.5; // по умолчанию
+
+    // ========== ПРОВЕРКА 4: МОРФОЛОГИЯ ==========
+    const photoMorph = morphologyMap?.get(photoC.id);
+    const modelMorph = modelMorphology?.get(modelC.id) || modelMorphology?.get(modelC);
+
+    let morphScore = 0.5;
     if (photoMorph && modelMorph) {
         let score = 0;
         let checks = 0;
-       
-        // Эксцентриситет
+
         if (photoMorph.eccentricity && modelMorph.eccentricity) {
             const ratio = Math.min(photoMorph.eccentricity, modelMorph.eccentricity) /
                          Math.max(photoMorph.eccentricity, modelMorph.eccentricity);
             score += ratio;
             checks++;
         }
-       
-        // Асимметрия
+
         if (photoMorph.asymmetry && modelMorph.asymmetry) {
             const ratio = Math.min(photoMorph.asymmetry, modelMorph.asymmetry) /
                          Math.max(photoMorph.asymmetry, modelMorph.asymmetry);
             score += ratio;
             checks++;
         }
-       
-        // Компактность
+
         if (photoMorph.compactness && modelMorph.compactness) {
             const ratio = Math.min(photoMorph.compactness, modelMorph.compactness) /
                          Math.max(photoMorph.compactness, modelMorph.compactness);
             score += ratio;
             checks++;
         }
-       
+
         morphScore = checks > 0 ? score / checks : 0.5;
-       
+
         if (morphScore < 0.6) {
             if (this.debug) {
                 console.log(`      ❌ Морфология не сошлась: ${(morphScore*100).toFixed(1)}% < 60%`);
@@ -3702,7 +3704,7 @@ const angleDiff = Math.abs(anglePhoto - angleModel);
             return false;
         }
     }
-   
+
     // ========== ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ ==========
     if (this.debug) {
         console.log(`      ✅ Геометрическая проверка пройдена:`);
@@ -3711,11 +3713,11 @@ const angleDiff = Math.abs(anglePhoto - angleModel);
         console.log(`         масштаб: ${(scaleDiff*100).toFixed(1)}% (допуск ${scaleTolerance*100}%)`);
         console.log(`         морфология: ${(morphScore*100).toFixed(1)}%`);
     }
-   
+
     // Добавляем треугольник в структуру
     structure.addTriangle(triangle);
-   
-    // Обновляем transform структуры с учётом новой точки
+
+    // Обновляем transform структуры
     const anchors = structure.getAnchors();
     if (anchors.length >= 3) {
         const newTransform = this.validator.calculateTransform(anchors, graphA, graphB);
@@ -3723,7 +3725,7 @@ const angleDiff = Math.abs(anglePhoto - angleModel);
             structure.transform = newTransform;
         }
     }
-   
+
     return true;
 }
 
