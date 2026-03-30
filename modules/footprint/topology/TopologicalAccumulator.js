@@ -1718,12 +1718,50 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
                     console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
                     const updateResult = this.updateModelWithOptimalMatches(
-                        modelIdHint,
-                        exactGraph,
-                        finalValidatedMatches || [],
-                        morphologyMap
-                    );
+    modelIdHint,
+    exactGraph,
+    finalValidatedMatches || [],
+    morphologyMap
+);
 
+// 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
+const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 3);
+if (this.debug && mergedCount > 0) {
+    console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
+}
+
+// После updateModelWithOptimalMatches
+
+// 🔥 ДИАГНОСТИКА ДУБЛИРУЮЩИХСЯ ТОЧЕК
+if (this.debug) {
+    const modelPoints = Array.from(existingModel.graph.nodes.values());
+    const duplicates = [];
+    for (let i = 0; i < modelPoints.length; i++) {
+        for (let j = i + 1; j < modelPoints.length; j++) {
+            const dx = modelPoints[i].x - modelPoints[j].x;
+            const dy = modelPoints[i].y - modelPoints[j].y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            if (dist < 3) { // порог 3px
+                duplicates.push({
+                    id1: modelPoints[i].id,
+                    id2: modelPoints[j].id,
+                    dist: dist,
+                    pos1: { x: modelPoints[i].x, y: modelPoints[i].y },
+                    pos2: { x: modelPoints[j].x, y: modelPoints[j].y }
+                });
+            }
+        }
+    }
+    if (duplicates.length > 0) {
+        console.log(`\n⚠️ ОБНАРУЖЕНО ДУБЛИРУЮЩИХСЯ ТОЧЕК В МОДЕЛИ: ${duplicates.length}`);
+        duplicates.slice(0, 10).forEach(d => {
+            console.log(`   • ${d.id1.substring(0,12)} и ${d.id2.substring(0,12)}: расстояние ${d.dist.toFixed(1)}px`);
+        });
+    } else {
+        console.log(`\n✅ Дублирующихся точек в модели нет`);
+    }
+}
+                 
                     // Обновляем KNN-граф и подписи
                     if (existingModel) {
                         existingModel.knnGraph = knnGraph;
@@ -4150,7 +4188,77 @@ findNearestModelPoint(point, graphB) {
    
     return bestPoint;
 }
-  
+
+/**
+* Сливает дублирующиеся точки в модели
+* @param {Object} graph - граф модели
+* @param {number} threshold - порог расстояния для слияния (px)
+* @returns {number} - количество слитых точек
+*/
+mergeDuplicatePoints(graph, threshold = 3) {
+    const points = Array.from(graph.nodes.values());
+    const merged = new Set();
+    let mergedCount = 0;
+    let edgesToUpdate = new Map(); // старый id -> новый id
+   
+    for (let i = 0; i < points.length; i++) {
+        if (merged.has(points[i].id)) continue;
+       
+        for (let j = i + 1; j < points.length; j++) {
+            if (merged.has(points[j].id)) continue;
+           
+            const dx = points[i].x - points[j].x;
+            const dy = points[i].y - points[j].y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+           
+            if (dist < threshold) {
+                // Усредняем координаты
+                const avgX = (points[i].x + points[j].x) / 2;
+                const avgY = (points[i].y + points[j].y) / 2;
+                points[i].x = avgX;
+                points[i].y = avgY;
+                points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
+               
+                // Запоминаем для обновления рёбер
+                edgesToUpdate.set(points[j].id, points[i].id);
+               
+                // Удаляем дубликат
+                graph.nodes.delete(points[j].id);
+                merged.add(points[j].id);
+                mergedCount++;
+               
+                if (this.debug) {
+                    console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → ${points[i].id.substring(0,12)} (расст ${dist.toFixed(1)}px)`);
+                }
+            }
+        }
+    }
+   
+    // Обновляем рёбра: заменяем старые ID на новые
+    if (edgesToUpdate.size > 0) {
+        const newEdges = new Set();
+        for (const edge of graph.edges) {
+            let [a, b] = edge.split('--');
+            if (edgesToUpdate.has(a)) a = edgesToUpdate.get(a);
+            if (edgesToUpdate.has(b)) b = edgesToUpdate.get(b);
+            if (a !== b) {
+                newEdges.add([a, b].sort().join('--'));
+            }
+        }
+        graph.edges = newEdges;
+       
+        // Пересчитываем степени
+        for (const node of graph.nodes.values()) node.degree = 0;
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+        }
+    }
+   
+    return mergedCount;
+}
+ 
     clear() {
         this.models.clear();
         this.currentModelId = null;
