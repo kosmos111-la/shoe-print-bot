@@ -804,7 +804,87 @@ if (existingModel) {
                     } else {
                         if (this.debug) console.log(`\n⚠️ Нет transform или matches для притягивания`);
                     }
-
+// ===== ТЕСТ: АНАЛИЗ ОШИБОК ПО ЗОНАМ =====
+if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
+    console.log(`\n📊 АНАЛИЗ ОШИБОК ПО ЗОНАМ (после магнита):`);
+   
+    const errorsByZone = { heel: [], arch: [], toe: [] };
+    const zoneNames = { heel: 'пятка', arch: 'свод', toe: 'носок' };
+   
+    // Определяем границы зон по Y в системе модели
+    const allY = finalValidatedMatches.map(match => {
+        const modelPoint = existingModel.graph.nodes.get(match.pointB);
+        return modelPoint?.y || 0;
+    }).filter(y => y > 0);
+   
+    if (allY.length > 0) {
+        const yMin = Math.min(...allY);
+        const yMax = Math.max(...allY);
+        const yRange = yMax - yMin;
+       
+        const zoneBounds = {
+            heel: { min: yMax - yRange * 0.3, max: yMax },
+            arch: { min: yMin + yRange * 0.3, max: yMax - yRange * 0.3 },
+            toe: { min: yMin, max: yMin + yRange * 0.3 }
+        };
+       
+        for (const match of finalValidatedMatches) {
+            const photoPoint = exactGraph.nodes.get(match.pointA);
+            const modelPoint = existingModel.graph.nodes.get(match.pointB);
+           
+            if (!photoPoint || !modelPoint) continue;
+           
+            // Проецируем фото-точку через transform
+            const projected = {
+                x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+                   photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                   finalTransform.translation.x,
+                y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                   photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+                   finalTransform.translation.y
+            };
+           
+            const error = Math.sqrt((projected.x - modelPoint.x)**2 + (projected.y - modelPoint.y)**2);
+            const y = modelPoint.y; // используем Y модели
+           
+            // Определяем зону
+            let zone = 'arch';
+            if (y >= zoneBounds.heel.min) zone = 'heel';
+            if (y <= zoneBounds.toe.max) zone = 'toe';
+           
+            errorsByZone[zone].push(error);
+        }
+       
+        // Выводим статистику
+        console.log(`\n📊 ОШИБКИ ПО ЗОНАМ (после магнита):`);
+        for (const [zone, errors] of Object.entries(errorsByZone)) {
+            if (errors.length > 0) {
+                const avg = errors.reduce((a, b) => a + b, 0) / errors.length;
+                const max = Math.max(...errors);
+                const min = Math.min(...errors);
+                console.log(`   • ${zoneNames[zone]}: ${errors.length} точек, средняя ${avg.toFixed(1)}px (мин ${min.toFixed(1)}px, макс ${max.toFixed(1)}px)`);
+            } else {
+                console.log(`   • ${zoneNames[zone]}: нет точек`);
+            }
+        }
+       
+        // Диагностика: нужно ли зональное выравнивание?
+        const heelAvg = errorsByZone.heel.reduce((a,b)=>a+b,0) / (errorsByZone.heel.length || 1);
+        const toeAvg = errorsByZone.toe.reduce((a,b)=>a+b,0) / (errorsByZone.toe.length || 1);
+        const archAvg = errorsByZone.arch.reduce((a,b)=>a+b,0) / (errorsByZone.arch.length || 1);
+       
+        console.log(`\n🔍 ДИАГНОСТИКА:`);
+        if (Math.abs(heelAvg - toeAvg) > 2) {
+            console.log(`   ⚠️ ЗНАЧИТЕЛЬНАЯ РАЗНИЦА: пятка ${heelAvg.toFixed(1)}px vs носок ${toeAvg.toFixed(1)}px`);
+            console.log(`   → Рекомендуется ЗОНАЛЬНЫЙ TRANSFORM`);
+        } else if (Math.max(heelAvg, toeAvg, archAvg) > 3) {
+            console.log(`   ⚠️ ВЫСОКАЯ ОШИБКА: средняя ${Math.max(heelAvg, toeAvg, archAvg).toFixed(1)}px`);
+            console.log(`   → Нужно смягчить пороги или улучшить магнит`);
+        } else {
+            console.log(`   ✅ ОШИБКИ В НОРМЕ: магнит работает хорошо`);
+        }
+    }
+}
                     // ===== ШАГ 3.7: ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК =====
                     if (this.debug) console.log(`\n📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК`);
 
