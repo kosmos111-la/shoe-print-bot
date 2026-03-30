@@ -3557,7 +3557,6 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
     let modelB = this.getModelPointFromStructure(photoB.id, structure);
     if (!modelA || !modelB) return false;
 
-    // Если modelA/B — строки, ищем в graphB
     if (typeof modelA === 'string') {
         const found = graphB.nodes.get(modelA);
         if (!found) return false;
@@ -3582,7 +3581,11 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
     const angleModel = this.calcAngleInTriangle(modelA, modelC, modelB);
     const angleDiff = Math.abs(anglePhoto - angleModel);
     const angleTolerance = Math.min(25, 12 + Math.floor(structure.triangleIds.size / 3));
-    if (angleDiff > angleTolerance) return false;
+
+    if (angleDiff > angleTolerance) {
+        if (this.debug) console.log(`      ❌ Угол: ${angleDiff.toFixed(0)}° > ${angleTolerance}°`);
+        return false;
+    }
 
     const sidePhoto1 = this.calcDistance(photoA, photoC);
     const sidePhoto2 = this.calcDistance(photoB, photoC);
@@ -3594,19 +3597,28 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
     const ratioPhoto = sidePhoto1 / sidePhoto2;
     const ratioModel = sideModel1 / sideModel2;
     const ratioDiff = Math.abs(ratioPhoto - ratioModel) / Math.max(ratioModel, 0.001);
-    if (ratioDiff > 0.25) return false;
+
+    if (ratioDiff > 0.25) {
+        if (this.debug) console.log(`      ❌ Пропорции: ${(ratioDiff*100).toFixed(0)}% > 25%`);
+        return false;
+    }
 
     const sumPhoto = sidePhoto1 + sidePhoto2 + sidePhoto3;
     const sumModel = sideModel1 + sideModel2 + sideModel3;
     const scaleEstimate = sumModel / sumPhoto;
     const scaleDiff = Math.abs(scaleEstimate - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
-    if (scaleDiff > 0.2) return false;
+
+    if (scaleDiff > 0.2) {
+        if (this.debug) console.log(`      ❌ Масштаб: ${(scaleDiff*100).toFixed(0)}% > 20%`);
+        return false;
+    }
 
     // Морфология (опционально)
-    let morphScore = 0.5;
     const photoMorph = morphologyMap?.get(photoC.id);
     const modelIdForMorph = modelC.id || (modelC.pointB || modelC);
     const modelMorph = modelMorphology?.get(modelIdForMorph);
+
+    let morphScore = 0.5;
     if (photoMorph && modelMorph) {
         let score = 0, checks = 0;
         if (photoMorph.eccentricity && modelMorph.eccentricity) {
@@ -3622,20 +3634,22 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
             checks++;
         }
         morphScore = checks > 0 ? score / checks : 0.5;
-        if (morphScore < 0.6) return false;
+        if (morphScore < 0.6) {
+            if (this.debug) console.log(`      ❌ Морфология: ${(morphScore*100).toFixed(0)}% < 60%`);
+            return false;
+        }
     }
 
-    // ========== УСПЕХ! ==========
+    // ========== УСПЕХ ==========
     structure.addTriangle(triangle);
 
-    // Обновляем transform
     const anchors = structure.getAnchors();
     if (anchors.length >= 3) {
         const newTransform = this.validator.calculateTransform(anchors, graphA, graphB);
         if (newTransform) structure.transform = newTransform;
     }
 
-    // 🔥 КОМПАКТНЫЙ ВЫВОД (только успех)
+    // 🔥 ТОЛЬКО УСПЕХ (компактно)
     if (this.debug) {
         console.log(`      ✅ +1 (угол ${angleDiff.toFixed(0)}°, проп ${(ratioDiff*100).toFixed(0)}%, масшт ${(scaleDiff*100).toFixed(0)}%)`);
     }
@@ -3810,8 +3824,10 @@ expandStructureGeometrically(structure, graphA, graphB, morphologyMap, modelMorp
                 if (isValid) {
                     const modelPoint = this.findNearestModelPoint(modelC, graphB);
                     if (modelPoint) {
-                        structure.addPoint?.(candidate, modelPoint);
-                        structure.addAnchor?.({ pointA: candidate.id, pointB: modelPoint.id, confidence: 0.85 });
+                        if (structure.addPoint) structure.addPoint(candidate, modelPoint);
+                        if (structure.addAnchor) {
+                            structure.addAnchor({ pointA: candidate.id, pointB: modelPoint.id, confidence: 0.85 });
+                        }
                         pointsInStructure.add(candidate.id);
                         totalAdded++;
                         addedThisIter++;
@@ -3822,9 +3838,11 @@ expandStructureGeometrically(structure, graphA, graphB, morphologyMap, modelMorp
             }
         }
 
-        // 🔥 КОМПАКТНЫЙ ВЫВОД ПО ИТЕРАЦИИ
+        // 🔥 ВЫВОД ПО ИТЕРАЦИИ (только если что-то добавили)
         if (this.debug && addedThisIter > 0) {
             console.log(`   • Итерация ${iteration}: +${addedThisIter} тр. (всего ${structure.triangleIds.size})`);
+        } else if (this.debug && iteration === 1 && addedThisIter === 0) {
+            console.log(`   • Итерация ${iteration}: +0 тр. (нет кандидатов)`);
         }
 
         if (expanded) {
