@@ -123,6 +123,13 @@ class TopologicalAccumulator {
         const contours = options.contours || [];
         const modelIdHint = options.modelId;
 
+    // 🔥 НОВОЕ: Извлекаем контур следа из contours
+    const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
+   
+    if (outlineContour && this.debug) {
+        console.log(`📐 Найден контур следа (${outlineContour.points.length} точек) для сохранения в модель`);
+    }
+
         if (this.debug) {
             console.log(`\n🔍 ОТЛАДКА processPoints:`);
             console.log(`   • photoId: ${photoId}`);
@@ -2123,12 +2130,23 @@ if (this.debug) {
             this.photoToModel.set(photoId, result.modelId);
             this.stats.differentFootprintsDetected++;
 
-            return {
+              if (this.models.has(modelIdHint)) {
+        const model = this.models.get(modelIdHint);
+        if (outlineContour && !model.metadata.outlineContour) {
+            // Сохраняем только если ещё нет (или обновляем)
+            model.metadata.outlineContour = outlineContour;
+            if (this.debug) console.log(`💾 Контур следа сохранён в модель ${modelIdHint.substring(0,12)}`);
+        }
+    }
+
+    // В возвращаемом результате также передаём контур
+    return {
                 status: 'created_new',
                 modelId: result.modelId,
                 similarity: bestMatch.similarity,
                 comparedWith: bestMatch.modelId,
                 totalModels: this.models.size,
+     outlineContour: outlineContour,
                 isDifferentFootprint: true,
                 message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
             };
@@ -3229,8 +3247,12 @@ console.log(`   • Всего треугольников в структур�
     }
     console.log(`   • pointToStructure содержит ID модели: ${Array.from(pointToStructure.keys()).slice(0,3).map(k => k.substring(0,20)).join(', ')}`);
 
-    // 🔥 УБЕРИ ВТОРОЕ ОБЪЯВЛЕНИЕ pointToStructure (оно было здесь)
-    // const pointToStructure = model.pointToStructure || new Map(); ← УДАЛИ ЭТУ СТРОКУ
+     // 🔥 НОВОЕ: Получаем контур следа из метаданных модели
+    const outlineContour = model.metadata?.outlineContour || null;
+   
+    if (outlineContour && this.debug) {
+        console.log(`📐 Для визуализации передан контур следа (${outlineContour.points.length} точек)`);
+    }
 
     return {
         modelId: targetId,
@@ -3240,6 +3262,7 @@ console.log(`   • Всего треугольников в структур�
         structures: structures,
         triangles: modelTriangles,
         pointToStructure: pointToStructure,
+     outlineContour: outlineContour,
         stats: {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
