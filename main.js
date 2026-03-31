@@ -2361,31 +2361,18 @@ if (isHorizontal) {
     console.log(`🖼️ Изображение повёрнуто в вертикальную ориентацию`);
 }
 
-// 🔥 ОТПРАВЛЯЕМ ФАЙЛ В ROBOFLOW
+// 🔥 ОБЪЯВЛЯЕМ ПЕРЕМЕННУЮ ЗДЕСЬ
+let predictions = [];
+
+// Отправляем файл в Roboflow
 const FormData = require('form-data');
 const form = new FormData();
-
-// Проверяем, что файл существует
-if (!fs.existsSync(finalImagePath)) {
-    console.log(`❌ Файл не найден: ${finalImagePath}`);
-    throw new Error('Файл для отправки не найден');
-}
-
-// Получаем размер файла
-const fileStats = fs.statSync(finalImagePath);
-console.log(`📤 Отправка файла: ${finalImagePath}, размер: ${(fileStats.size / 1024).toFixed(1)} KB`);
-
-// 🔥 ИСПРАВЛЕНИЕ: поле должно называться 'file', а не 'image'
 form.append('file', fs.createReadStream(finalImagePath), {
     filename: 'image.jpg',
     contentType: 'image/jpeg'
 });
 
-console.log(`🌐 Roboflow URL: ${config.ROBOFLOW.API_URL}`);
-console.log(`🔑 API Key: ${config.ROBOFLOW.API_KEY.substring(0, 10)}...`);
-console.log(`🎯 Confidence: ${config.ROBOFLOW.CONFIDENCE}, Overlap: ${config.ROBOFLOW.OVERLAP}`);
-
-let predictions = [];
+console.log(`📤 Отправка файла: ${finalImagePath}, размер: ${(fs.statSync(finalImagePath).size / 1024).toFixed(1)} KB`);
 
 try {
     const roboflowResponse = await axios({
@@ -2413,19 +2400,20 @@ try {
         console.log(`   Статус: ${error.response.status}`);
         console.log(`   Данные:`, error.response.data);
     }
-    // 🔥 ВАЖНО: при ошибке нужно либо вернуться, либо выбросить исключение
-    throw error; // или return
+    throw error;
 }
 
-        if (predictions.length > 0) {
-            // Подсчитаем классы для информативного лога
-            const classCount = {};
-            predictions.forEach(pred => {
-                const className = pred.class || 'unknown';
-                classCount[className] = (classCount[className] || 0) + 1;
-            });
-
-            console.log(`📊 Roboflow: ${predictions.length} объектов. Распределение: ${JSON.stringify(classCount)}`);
+// 🔥 ДАЛЬШЕ ИСПОЛЬЗУЕМ predictions
+if (predictions.length > 0) {
+    const classCount = {};
+    predictions.forEach(pred => {
+        const className = pred.class || 'unknown';
+        classCount[className] = (classCount[className] || 0) + 1;
+    });
+    console.log(`📊 Roboflow: ${predictions.length} объектов. Распределение: ${JSON.stringify(classCount)}`);
+} else {
+    console.log('📭 Roboflow: объектов не обнаружено');
+}
 
             // Покажем только первую точку если включен расширенный дебаг
             if (DEBUG_MODE) {
