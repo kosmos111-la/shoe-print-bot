@@ -84,8 +84,18 @@ class ClusterVisualizer {
         const avgY = (minY + maxY) / 2;
 
         if (this.config.showEdges && topologyData.edges) {
-            this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
-        }
+        this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+    }
+
+    // 🔥 НОВОЕ: Рисуем контур следа модели
+    if (topologyData.outlineContour && topologyData.outlineContour.points) {
+        this.drawFootprintContour(
+            ctx,
+            topologyData.outlineContour.points,
+            avgX, avgY, centerX, centerY, scale,
+            false // isPhoto = false (контур модели)
+        );
+    }
 
         const modelMatchMap = topologyData.modelMatchMap || new Map();
         console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} записей`);
@@ -286,11 +296,21 @@ class ClusterVisualizer {
         const avgX = (minX + maxX) / 2;
         const avgY = (minY + maxY) / 2;
 
-        if (this.config.showEdges && topologyData.edges) {
-            this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
-        }
+         if (this.config.showEdges && topologyData.edges) {
+        this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+    }
 
-        const photoPoints = topologyData.photoPoints || [];
+    // 🔥 НОВОЕ: Рисуем контур следа из фото
+    if (topologyData.outlineContour && topologyData.outlineContour.points) {
+        this.drawFootprintContour(
+            ctx,
+            topologyData.outlineContour.points,
+            avgX, avgY, centerX, centerY, scale,
+            true // isPhoto = true (контур из фото)
+        );
+    }
+
+    const photoPoints = topologyData.photoPoints || [];
         console.log(`   📸 Рисую ${photoPoints.length} точек фото`);
         const matchMap = topologyData.matchMap || new Map();
         console.log(`   📋 matchMap содержит ${matchMap.size} записей`);
@@ -476,6 +496,61 @@ class ClusterVisualizer {
         return Math.min(targetWidth / width, targetHeight / height, 4);
     }
 
+/**
+* Рисует контур следа (пунктирной линией)
+* @param {CanvasRenderingContext2D} ctx - контекст canvas
+* @param {Array} points - массив точек контура
+* @param {number} avgX - средний X для масштабирования
+* @param {number} avgY - средний Y для масштабирования
+* @param {number} centerX - центр X на canvas
+* @param {number} centerY - центр Y на canvas
+* @param {number} scale - масштаб
+* @param {boolean} isPhoto - контур из фото или модели
+*/
+drawFootprintContour(ctx, points, avgX, avgY, centerX, centerY, scale, isPhoto = false) {
+    if (!points || points.length < 3) {
+        if (this.config.debug) console.log(`⚠️ Недостаточно точек для контура: ${points?.length || 0}`);
+        return;
+    }
+
+    // Трансформируем точки в координаты canvas
+    const transformedPoints = points.map(p => ({
+        x: centerX + (p.x - avgX) * scale,
+        y: centerY + (p.y - avgY) * scale
+    }));
+
+    // Рисуем пунктирную линию
+    ctx.beginPath();
+    ctx.moveTo(transformedPoints[0].x, transformedPoints[0].y);
+    for (let i = 1; i < transformedPoints.length; i++) {
+        ctx.lineTo(transformedPoints[i].x, transformedPoints[i].y);
+    }
+    ctx.closePath();
+
+    // Выбираем цвет
+    if (isPhoto) {
+        ctx.strokeStyle = '#AA00FF'; // Фиолетовый для фото
+        ctx.fillStyle = 'rgba(170, 0, 255, 0.05)'; // Полупрозрачная заливка
+    } else {
+        ctx.strokeStyle = '#00AAFF'; // Синий для модели
+        ctx.fillStyle = 'rgba(0, 170, 255, 0.05)'; // Полупрозрачная заливка
+    }
+   
+    ctx.setLineDash([8, 8]); // Пунктирная линия
+    ctx.lineWidth = 2;
+    ctx.stroke();
+   
+    // Опциональная заливка (очень прозрачная)
+    ctx.fill();
+   
+    // Сбрасываем пунктир для следующих элементов
+    ctx.setLineDash([]);
+   
+    if (this.config.debug) {
+        console.log(`   🎨 Нарисован контур следа: ${transformedPoints.length} точек, ${isPhoto ? 'фото' : 'модель'}`);
+    }
+}
+  
     createTopologyReport(topologyData, error) {
         const outputPath = path.join(this.config.outputDir, `topology_report_${Date.now()}.txt`);
         let report = `🏗️ ОТЧЕТ О ТОПОЛОГИЧЕСКОЙ МОДЕЛИ\n`;
