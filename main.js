@@ -2415,20 +2415,7 @@ if (predictions.length > 0) {
     console.log('📭 Roboflow: объектов не обнаружено');
 }
 
-            // Покажем только первую точку если включен расширенный дебаг
-            if (DEBUG_MODE) {
-                const firstPred = predictions[0];
-                console.log('🔍 Расширенный дебаг (первый объект):');
-                console.log(`  class: ${firstPred.class}, confidence: ${firstPred.confidence}`);
-
-                if (firstPred.points && firstPred.points.length > 0) {
-                    const firstPoint = firstPred.points[0];
-                    console.log(`  point[0]: x=${firstPoint.x}, y=${firstPoint.y}`);
-                }
-            }
-        } else {
-            console.log('📭 Roboflow: объектов не обнаружено');
-        }
+          
 
         const processedPredictions = smartPostProcessing(predictions);
         const analysis = analyzePredictions(processedPredictions);
