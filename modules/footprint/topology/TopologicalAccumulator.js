@@ -1060,7 +1060,7 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
                             const dy = projected.y - modelPoint.y;
                             const dist = Math.sqrt(dx*dx + dy*dy);
 
-                            if (dist < bestDist && dist < 15) {
+                            if (dist < bestDist && dist < 20) {  // ← радиус 20px
                                 bestDist = dist;
                                 bestMatch = { modelId, modelPoint };
                             }
@@ -1098,7 +1098,7 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
                                 const finalMorphScore = checks > 0 ? morphScore / checks : 0.5;
                                 if (this.debug) console.log(`      Морфология: ${(finalMorphScore * 100).toFixed(1)}%`);
 
-                                if (finalMorphScore > 0.50) {  // с 70% до 50%
+                                if (finalMorphScore > 0.45) {  // с 70% до 45%
     newPairs.push({
         pointA: photoPoint.id,
         pointB: bestMatch.modelId,
@@ -1452,7 +1452,7 @@ if (this.debug && refinementIteration > 1) {
                                         const dy = projected.y - modelPoint.y;
                                         const dist = Math.sqrt(dx*dx + dy*dy);
 
-                                        if (dist < 15) { // порог как в валидаторе
+                                        if (dist < 20) {  // с 15px до 20px
                                             candidates.push({
                                                 modelPoint,
                                                 distance: dist,
