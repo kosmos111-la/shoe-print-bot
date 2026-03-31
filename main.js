@@ -2283,6 +2283,10 @@ async function processPhotoQueue(userId, chatId) {
 // Обработчик отдельного фото (вынесенная логика)
 async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCount = 1) {
     const hasSession = sessionManager ? sessionManager.hasActiveSession(userId) : false;
+   
+    // 🔥 ОБЪЯВЛЯЕМ ПЕРЕМЕННЫЕ ДЛЯ ФАЙЛОВ (в самом начале)
+    let tempImagePath = null;
+    let finalImagePath = null;
 
     try {
         updateUserStats(userId, msg.from.username || msg.from.first_name, 'photo');
@@ -2316,21 +2320,7 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
         const file = await bot.getFile(photo.file_id);
         const fileUrl = `https://api.telegram.org/file/bot${config.TELEGRAM_TOKEN}/${file.file_path}`;
 
-        // 🔄 СОХРАНЯЕМ ФОТО ВО ВРЕМЕННЫЙ ФАЙЛ
-        const tempImagePath = tempFileManager.createTempFile('original', 'jpg');
-        const response = await axios({
-            method: 'GET',
-            url: fileUrl,
-            responseType: 'stream'
-        });
-
-        await new Promise((resolve, reject) => {
-            const writer = fs.createWriteStream(tempImagePath);
-            response.data.pipe(writer);
-            writer.on('finish', resolve);
-            writer.on('error', reject);
-        });
-
+        
         // Если сессия - добавляем фото
         if (hasSession && sessionManager) {
             sessionManager.addPhotoToSession(userId, {
@@ -2343,30 +2333,57 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
             });
         }
 
-        // 🔍 АНАЛИЗ ROBOFLOW
-        const roboflowResponse = await axios({
+// 🔍 АНАЛИЗ ROBOFLOW
+// Сохраняем оригинальное фото во временный файл
+tempImagePath = tempFileManager.createTempFile('original', 'jpg');
+const response = await axios({
+    method: 'GET',
+    url: fileUrl,
+    responseType: 'stream'
+});
+
+await new Promise((resolve, reject) => {
+    const writer = fs.createWriteStream(tempImagePath);
+    response.data.pipe(writer);
+    writer.on('finish', resolve);
+    writer.on('error', reject);
+});
+
+// 🔥 ПРОВЕРЯЕМ, НУЖНО ЛИ ПОВЕРНУТЬ
+const isHorizontal = await isHorizontalImage(tempImagePath);
+finalImagePath = tempImagePath;
+
+if (isHorizontal) {
+    const rotatedPath = tempFileManager.createTempFile('rotated', 'jpg');
+    await rotateImageToVertical(tempImagePath, rotatedPath);
+    finalImagePath = rotatedPath;
+    console.log(`🖼️ Изображение повёрнуто в вертикальную ориентацию`);
+}
+
+// Читаем повёрнутое (или исходное) изображение в буфер
+const imageBuffer = fs.readFileSync(finalImagePath);
+
+// Отправляем в Roboflow
+const roboflowResponse = await axios({
     method: "POST",
     url: config.ROBOFLOW.API_URL,
     params: {
         api_key: config.ROBOFLOW.API_KEY,
-        image: fileUrl,
         confidence: config.ROBOFLOW.CONFIDENCE,
         overlap: config.ROBOFLOW.OVERLAP,
         format: 'json'
     },
+    data: imageBuffer,
+    headers: { 'Content-Type': 'application/octet-stream' },
     timeout: 30000
 });
 
 let predictions = roboflowResponse.data.predictions || [];
 
-// 🔥 НОРМАЛИЗУЕМ ОРИЕНТАЦИЮ СЛЕДА
-// const normalized = normalizeFootprintOrientation(predictions);
-// predictions = normalized.predictions;
-// const appliedRotation = normalized.rotation;
+// 🔥 Для дальнейшей визуализации используем ПОВЁРНУТЫЙ файл
+// (переменная finalImagePath уже содержит правильный путь)
 
-// if (appliedRotation !== 0) {
-//     console.log(`🔄 След повёрнут на ${appliedRotation.toFixed(1)}°, предсказания нормализованы`);
-// }
+console.log(`📊 Roboflow: ${predictions.length} объектов`);
 
         if (predictions.length > 0) {
             // Подсчитаем классы для информативного лога
@@ -2795,8 +2812,11 @@ if (!session) {
             }
          
             // Очистка
-            tempFileManager.removeFile(tempImagePath);
-            if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
+tempFileManager.removeFile(tempImagePath);
+if (finalImagePath && finalImagePath !== tempImagePath) {
+    tempFileManager.removeFile(finalImagePath);
+}
+if (topologyVizPath) tempFileManager.removeFile(topologyVizPath);
          
             return; // Выходим здесь после обработки одиночного фото
         }
@@ -4055,6 +4075,60 @@ bot.onText(/\/force_update_confirmations/, async (msg) => {
         await bot.sendMessage(chatId, `❌ Ошибка: ${error.message}`);
     }
 });
+
+// =============================================================================
+// 🔄 ПОВОРОТ ГОРИЗОНТАЛЬНЫХ ИЗОБРАЖЕНИЙ ПЕРЕД ROBOFLOW (через canvas)
+// =============================================================================
+
+const { createCanvas, loadImage } = require('canvas');
+
+/**
+* Определяет, является ли изображение горизонтальным (ширина > высоты)
+* @param {string} imagePath - путь к изображению
+* @returns {Promise<boolean>}
+*/
+async function isHorizontalImage(imagePath) {
+    try {
+        const image = await loadImage(imagePath);
+        const isHorizontal = image.width > image.height;
+        if (isHorizontal) {
+            console.log(`📐 Изображение горизонтальное (${image.width}x${image.height}) → будет повёрнуто`);
+        }
+        return isHorizontal;
+    } catch (error) {
+        console.log('⚠️ Ошибка определения ориентации:', error.message);
+        return false;
+    }
+}
+
+/**
+* Поворачивает изображение на 90 градусов (горизонтальное → вертикальное)
+* @param {string} inputPath - путь к исходному изображению
+* @param {string} outputPath - путь для сохранения повёрнутого
+* @returns {Promise<Buffer>}
+*/
+async function rotateImageToVertical(inputPath, outputPath) {
+    try {
+        const image = await loadImage(inputPath);
+       
+        const canvas = createCanvas(image.height, image.width);
+        const ctx = canvas.getContext('2d');
+       
+        ctx.translate(image.height, 0);
+        ctx.rotate(Math.PI / 2);
+        ctx.drawImage(image, 0, 0);
+       
+        const buffer = canvas.toBuffer('image/jpeg');
+        fs.writeFileSync(outputPath, buffer);
+       
+        console.log(`🔄 Изображение повёрнуто на 90° (горизонтальное → вертикальное)`);
+        return buffer;
+    } catch (error) {
+        console.log('⚠️ Ошибка поворота:', error.message);
+        const originalBuffer = fs.readFileSync(inputPath);
+        return originalBuffer;
+    }
+}
 
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
