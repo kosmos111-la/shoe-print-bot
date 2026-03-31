@@ -2375,12 +2375,12 @@ if (!fs.existsSync(finalImagePath)) {
 const fileStats = fs.statSync(finalImagePath);
 console.log(`📤 Отправка файла: ${finalImagePath}, размер: ${(fileStats.size / 1024).toFixed(1)} KB`);
 
-form.append('image', fs.createReadStream(finalImagePath), {
+// 🔥 ИСПРАВЛЕНИЕ: поле должно называться 'file', а не 'image'
+form.append('file', fs.createReadStream(finalImagePath), {
     filename: 'image.jpg',
     contentType: 'image/jpeg'
 });
 
-// Выводим параметры запроса
 console.log(`🌐 Roboflow URL: ${config.ROBOFLOW.API_URL}`);
 console.log(`🔑 API Key: ${config.ROBOFLOW.API_KEY.substring(0, 10)}...`);
 console.log(`🎯 Confidence: ${config.ROBOFLOW.CONFIDENCE}, Overlap: ${config.ROBOFLOW.OVERLAP}`);
