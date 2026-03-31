@@ -4,6 +4,7 @@
 
 const express = require('express');
 const TelegramBot = require('node-telegram-bot-api');
+const FormData = require('form-data');
 
 // 🔥 ИСПРАВЛЕНО: Отключаем предупреждения Telegram API
 process.env.NTBA_FIX_319 = 1;
@@ -2360,10 +2361,14 @@ if (isHorizontal) {
     console.log(`🖼️ Изображение повёрнуто в вертикальную ориентацию`);
 }
 
-// Читаем повёрнутое (или исходное) изображение в буфер
-const imageBuffer = fs.readFileSync(finalImagePath);
+// 🔥 ОТПРАВЛЯЕМ КАК FORM-DATA
+const FormData = require('form-data');
+const form = new FormData();
+form.append('image', fs.createReadStream(finalImagePath), {
+    filename: 'image.jpg',
+    contentType: 'image/jpeg'
+});
 
-// Отправляем в Roboflow
 const roboflowResponse = await axios({
     method: "POST",
     url: config.ROBOFLOW.API_URL,
@@ -2373,15 +2378,12 @@ const roboflowResponse = await axios({
         overlap: config.ROBOFLOW.OVERLAP,
         format: 'json'
     },
-    data: imageBuffer,
-    headers: { 'Content-Type': 'application/octet-stream' },
+    data: form,
+    headers: form.getHeaders(),
     timeout: 30000
 });
 
 let predictions = roboflowResponse.data.predictions || [];
-
-// 🔥 Для дальнейшей визуализации используем ПОВЁРНУТЫЙ файл
-// (переменная finalImagePath уже содержит правильный путь)
 
 console.log(`📊 Roboflow: ${predictions.length} объектов`);
 
