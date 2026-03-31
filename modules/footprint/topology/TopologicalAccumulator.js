@@ -1098,7 +1098,7 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
                                 const finalMorphScore = checks > 0 ? morphScore / checks : 0.5;
                                 if (this.debug) console.log(`      Морфология: ${(finalMorphScore * 100).toFixed(1)}%`);
 
-                                if (finalMorphScore > 0.55) {  // с 70% до 55%
+                                if (finalMorphScore > 0.50) {  // с 70% до 50%
     newPairs.push({
         pointA: photoPoint.id,
         pointB: bestMatch.modelId,
@@ -1134,7 +1134,7 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
 if (this.debug) console.log(`\n🧲 МЯГКОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ НЕСОПОСТАВЛЕННЫХ ТОЧЕК`);
 
 let softPulled = 0;
-const softThreshold = 12; // порог в пикселях для мягкого притягивания
+const softThreshold = 15; // порог в пикселях для мягкого притягивания (было 12)
 
 // Обновляем множества после добавления новых пар
 const updatedMatchedPointsA = new Set(finalValidatedMatches.map(m => m.pointA));
@@ -1188,6 +1188,101 @@ if (this.debug && softPulled > 0) {
     console.log(`   ✅ Мягко притянуто ${softPulled} точек (порог ${softThreshold}px)`);
 }
 
+// ===== ИТЕРАТИВНОЕ УТОЧНЕНИЕ TRANSFORM =====
+if (softPulled > 0 && this.debug) console.log(`\n🔄 ИТЕРАТИВНОЕ УТОЧНЕНИЕ TRANSFORM (после мягкого притягивания)`);
+
+let refinementIteration = 0;
+const maxRefinements = 3;
+let transformRefined = finalTransform;
+
+while (refinementIteration < maxRefinements) {
+    refinementIteration++;
+   
+    // Собираем все актуальные соответствия
+    const allAnchors = [];
+    for (const match of finalValidatedMatches) {
+        const photoPoint = exactGraph.nodes.get(match.pointA);
+        const modelPoint = existingModel.graph.nodes.get(match.pointB);
+        if (photoPoint && modelPoint) {
+            allAnchors.push({
+                pointA: match.pointA,
+                pointB: match.pointB,
+                confidence: match.confidence
+            });
+        }
+    }
+   
+    if (allAnchors.length < 3) break;
+   
+    // Пересчитываем transform
+    const newTransform = validator.calculateTransform(allAnchors, exactGraph, existingModel.graph);
+    if (!newTransform) break;
+   
+    // Проверяем, изменился ли transform
+    const scaleDiff = Math.abs(newTransform.scale - transformRefined.scale) / transformRefined.scale;
+    const rotDiff = Math.abs(newTransform.rotation - transformRefined.rotation) * 180 / Math.PI;
+   
+    if (scaleDiff < 0.01 && rotDiff < 0.5) {
+        if (this.debug) console.log(`   ✅ Transform стабилизировался (масштаб ${(scaleDiff*100).toFixed(2)}%, поворот ${rotDiff.toFixed(2)}°)`);
+        break;
+    }
+   
+    transformRefined = newTransform;
+   
+    if (this.debug) {
+        console.log(`   🔄 Итерация ${refinementIteration}: масштаб ${transformRefined.scale.toFixed(3)} (было ${finalTransform.scale.toFixed(3)}), поворот ${(transformRefined.rotation * 180 / Math.PI).toFixed(1)}° (было ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°)`);
+    }
+   
+    // Повторяем мягкое притягивание с новым transform
+    let softPulledAgain = 0;
+    const remainingPhotoPoints = points.filter(p => !updatedMatchedPointsA.has(p.id));
+    const remainingModelPoints = Array.from(existingModel.graph.nodes.values())
+        .filter(p => !updatedMatchedPointsB.has(p.id));
+   
+    for (const photoPoint of remainingPhotoPoints) {
+        if (!photoPoint || !photoPoint.id) continue;
+       
+        const projected = this.applyTransform(photoPoint, transformRefined);
+       
+        let bestMatch = null;
+        let bestDist = Infinity;
+       
+        for (const modelPoint of remainingModelPoints) {
+            if (!modelPoint || !modelPoint.id) continue;
+           
+            const dx = projected.x - modelPoint.x;
+            const dy = projected.y - modelPoint.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+           
+            if (dist < bestDist && dist < softThreshold) {
+                bestDist = dist;
+                bestMatch = modelPoint;
+            }
+        }
+       
+        if (bestMatch && bestDist > 0.5) {
+            const weight = 0.5;
+            const avgX = (projected.x * weight + bestMatch.x * (1 - weight));
+            const avgY = (projected.y * weight + bestMatch.y * (1 - weight));
+           
+            bestMatch.x = avgX;
+            bestMatch.y = avgY;
+            softPulledAgain++;
+        }
+    }
+   
+    if (this.debug && softPulledAgain > 0) {
+        console.log(`   🧲 Дополнительное мягкое притягивание: ${softPulledAgain} точек`);
+    }
+   
+    // Обновляем transform для следующей итерации
+    finalTransform = transformRefined;
+}
+
+if (this.debug && refinementIteration > 1) {
+    console.log(`   ✅ Уточнение transform завершено после ${refinementIteration} итераций`);
+}
+                 
                  
                     // Точки только в первом следе (модель)
                     const uniqueInModel = allPointsInA
