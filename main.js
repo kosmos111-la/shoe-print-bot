@@ -2361,10 +2361,13 @@ if (isHorizontal) {
     console.log(`🖼️ Изображение повёрнуто в вертикальную ориентацию`);
 }
 
-// 🔥 ОТПРАВЛЯЕМ КАК FORM-DATA
+// 🔍 АНАЛИЗ ROBOFLOW с буфером (правильная отправка)
 const FormData = require('form-data');
 const form = new FormData();
-form.append('image', fs.createReadStream(finalImagePath), {
+
+// Читаем файл как buffer
+const imageBuffer = fs.readFileSync(finalImagePath);
+form.append('image', imageBuffer, {
     filename: 'image.jpg',
     contentType: 'image/jpeg'
 });
@@ -2379,7 +2382,10 @@ const roboflowResponse = await axios({
         format: 'json'
     },
     data: form,
-    headers: form.getHeaders(),
+    headers: {
+        ...form.getHeaders(),
+        'Content-Length': imageBuffer.length
+    },
     timeout: 30000
 });
 
