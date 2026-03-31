@@ -2385,6 +2385,8 @@ console.log(`🌐 Roboflow URL: ${config.ROBOFLOW.API_URL}`);
 console.log(`🔑 API Key: ${config.ROBOFLOW.API_KEY.substring(0, 10)}...`);
 console.log(`🎯 Confidence: ${config.ROBOFLOW.CONFIDENCE}, Overlap: ${config.ROBOFLOW.OVERLAP}`);
 
+let predictions = [];
+
 try {
     const roboflowResponse = await axios({
         method: "POST",
@@ -2402,7 +2404,7 @@ try {
         maxBodyLength: Infinity
     });
 
-    let predictions = roboflowResponse.data.predictions || [];
+    predictions = roboflowResponse.data.predictions || [];
     console.log(`📊 Roboflow: ${predictions.length} объектов`);
 
 } catch (error) {
@@ -2411,7 +2413,8 @@ try {
         console.log(`   Статус: ${error.response.status}`);
         console.log(`   Данные:`, error.response.data);
     }
-    throw error;
+    // 🔥 ВАЖНО: при ошибке нужно либо вернуться, либо выбросить исключение
+    throw error; // или return
 }
 
         if (predictions.length > 0) {
