@@ -2364,31 +2364,55 @@ if (isHorizontal) {
 // 🔥 ОТПРАВЛЯЕМ ФАЙЛ В ROBOFLOW
 const FormData = require('form-data');
 const form = new FormData();
+
+// Проверяем, что файл существует
+if (!fs.existsSync(finalImagePath)) {
+    console.log(`❌ Файл не найден: ${finalImagePath}`);
+    throw new Error('Файл для отправки не найден');
+}
+
+// Получаем размер файла
+const fileStats = fs.statSync(finalImagePath);
+console.log(`📤 Отправка файла: ${finalImagePath}, размер: ${(fileStats.size / 1024).toFixed(1)} KB`);
+
 form.append('image', fs.createReadStream(finalImagePath), {
     filename: 'image.jpg',
     contentType: 'image/jpeg'
 });
 
-const roboflowResponse = await axios({
-    method: "POST",
-    url: config.ROBOFLOW.API_URL,
-    params: {
-        api_key: config.ROBOFLOW.API_KEY,
-        confidence: config.ROBOFLOW.CONFIDENCE,
-        overlap: config.ROBOFLOW.OVERLAP,
-        format: 'json'
-    },
-    data: form,
-    headers: form.getHeaders(),
-    timeout: 30000
-});
+// Выводим параметры запроса
+console.log(`🌐 Roboflow URL: ${config.ROBOFLOW.API_URL}`);
+console.log(`🔑 API Key: ${config.ROBOFLOW.API_KEY.substring(0, 10)}...`);
+console.log(`🎯 Confidence: ${config.ROBOFLOW.CONFIDENCE}, Overlap: ${config.ROBOFLOW.OVERLAP}`);
 
-let predictions = roboflowResponse.data.predictions || [];
+try {
+    const roboflowResponse = await axios({
+        method: "POST",
+        url: config.ROBOFLOW.API_URL,
+        params: {
+            api_key: config.ROBOFLOW.API_KEY,
+            confidence: config.ROBOFLOW.CONFIDENCE,
+            overlap: config.ROBOFLOW.OVERLAP,
+            format: 'json'
+        },
+        data: form,
+        headers: form.getHeaders(),
+        timeout: 30000,
+        maxContentLength: Infinity,
+        maxBodyLength: Infinity
+    });
 
-// 🔥 Для дальнейшей визуализации используем ПОВЁРНУТЫЙ файл
-// finalImagePath уже содержит правильный путь
+    let predictions = roboflowResponse.data.predictions || [];
+    console.log(`📊 Roboflow: ${predictions.length} объектов`);
 
-console.log(`📊 Roboflow: ${predictions.length} объектов`);
+} catch (error) {
+    console.log(`❌ Ошибка Roboflow: ${error.message}`);
+    if (error.response) {
+        console.log(`   Статус: ${error.response.status}`);
+        console.log(`   Данные:`, error.response.data);
+    }
+    throw error;
+}
 
         if (predictions.length > 0) {
             // Подсчитаем классы для информативного лога
