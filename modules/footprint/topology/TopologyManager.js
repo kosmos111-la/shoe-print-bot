@@ -108,7 +108,13 @@ class TopologyManager {
             modelId = this.accumulator.currentModelId;
         }
 
-        // Передаём точки и контуры в аккумулятор
+        // 🔥 НОВОЕ: Добавляем диагностику
+    const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
+    if (outlineContour && this.debug) {
+        console.log(`📐 В процессе обработки найден контур следа (${outlineContour.points.length} точек)`);
+    }
+
+    // Передаём точки и контуры в аккумулятор
         const result = await this.accumulator.processPoints(points, {
             modelId: modelId,
             source: `photo_${photoInfo.photoId || Date.now()}`,
