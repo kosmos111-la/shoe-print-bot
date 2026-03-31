@@ -1098,15 +1098,15 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
                                 const finalMorphScore = checks > 0 ? morphScore / checks : 0.5;
                                 if (this.debug) console.log(`      Морфология: ${(finalMorphScore * 100).toFixed(1)}%`);
 
-                                if (finalMorphScore > 0.7) {
-                                    newPairs.push({
-                                        pointA: photoPoint.id,
-                                        pointB: bestMatch.modelId,
-                                        confidence: 1 - (bestDist / 30),
-                                        status: 'new_pair'
-                                    });
-                                    newPairsFound++;
-                                }
+                                if (finalMorphScore > 0.55) {  // с 70% до 55%
+    newPairs.push({
+        pointA: photoPoint.id,
+        pointB: bestMatch.modelId,
+        confidence: 1 - (bestDist / 30),
+        status: 'new_pair'
+    });
+    newPairsFound++;
+}
                             }
                         }
                     }
@@ -1130,6 +1130,65 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
                         if (this.debug) console.log(`\n⚠️ Новых пар не найдено`);
                     }
 
+// ===== МЯГКОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ НЕСОПОСТАВЛЕННЫХ ТОЧЕК =====
+if (this.debug) console.log(`\n🧲 МЯГКОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ НЕСОПОСТАВЛЕННЫХ ТОЧЕК`);
+
+let softPulled = 0;
+const softThreshold = 12; // порог в пикселях для мягкого притягивания
+
+// Обновляем множества после добавления новых пар
+const updatedMatchedPointsA = new Set(finalValidatedMatches.map(m => m.pointA));
+const updatedMatchedPointsB = new Set(finalValidatedMatches.map(m => m.pointB));
+
+const remainingPhotoPoints = points.filter(p => !updatedMatchedPointsA.has(p.id));
+const remainingModelPoints = Array.from(existingModel.graph.nodes.values())
+    .filter(p => !updatedMatchedPointsB.has(p.id));
+
+for (const photoPoint of remainingPhotoPoints) {
+    if (!photoPoint || !photoPoint.id) continue;
+   
+    const projected = this.applyTransform(photoPoint, finalTransform);
+   
+    let bestMatch = null;
+    let bestDist = Infinity;
+   
+    for (const modelPoint of remainingModelPoints) {
+        if (!modelPoint || !modelPoint.id) continue;
+       
+        const dx = projected.x - modelPoint.x;
+        const dy = projected.y - modelPoint.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+       
+        if (dist < bestDist && dist < softThreshold) {
+            bestDist = dist;
+            bestMatch = modelPoint;
+        }
+    }
+   
+    if (bestMatch && bestDist > 0.5) {
+        // Усредняем позицию (мягкое притягивание)
+        const weight = 0.5;
+        const avgX = (projected.x * weight + bestMatch.x * (1 - weight));
+        const avgY = (projected.y * weight + bestMatch.y * (1 - weight));
+       
+        bestMatch.x = avgX;
+        bestMatch.y = avgY;
+        bestMatch.softPulled = true;
+        bestMatch.softPullDistance = bestDist;
+       
+        softPulled++;
+       
+        if (this.debug && softPulled <= 10) {
+            console.log(`   🧲 Мягкое притягивание: ${photoPoint.id.substring(0,12)} → ${bestMatch.id.substring(0,12)} (${bestDist.toFixed(1)}px)`);
+        }
+    }
+}
+
+if (this.debug && softPulled > 0) {
+    console.log(`   ✅ Мягко притянуто ${softPulled} точек (порог ${softThreshold}px)`);
+}
+
+                 
                     // Точки только в первом следе (модель)
                     const uniqueInModel = allPointsInA
                         .filter(p => p && p.id && !matchedPointsA.has(p.id))
@@ -1725,7 +1784,7 @@ if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
 );
 
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
-const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 3);
+const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);  // с 3px до 5px
 if (this.debug && mergedCount > 0) {
     console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
 }
