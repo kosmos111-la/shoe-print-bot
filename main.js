@@ -2352,7 +2352,7 @@ await new Promise((resolve, reject) => {
 
 // 🔥 ПРОВЕРЯЕМ, НУЖНО ЛИ ПОВЕРНУТЬ
 const isHorizontal = await isHorizontalImage(tempImagePath);
-finalImagePath = tempImagePath;
+let finalImagePath = tempImagePath;
 
 if (isHorizontal) {
     const rotatedPath = tempFileManager.createTempFile('rotated', 'jpg');
@@ -2361,13 +2361,10 @@ if (isHorizontal) {
     console.log(`🖼️ Изображение повёрнуто в вертикальную ориентацию`);
 }
 
-// 🔍 АНАЛИЗ ROBOFLOW с буфером (правильная отправка)
+// 🔥 ОТПРАВЛЯЕМ ФАЙЛ (не буфер) через form-data
 const FormData = require('form-data');
 const form = new FormData();
-
-// Читаем файл как buffer
-const imageBuffer = fs.readFileSync(finalImagePath);
-form.append('image', imageBuffer, {
+form.append('image', fs.createReadStream(finalImagePath), {
     filename: 'image.jpg',
     contentType: 'image/jpeg'
 });
@@ -2382,10 +2379,7 @@ const roboflowResponse = await axios({
         format: 'json'
     },
     data: form,
-    headers: {
-        ...form.getHeaders(),
-        'Content-Length': imageBuffer.length
-    },
+    headers: form.getHeaders(),
     timeout: 30000
 });
 
