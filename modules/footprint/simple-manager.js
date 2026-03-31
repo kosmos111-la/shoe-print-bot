@@ -882,7 +882,7 @@ const result = {
     // ==================== ИЗВЛЕЧЕНИЕ ТОЧЕК И КОНТУРОВ ====================
 
 
-    extractPointsAndContours(analysis) {extractPointsAndContours(analysis) {
+    extractPointsAndContours(analysis) {
     console.log(`🔍 Извлечение точек и контуров из анализа...`);
 
     let predictions = [];
