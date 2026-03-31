@@ -2361,7 +2361,7 @@ if (isHorizontal) {
     console.log(`🖼️ Изображение повёрнуто в вертикальную ориентацию`);
 }
 
-// 🔥 ОТПРАВЛЯЕМ ФАЙЛ (не буфер) через form-data
+// 🔥 ОТПРАВЛЯЕМ ФАЙЛ В ROBOFLOW
 const FormData = require('form-data');
 const form = new FormData();
 form.append('image', fs.createReadStream(finalImagePath), {
@@ -2384,6 +2384,9 @@ const roboflowResponse = await axios({
 });
 
 let predictions = roboflowResponse.data.predictions || [];
+
+// 🔥 Для дальнейшей визуализации используем ПОВЁРНУТЫЙ файл
+// finalImagePath уже содержит правильный путь
 
 console.log(`📊 Roboflow: ${predictions.length} объектов`);
 
