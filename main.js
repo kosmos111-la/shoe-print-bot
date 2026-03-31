@@ -2360,13 +2360,13 @@ async function processSinglePhoto(chatId, userId, msg, currentIndex = 1, totalCo
 let predictions = roboflowResponse.data.predictions || [];
 
 // 🔥 НОРМАЛИЗУЕМ ОРИЕНТАЦИЮ СЛЕДА
-const normalized = normalizeFootprintOrientation(predictions);
-predictions = normalized.predictions;
-const appliedRotation = normalized.rotation;
+// const normalized = normalizeFootprintOrientation(predictions);
+// predictions = normalized.predictions;
+// const appliedRotation = normalized.rotation;
 
-if (appliedRotation !== 0) {
-    console.log(`🔄 След повёрнут на ${appliedRotation.toFixed(1)}°, предсказания нормализованы`);
-}
+// if (appliedRotation !== 0) {
+//     console.log(`🔄 След повёрнут на ${appliedRotation.toFixed(1)}°, предсказания нормализованы`);
+// }
 
         if (predictions.length > 0) {
             // Подсчитаем классы для информативного лога
