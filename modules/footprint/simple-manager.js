@@ -882,95 +882,111 @@ const result = {
     // ==================== ИЗВЛЕЧЕНИЕ ТОЧЕК И КОНТУРОВ ====================
 
 
-    extractPointsAndContours(analysis) {
-        console.log(`🔍 Извлечение точек и контуров из анализа...`);
+    extractPointsAndContours(analysis) {extractPointsAndContours(analysis) {
+    console.log(`🔍 Извлечение точек и контуров из анализа...`);
 
+    let predictions = [];
 
-        let predictions = [];
+    // Нормализация predictions (существующая логика)
+    if (Array.isArray(analysis.predictions)) {
+        predictions = analysis.predictions;
+        console.log(`📊 Найден массив predictions: ${predictions.length} элементов`);
+    } else if (analysis.predictions && typeof analysis.predictions === 'object') {
+        if (Array.isArray(analysis.predictions.predictions)) {
+            predictions = analysis.predictions.predictions;
+            console.log(`📊 Найден predictions.predictions: ${predictions.length} элементов`);
+        } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
+            predictions = analysis.predictions.data;
+            console.log(`📊 Найден predictions.data: ${predictions.length} элементов`);
+        } else {
+            predictions = Object.values(analysis.predictions);
+            console.log(`📊 Преобразован объект в массив: ${predictions.length} элементов`);
+        }
+    } else {
+        console.log(`❌ Неизвестный формат predictions`);
+        return { points: [], contours: [] };
+    }
 
+    const points = [];
+    const contours = [];
+    let protectorCount = 0;
+    let otherCount = 0;
+   
+    // 🔥 НОВОЕ: Переменная для хранения контура следа
+    let outlineContour = null;
 
-        if (Array.isArray(analysis.predictions)) {
-            predictions = analysis.predictions;
-            console.log(`📊 Найден массив predictions: ${predictions.length} элементов`);
-        } else if (analysis.predictions && typeof analysis.predictions === 'object') {
-            if (Array.isArray(analysis.predictions.predictions)) {
-                predictions = analysis.predictions.predictions;
-                console.log(`📊 Найден predictions.predictions: ${predictions.length} элементов`);
-            } else if (analysis.predictions.data && Array.isArray(analysis.predictions.data)) {
-                predictions = analysis.predictions.data;
-                console.log(`📊 Найден predictions.data: ${predictions.length} элементов`);
-            } else {
-                predictions = Object.values(analysis.predictions);
-                console.log(`📊 Преобразован объект в массив: ${predictions.length} элементов`);
-            }
-        } else {
-            console.log(`❌ Неизвестный формат predictions`);
-            return { points: [], contours: [] };
-        }
+    for (let i = 0; i < predictions.length; i++) {
+        const pred = predictions[i];
 
+        if (!pred || typeof pred !== 'object') continue;
 
-        const points = [];
-        const contours = [];
-        let protectorCount = 0;
-        let otherCount = 0;
+        // 🔥 НОВЫЙ БЛОК: Обработка контура следа (Outline-trail)
+        if (pred.class === 'Outline-trail' && pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+            outlineContour = {
+                id: `outline_${Date.now()}_${i}`,
+                points: pred.points,
+                class: pred.class,
+                confidence: pred.confidence || 0.5,
+                type: 'footprint_outline'
+            };
+            console.log(`📐 Найден контур следа (${pred.points.length} точек), уверенность: ${(pred.confidence * 100).toFixed(1)}%`);
+            continue; // Пропускаем, не добавляем в точки
+        }
 
+        // Существующая логика для shoe-protector
+        if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+            const pointId = `pt_${Date.now()}_${i}_${protectorCount}`;
 
-        for (let i = 0; i < predictions.length; i++) {
-            const pred = predictions[i];
+            // Сохраняем контур протектора
+            contours.push({
+                id: `contour_${Date.now()}_${i}`,
+                pointId: pointId,
+                points: pred.points,
+                class: pred.class,
+                confidence: pred.confidence || 0.5
+            });
 
+            // Вычисляем центр
+            const center = this.calculateCenter(pred.points);
+            const isProtector = pred.class === 'shoe-protector' ||
+                               (pred.class && pred.class.toLowerCase().includes('protector'));
 
-            if (!pred || typeof pred !== 'object') continue;
+            // Сохраняем точку
+            points.push({
+                id: pointId,
+                x: center.x,
+                y: center.y,
+                confidence: pred.confidence || 0.5,
+                originalPoints: pred.points,
+                class: pred.class,
+                originalIndex: i,
+                contourId: `contour_${Date.now()}_${i}`
+            });
 
+            if (isProtector) {
+                protectorCount++;
+            } else {
+                otherCount++;
+            }
+        }
+    }
 
-            if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+    // 🔥 НОВОЕ: Добавляем контур следа в массив contours, если он найден
+    if (outlineContour) {
+        contours.push(outlineContour);
+        console.log(`✅ Контур следа добавлен в contours (${outlineContour.points.length} точек)`);
+    }
 
-                const pointId = `pt_${Date.now()}_${i}_${protectorCount}`;
+    console.log(`✅ Извлечено точек: ${points.length}, контуров: ${contours.length}`);
+    console.log(`   Протекторы: ${protectorCount}, другие: ${otherCount}`);
+    if (outlineContour) {
+        console.log(`   Контур следа: есть (${outlineContour.points.length} точек)`);
+    } else {
+        console.log(`   Контур следа: не найден`);
+    }
 
-                // 🔥 СОХРАНЯЕМ КОНТУР
-                contours.push({
-                    id: `contour_${Date.now()}_${i}`,
-                    pointId: pointId,
-                    points: pred.points,
-                    class: pred.class,
-                    confidence: pred.confidence || 0.5
-                });
-
-
-                // 🔥 ВЫЧИСЛЯЕМ ЦЕНТР
-                const center = this.calculateCenter(pred.points);
-
-                const isProtector = pred.class === 'shoe-protector' ||
-                                   (pred.class && pred.class.toLowerCase().includes('protector'));
-
-
-                // 🔥 СОХРАНЯЕМ ТОЧКУ
-                points.push({
-                    id: pointId,
-                    x: center.x,
-                    y: center.y,
-                    confidence: pred.confidence || 0.5,
-                    originalPoints: pred.points,
-                    class: pred.class,
-                    originalIndex: i,
-                    contourId: `contour_${Date.now()}_${i}`
-                });
-
-
-                if (isProtector) {
-                    protectorCount++;
-                } else {
-                    otherCount++;
-                }
-            }
-        }
-
-
-        console.log(`✅ Извлечено точек: ${points.length}, контуров: ${contours.length}`);
-        console.log(`   Протекторы: ${protectorCount}, другие: ${otherCount}`);
-
-
-        return { points, contours };
-    }
+    return { points, contours };
+}
 
 
     calculateCenter(points) {
