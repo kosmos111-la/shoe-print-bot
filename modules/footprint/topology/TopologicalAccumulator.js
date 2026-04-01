@@ -17,7 +17,7 @@ const StructureManager = require('./StructureManager');
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || true;
+        this.debug = options.debug || false;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
         this.fastMode = options.fastMode || false;
@@ -2131,13 +2131,18 @@ if (this.debug) {
             this.stats.differentFootprintsDetected++;
 
               if (this.models.has(modelIdHint)) {
-        const model = this.models.get(modelIdHint);
-        if (outlineContour && !model.metadata.outlineContour) {
-            // Сохраняем только если ещё нет (или обновляем)
-            model.metadata.outlineContour = outlineContour;
-            if (this.debug) console.log(`💾 Контур следа сохранён в модель ${modelIdHint.substring(0,12)}`);
-        }
+    const model = this.models.get(modelIdHint);
+    if (outlineContour && !model.metadata.outlineContour) {
+        // Сохраняем только если ещё нет (или обновляем)
+        model.metadata.outlineContour = outlineContour;
+        console.log(`💾 Контур следа сохранён в модель ${modelIdHint.substring(0,12)}`);
+        console.log(`   точек в контуре: ${outlineContour.points.length}`);
+    } else if (outlineContour && model.metadata.outlineContour) {
+        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
+    } else if (!outlineContour) {
+        console.log(`⚠️ Нет контура для сохранения`);
     }
+}
 
     // В возвращаемом результате также передаём контур
     return {
@@ -3256,31 +3261,41 @@ console.log(`   • Всего треугольников в структур�
 
     return {
         modelId: targetId,
-        modelName: model.metadata.name,
-        points: pointsWithStructure,
-        edges: Array.from(graph.edges),
-        structures: structures,
-        triangles: modelTriangles,
-        pointToStructure: pointToStructure,
-     outlineContour: outlineContour,
-        stats: {
-            totalNodes: graph.nodes.size,
-            totalEdges: graph.edges.size,
-            confirmed3: pointsByConfirmation.confirmed3.length,
-            confirmed2: pointsByConfirmation.confirmed2.length,
-            confirmed1: pointsByConfirmation.confirmed1.length,
-            confirmed0: pointsByConfirmation.confirmed0.length,
-            structureCount: structures.length,
-            reliableNodes: reliableNodeIds.size
-        },
-        pointsByConfirmation: pointsByConfirmation,
-        metadata: model.metadata,
-        allModels: this.getAllModels(),
-        currentModelId: this.currentModelId,
-        modelMatchMap: modelMatchMapFromModel,
-        transform: model.transform,
-        uniquePoints: model.uniquePoints
-    };
+        // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ ПЕРЕД ВОЗВРАТОМ
+const outlineContour = model.metadata?.outlineContour || null;
+console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
+console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+if (outlineContour) {
+    console.log(`   points: ${outlineContour.points?.length || 0}`);
+}
+
+return {
+    modelId: targetId,
+    modelName: model.metadata.name,
+    points: pointsWithStructure,
+    edges: Array.from(graph.edges),
+    structures: structures,
+    triangles: modelTriangles,
+    pointToStructure: pointToStructure,
+    outlineContour: outlineContour,  // 🔥 ДОБАВЛЯЕМ КОНТУР
+    stats: {
+        totalNodes: graph.nodes.size,
+        totalEdges: graph.edges.size,
+        confirmed3: pointsByConfirmation.confirmed3.length,
+        confirmed2: pointsByConfirmation.confirmed2.length,
+        confirmed1: pointsByConfirmation.confirmed1.length,
+        confirmed0: pointsByConfirmation.confirmed0.length,
+        structureCount: structures.length,
+        reliableNodes: reliableNodeIds.size
+    },
+    pointsByConfirmation: pointsByConfirmation,
+    metadata: model.metadata,
+    allModels: this.getAllModels(),
+    currentModelId: this.currentModelId,
+    modelMatchMap: modelMatchMapFromModel,
+    transform: model.transform,
+    uniquePoints: model.uniquePoints
+};
 }
 
 generateStructureColors(structures) {
