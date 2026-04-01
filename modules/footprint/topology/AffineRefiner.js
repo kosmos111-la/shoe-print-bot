@@ -18,97 +18,104 @@ class AffineRefiner {
      * @param {Object} currentTransform - текущий transform (опционально)
      * @returns {Object} - уточнённый transform { a,b,c,d,e,f }
      */
-    refine(pairs, currentTransform = null) {
-        if (!pairs || pairs.length < 3) {
-            console.log(`⚠️ Недостаточно пар для аффинной коррекции: ${pairs?.length || 0}`);
-            return currentTransform || this.getIdentityTransform();
-        }
-
-        console.log(`\n🔧 АФФИННАЯ КОРРЕКЦИЯ по ${pairs.length} парам`);
-
-        // Подготовка пар с весами
-        const weightedPairs = this.preparePairs(pairs);
-       
-        let bestTransform = null;
-        let bestError = Infinity;
-       
-        // RANSAC для отсева выбросов
-        if (this.useRansac && weightedPairs.length >= 4) {
-            const ransacResult = this.ransacAffine(weightedPairs);
-            if (ransacResult.transform) {
-                bestTransform = ransacResult.transform;
-                bestError = ransacResult.error;
-                console.log(`   🎯 RANSAC: отобрано ${ransacResult.inliers.length} inliers из ${weightedPairs.length}`);
-            }
-        }
-       
-        // Если RANSAC не дал результата или выключен, используем все пары
-        if (!bestTransform) {
-            bestTransform = this.solveAffine(weightedPairs);
-            bestError = this.calculateRMSE(weightedPairs, bestTransform);
-        }
-       
-        // Итеративное уточнение
-        let currentPairs = weightedPairs;
-        let currentTransform_ = bestTransform;
-       
-        for (let iter = 0; iter < this.maxIterations; iter++) {
-            // Применяем transform к src точкам
-            const transformedPairs = currentPairs.map(pair => ({
-                ...pair,
-                transformed: this.applyTransform(pair.src, currentTransform_)
-            }));
-           
-            // Вычисляем ошибки
-            const errors = transformedPairs.map(pair =>
-                this.distance(pair.transformed, pair.dst)
-            );
-           
-            // Фильтруем выбросы (ошибка > порога)
-            const filteredPairs = currentPairs.filter((_, i) =>
-                errors[i] <= this.outlierThreshold * this.getScale(currentPairs)
-            );
-           
-            if (filteredPairs.length < 3) {
-                if (this.debug) console.log(`   ⚠️ Слишком мало пар после фильтрации: ${filteredPairs.length}`);
-                break;
-            }
-           
-            // Вычисляем новый transform
-            const newTransform = this.solveAffine(filteredPairs);
-           
-            // Комбинируем (delta ◦ current)
-            const combinedTransform = this.composeAffine(newTransform, currentTransform_);
-           
-            // Проверяем сходимость
-            const delta = this.transformDelta(currentTransform_, combinedTransform);
-            if (delta < this.convergenceThreshold) {
-                if (this.debug) console.log(`   ✅ Сходимость на итерации ${iter + 1}`);
-                currentTransform_ = combinedTransform;
-                break;
-            }
-           
-            currentTransform_ = combinedTransform;
-            currentPairs = filteredPairs;
-           
-            if (this.debug) {
-                console.log(`   🔄 Итерация ${iter + 1}: ошибка = ${this.calculateRMSE(filteredPairs, currentTransform_).toFixed(3)}px`);
-            }
-        }
-       
-        // Декомпозиция для диагностики
-        const decomposed = this.decompose(currentTransform_);
-       
-        console.log(`\n📊 РЕЗУЛЬТАТ АФФИННОЙ КОРРЕКЦИИ:`);
-        console.log(`   Масштаб X: ${decomposed.scaleX.toFixed(3)} (${((decomposed.scaleX - 1) * 100).toFixed(1)}%)`);
-        console.log(`   Масштаб Y: ${decomposed.scaleY.toFixed(3)} (${((decomposed.scaleY - 1) * 100).toFixed(1)}%)`);
-        console.log(`   Поворот: ${(decomposed.rotation * 180 / Math.PI).toFixed(1)}°`);
-        console.log(`   Скос: ${(decomposed.shear * 180 / Math.PI).toFixed(1)}°`);
-        console.log(`   Сдвиг: (${decomposed.translateX.toFixed(1)}, ${decomposed.translateY.toFixed(1)})`);
-        console.log(`   Средняя ошибка: ${this.calculateRMSE(weightedPairs, currentTransform_).toFixed(2)}px`);
-       
-        return currentTransform_;
+refine(pairs, currentTransform = null) {
+    if (!pairs || pairs.length < 3) {
+        console.log(`⚠️ Недостаточно пар для аффинной коррекции: ${pairs?.length || 0}`);
+        return currentTransform || this.getIdentityTransform();
     }
+
+    console.log(`\n🔧 АФФИННАЯ КОРРЕКЦИЯ по ${pairs.length} парам`);
+   
+    // Проверка на разброс точек
+    if (!this.hasSufficientSpread(pairs)) {
+        console.log(`   ⚠️ Точки недостаточно разнесены, использую Procrustes (масштаб+поворот)`);
+        const procrustesTransform = this.solveProcrustes(pairs);
+        return procrustesTransform || this.getIdentityTransform();
+    }
+   
+    // Подготовка пар с весами
+    const weightedPairs = this.preparePairs(pairs);
+   
+    let bestTransform = null;
+    let bestError = Infinity;
+   
+    // RANSAC для отсева выбросов
+    if (this.useRansac && weightedPairs.length >= 4) {
+        const ransacResult = this.ransacAffine(weightedPairs);
+        if (ransacResult.transform) {
+            bestTransform = ransacResult.transform;
+            bestError = ransacResult.error;
+            console.log(`   🎯 RANSAC: отобрано ${ransacResult.inliers.length} inliers из ${weightedPairs.length}`);
+        }
+    }
+   
+    // Если RANSAC не дал результата или выключен, используем все пары
+    if (!bestTransform) {
+        bestTransform = this.solveAffine(weightedPairs);
+        if (bestTransform) {
+            bestError = this.calculateRMSE(weightedPairs, bestTransform);
+        } else {
+            console.log(`   ⚠️ solveAffine вернул null, использую Procrustes`);
+            const procrustesTransform = this.solveProcrustes(pairs);
+            return procrustesTransform || this.getIdentityTransform();
+        }
+    }
+   
+    // Итеративное уточнение
+    let currentPairs = weightedPairs;
+    let currentTransform_ = bestTransform;
+   
+    for (let iter = 0; iter < this.maxIterations; iter++) {
+        // Применяем transform к src точкам
+        const transformedPairs = currentPairs.map(pair => ({
+            ...pair,
+            transformed: this.applyTransform(pair.src, currentTransform_)
+        }));
+       
+        // Вычисляем ошибки
+        const errors = transformedPairs.map(pair =>
+            this.distance(pair.transformed, pair.dst)
+        );
+       
+        // Фильтруем выбросы
+        const filteredPairs = currentPairs.filter((_, i) =>
+            errors[i] <= this.outlierThreshold * this.getScale(currentPairs)
+        );
+       
+        if (filteredPairs.length < 3) break;
+       
+        // Вычисляем новый transform
+        const newTransform = this.solveAffine(filteredPairs);
+        if (!newTransform) break;
+       
+        // Комбинируем
+        const combinedTransform = this.composeAffine(newTransform, currentTransform_);
+       
+        // Проверяем сходимость
+        const delta = this.transformDelta(currentTransform_, combinedTransform);
+        if (delta < this.convergenceThreshold) {
+            if (this.debug) console.log(`   ✅ Сходимость на итерации ${iter + 1}`);
+            currentTransform_ = combinedTransform;
+            break;
+        }
+       
+        currentTransform_ = combinedTransform;
+        currentPairs = filteredPairs;
+    }
+   
+    // Декомпозиция для диагностики
+    const decomposed = this.decompose(currentTransform_);
+   
+    console.log(`\n📊 РЕЗУЛЬТАТ АФФИННОЙ КОРРЕКЦИИ:`);
+    console.log(`   Масштаб X: ${decomposed.scaleX.toFixed(3)} (${((decomposed.scaleX - 1) * 100).toFixed(1)}%)`);
+    console.log(`   Масштаб Y: ${decomposed.scaleY.toFixed(3)} (${((decomposed.scaleY - 1) * 100).toFixed(1)}%)`);
+    console.log(`   Поворот: ${(decomposed.rotation * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   Скос: ${(decomposed.shear * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   Сдвиг: (${decomposed.translateX.toFixed(1)}, ${decomposed.translateY.toFixed(1)})`);
+    console.log(`   Средняя ошибка: ${this.calculateRMSE(weightedPairs, currentTransform_).toFixed(2)}px`);
+   
+    return currentTransform_;
+}
 
     /**
      * Подготовка пар: извлечение координат и весов
@@ -321,6 +328,108 @@ class AffineRefiner {
         return { a: 1, b: 0, c: 0, d: 0, e: 1, f: 0 };
     }
 
+/**
+* Проверяет, достаточно ли точки разнесены для аффинной коррекции
+*/
+hasSufficientSpread(pairs) {
+    if (pairs.length < 3) return false;
+   
+    // Вычисляем центроид
+    let sumX = 0, sumY = 0;
+    for (const pair of pairs) {
+        sumX += pair.src.x;
+        sumY += pair.src.y;
+    }
+    const cx = sumX / pairs.length;
+    const cy = sumY / pairs.length;
+   
+    // Вычисляем моменты инерции
+    let mxx = 0, myy = 0, mxy = 0;
+    for (const pair of pairs) {
+        const dx = pair.src.x - cx;
+        const dy = pair.src.y - cy;
+        mxx += dx * dx;
+        myy += dy * dy;
+        mxy += dx * dy;
+    }
+   
+    // Вычисляем собственные значения
+    const trace = mxx + myy;
+    const det = mxx * myy - mxy * mxy;
+    const sqrtTerm = Math.sqrt(Math.max(0, trace * trace - 4 * det));
+    const lambda1 = (trace + sqrtTerm) / 2;
+    const lambda2 = (trace - sqrtTerm) / 2;
+   
+    const ratio = Math.min(lambda1, lambda2) / Math.max(lambda1, lambda2);
+   
+    if (this.debug) {
+        console.log(`   📐 Проверка разброса точек: отношение собственных значений = ${ratio.toFixed(4)}`);
+    }
+   
+    return ratio > 0.01;
+}
+
+/**
+* Упрощённая коррекция (масштаб + поворот + сдвиг) - Procrustes
+*/
+solveProcrustes(pairs) {
+    if (pairs.length < 2) return null;
+   
+    // Центрируем точки
+    let sumSrcX = 0, sumSrcY = 0;
+    let sumDstX = 0, sumDstY = 0;
+    for (const pair of pairs) {
+        sumSrcX += pair.src.x;
+        sumSrcY += pair.src.y;
+        sumDstX += pair.dst.x;
+        sumDstY += pair.dst.y;
+    }
+    const n = pairs.length;
+    const centerSrc = { x: sumSrcX / n, y: sumSrcY / n };
+    const centerDst = { x: sumDstX / n, y: sumDstY / n };
+   
+    const centeredSrc = pairs.map(p => ({ x: p.src.x - centerSrc.x, y: p.src.y - centerSrc.y }));
+    const centeredDst = pairs.map(p => ({ x: p.dst.x - centerDst.x, y: p.dst.y - centerDst.y }));
+   
+    // Вычисляем масштаб
+    let sumSrcNorm = 0, sumDstNorm = 0, sumDot = 0;
+    for (let i = 0; i < n; i++) {
+        const srcNorm2 = centeredSrc[i].x * centeredSrc[i].x + centeredSrc[i].y * centeredSrc[i].y;
+        const dstNorm2 = centeredDst[i].x * centeredDst[i].x + centeredDst[i].y * centeredDst[i].y;
+        sumSrcNorm += srcNorm2;
+        sumDstNorm += dstNorm2;
+        sumDot += centeredSrc[i].x * centeredDst[i].x + centeredSrc[i].y * centeredDst[i].y;
+    }
+   
+    const scale = Math.sqrt(sumDstNorm / sumSrcNorm);
+   
+    // Вычисляем поворот
+    let sumCross = 0;
+    for (let i = 0; i < n; i++) {
+        sumCross += centeredSrc[i].x * centeredDst[i].y - centeredSrc[i].y * centeredDst[i].x;
+    }
+    const rotation = Math.atan2(sumCross, sumDot);
+   
+    // Сдвиг
+    const translation = {
+        x: centerDst.x - (centerSrc.x * scale * Math.cos(rotation) - centerSrc.y * scale * Math.sin(rotation)),
+        y: centerDst.y - (centerSrc.x * scale * Math.sin(rotation) + centerSrc.y * scale * Math.cos(rotation))
+    };
+   
+    // Преобразуем в аффинную матрицу
+    const cos = Math.cos(rotation);
+    const sin = Math.sin(rotation);
+   
+    return {
+        a: scale * cos,
+        b: -scale * sin,
+        c: translation.x,
+        d: scale * sin,
+        e: scale * cos,
+        f: translation.y
+    };
+}
+  
     /**
      * Оценивает характерный размер облака точек
      */
