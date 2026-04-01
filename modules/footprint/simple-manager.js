@@ -258,7 +258,18 @@ if (this.config.enableTopology) {
     topologicalResult.photoPoints = photoPoints;
     topologicalResult.photoContours = photoContours;
     topologicalResult.transform = topologicalResult.topologicalResult?.transform;
-
+// 🔥 ДИАГНОСТИКА КОНТУРОВ В PHOTOCONTOURS
+console.log(`\n📐 ДИАГНОСТИКА photoContours:`);
+console.log(`   photoContours.length: ${photoContours?.length || 0}`);
+if (photoContours) {
+    const outline = photoContours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
+    if (outline) {
+        console.log(`   ✅ outline в photoContours: ЕСТЬ, точек: ${outline.points?.length || 0}`);
+    } else {
+        console.log(`   ⚠️ outline в photoContours: НЕТ`);
+        console.log(`   Доступные классы: ${photoContours.map(c => c.class).join(', ')}`);
+    }
+}
     // Сохраняем текущую модель в сессии
     session.currentFootprint = topologyManager.accumulator.getModelInfo();
 }
@@ -597,13 +608,25 @@ const modelImagePath = await modelViz.createVisualization({
                 const modelViz = new ModelVisualization();
                
                 // 🔥 ПЕРЕДАЁМ ВСЕ ДАННЫЕ
-                const modelImagePath = await modelViz.createVisualization({
+// 🔥 ДИАГНОСТИКА ПЕРЕД ВЫЗОВОМ
+console.log(`\n📐 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ С НАЛОЖЕНИЕМ:`);
+console.log(`   visualizationData.outlineContour: ${visualizationData?.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+if (visualizationData?.outlineContour) {
+    console.log(`      точек: ${visualizationData.outlineContour.points?.length || 0}`);
+}
+console.log(`   topologicalResult.photoContours: ${topologicalResult?.photoContours?.length || 0}`);
+if (topologicalResult?.photoContours) {
+    const outlinePhoto = topologicalResult.photoContours.find(c => c.class === 'Outline-trail');
+    console.log(`      outline в photoContours: ${outlinePhoto ? 'ЕСТЬ' : 'НЕТ'}, точек: ${outlinePhoto?.points?.length || 0}`);
+}
+
+const modelImagePath = await modelViz.createVisualization({
     points: points,
     photoPoints: photoPoints,
     transform: transform,
     matches: matchMap,
     edges: edges,
-    outlineContour: visualizationData?.outlineContour,        // 🔥 КОНТУР МОДЕЛИ
+    outlineContour: visualizationData?.outlineContour,                              // 🔥 КОНТУР МОДЕЛИ
     photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'), // 🔥 КОНТУР ФОТО
     outputPath: outputPath,
     width: 1200,
