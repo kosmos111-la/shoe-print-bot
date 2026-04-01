@@ -102,7 +102,35 @@ class TriangleMatcher {
 
         console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
         this.printSummary();
-
+if (this.debug) {
+    // Статистика использования радиального профиля
+    let radialMatches = 0;
+    let totalChecked = 0;
+   
+    for (const candidate of candidates) {
+        totalChecked++;
+        // Проверяем, совпали ли радиальные профили у кандидата
+        const tA = trianglesA[candidate.aIndex];
+        const tB = trianglesB[candidate.bIndex];
+       
+        const rpA = [
+            tA.p1.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tA.p2.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tA.p3.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join('')
+        ].sort().join('');
+       
+        const rpB = [
+            tB.p1.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tB.p2.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tB.p3.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join('')
+        ].sort().join('');
+       
+        if (rpA === rpB) radialMatches++;
+    }
+   
+    console.log(`\n📊 РАДИАЛЬНЫЙ ПРОФИЛЬ В СРАВНЕНИИ:`);
+    console.log(`   • Совпадений радиального профиля: ${radialMatches}/${totalChecked} (${(radialMatches/totalChecked*100).toFixed(1)}%)`);
+}
         return {
     matches: pointMatches,
     triangles: trianglesA,  // 🔥 ВОЗВРАЩАЕМ ВСЕ ТРЕУГОЛЬНИКИ
@@ -114,24 +142,77 @@ class TriangleMatcher {
      * Построение топологических треугольников с 6 признаками
      */
     buildTopologicalTriangles(delaunay, points) {
-        const triangles = [];
-        const triangleList = this.getTrianglesFromDelaunay(delaunay);
+    const triangles = [];
+    const triangleList = this.getTrianglesFromDelaunay(delaunay);
 
-        for (const tri of triangleList) {
-            if (!Array.isArray(tri) || tri.length < 3) continue;
+    for (const tri of triangleList) {
+        if (!Array.isArray(tri) || tri.length < 3) continue;
 
-            const [idx1, idx2, idx3] = tri;
-            const p1 = points[idx1];
-            const p2 = points[idx2];
-            const p3 = points[idx3];
+        const [idx1, idx2, idx3] = tri;
+        const p1 = points[idx1];
+        const p2 = points[idx2];
+        const p3 = points[idx3];
 
-            if (!p1 || !p2 || !p3) continue;
+        if (!p1 || !p2 || !p3) continue;
 
-            // ГРУБАЯ МОРФОЛОГИЯ (2 признака)
-            const morph1 = [
-                Math.floor(p1.eccentricity * 2) || 0,
-                Math.floor((p1.asymmetry || 0) * 2) || 0
-            ];
+        // 🔥 РАДИАЛЬНЫЙ ПРОФИЛЬ (4 ключевых направления из 8)
+        const rp1 = (p1.radialProfile || [0,0,0,0,0,0,0,0]).slice(0,4);
+        const rp2 = (p2.radialProfile || [0,0,0,0,0,0,0,0]).slice(0,4);
+        const rp3 = (p3.radialProfile || [0,0,0,0,0,0,0,0]).slice(0,4);
+       
+        // Квантуем в 2 уровня (0-0.5 = 0, >0.5 = 1)
+        const quantize = (val) => val > 0.5 ? 1 : 0;
+        const rpVectors1 = rp1.map(quantize);
+        const rpVectors2 = rp2.map(quantize);
+        const rpVectors3 = rp3.map(quantize);
+
+        // ГРУБАЯ МОРФОЛОГИЯ (2 признака + 4 радиальных = 6 на точку)
+        const morph1 = [
+            Math.floor(p1.eccentricity * 2) || 0,
+            Math.floor((p1.asymmetry || 0) * 2) || 0,
+            ...rpVectors1
+        ];
+        const morph2 = [
+            Math.floor(p2.eccentricity * 2) || 0,
+            Math.floor((p2.asymmetry || 0) * 2) || 0,
+            ...rpVectors2
+        ];
+        const morph3 = [
+            Math.floor(p3.eccentricity * 2) || 0,
+            Math.floor((p3.asymmetry || 0) * 2) || 0,
+            ...rpVectors3
+        ];
+
+        // Сортируем векторы для инвариантности к порядку точек
+        const morphVectors = [morph1, morph2, morph3].sort((a, b) => {
+            for (let i = 0; i < a.length; i++) {
+                if (a[i] !== b[i]) return a[i] - b[i];
+            }
+            return 0;
+        });
+
+        const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
+        const orientation = Math.sign(orient);
+
+        const triangle = {
+            id: `tri_${p1.id}_${p2.id}_${p3.id}`,
+            points: [p1.id, p2.id, p3.id],
+            p1, p2, p3,
+            morphVectors: morphVectors.flat(),
+            orientation: orientation,
+            degree: 0,
+            edges: [
+                { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
+                { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
+                { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
+            ]
+        };
+
+        triangles.push(triangle);
+    }
+
+    // Строим связи между треугольниками
+    this.buildNeighbors(triangles);
 
             const morph2 = [
                 Math.floor(p2.eccentricity * 2) || 0,
@@ -270,22 +351,28 @@ class TriangleMatcher {
      * Сравнение по грубой морфологии
      */
     compareMorphology(tA, tB) {
-        const v1 = tA.morphVectors;
-        const v2 = tB.morphVectors;
+    const v1 = tA.morphVectors;
+    const v2 = tB.morphVectors;
 
+    // 🔥 ЗАЩИТА: если векторы разной длины, используем только первые 2 признака
+    if (!v1 || !v2 || v1.length < 2 || v2.length < 2) {
+        console.log(`⚠️ Векторы морфологии повреждены, использую fallback`);
+        return 0.5;
+    }
+
+    // Если радиального профиля нет (длина < 6), используем старый метод
+    if (v1.length < 6 || v2.length < 6) {
         let sumDiff = 0;
-        for (let i = 0; i < v1.length; i++) {
+        for (let i = 0; i < Math.min(v1.length, v2.length, 2); i++) {
             sumDiff += Math.abs(v1[i] - v2[i]);
         }
-
-        const morphScore = 1 - (sumDiff / 6);
-
+        const morphScore = 1 - (sumDiff / 4);
+       
         const e1 = tA.externalVectors || [];
         const e2 = tB.externalVectors || [];
-
         let externalScore = 1.0;
         if (e1.length > 0 || e2.length > 0) {
-            if (e1.length === e2.length) {
+            if (e1.length === e2.length && e1.length > 0) {
                 let extDiff = 0;
                 for (let i = 0; i < e1.length; i++) {
                     extDiff += Math.abs(e1[i] - e2[i]);
@@ -295,9 +382,48 @@ class TriangleMatcher {
                 externalScore = 0.3;
             }
         }
-
+       
         return morphScore * 0.7 + externalScore * 0.3;
     }
+
+    // 🔥 НОВАЯ ЛОГИКА (только если все признаки есть)
+    let eccentricityAsymmetryDiff = 0;
+    let radialDiff = 0;
+   
+    for (let i = 0; i < 2; i++) {
+        eccentricityAsymmetryDiff += Math.abs(v1[i] - v2[i]);
+    }
+   
+    for (let i = 2; i < 6; i++) {
+        radialDiff += Math.abs(v1[i] - v2[i]);
+    }
+   
+    const maxEADiff = 2 * 2;
+    const maxRadialDiff = 4 * 2;
+   
+    const eaScore = 1 - (eccentricityAsymmetryDiff / maxEADiff);
+    const radialScore = 1 - (radialDiff / maxRadialDiff);
+   
+    const morphScore = eaScore * 0.6 + radialScore * 0.4;
+
+    const e1 = tA.externalVectors || [];
+    const e2 = tB.externalVectors || [];
+
+    let externalScore = 1.0;
+    if (e1.length > 0 || e2.length > 0) {
+        if (e1.length === e2.length && e1.length > 0) {
+            let extDiff = 0;
+            for (let i = 0; i < e1.length; i++) {
+                extDiff += Math.abs(e1[i] - e2[i]);
+            }
+            externalScore = 1 - (extDiff / (e1.length * 1));
+        } else {
+            externalScore = 0.3;
+        }
+    }
+
+    return morphScore * 0.7 + externalScore * 0.3;
+}
 
     /**
      * Геометрическая верификация с 6 признаками
