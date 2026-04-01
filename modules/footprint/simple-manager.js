@@ -598,15 +598,17 @@ const modelImagePath = await modelViz.createVisualization({
                
                 // 🔥 ПЕРЕДАЁМ ВСЕ ДАННЫЕ
                 const modelImagePath = await modelViz.createVisualization({
-                    points: points,
-                    photoPoints: photoPoints,
-                    transform: transform,
-                    matches: matchMap,
-                    edges: edges,
-                    outputPath: outputPath,
-                    width: 1200,
-                    height: 1000
-                });
+    points: points,
+    photoPoints: photoPoints,
+    transform: transform,
+    matches: matchMap,
+    edges: edges,
+    outlineContour: visualizationData?.outlineContour,        // 🔥 КОНТУР МОДЕЛИ
+    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'), // 🔥 КОНТУР ФОТО
+    outputPath: outputPath,
+    width: 1200,
+    height: 1000
+});
                
                 if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Визуализация с наложением создана: ${modelImagePath}`);
