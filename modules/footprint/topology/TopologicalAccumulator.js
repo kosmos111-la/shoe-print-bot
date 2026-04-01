@@ -1893,128 +1893,140 @@ if (this.debug && refinementIteration > 1) {
                         }
                     }
 
-// ===== ШАГ 3.10: АФФИННАЯ КОРРЕКЦИЯ =====
+// ===== ШАГ 3.10: КОРРЕКЦИЯ ПО BOUNDING BOX =====
 if (finalValidatedMatches.length >= 3) {
-    console.log(`\n🔧 ЗАПУСК АФФИННОЙ КОРРЕКЦИИ...`);
+    console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
    
-    // Подготавливаем пары для аффинного рефайнера
-    let affinePairs = [];
+    // Собираем точки
+    const photoPoints = [];
+    const modelPoints = [];
    
-    // 1. Добавляем существующие пары
     for (const match of finalValidatedMatches) {
         const photoPoint = exactGraph.nodes.get(match.pointA);
         const modelPoint = existingModel.graph.nodes.get(match.pointB);
         if (photoPoint && modelPoint) {
-            affinePairs.push({
-                src: { x: photoPoint.x, y: photoPoint.y },
-                dst: { x: modelPoint.x, y: modelPoint.y },
-                weight: match.confidence || 0.5,
-                type: 'original'
-            });
+            photoPoints.push({ x: photoPoint.x, y: photoPoint.y, weight: match.confidence || 0.5 });
+            modelPoints.push({ x: modelPoint.x, y: modelPoint.y, weight: match.confidence || 0.5 });
         }
     }
    
-    // 2. Создаём виртуальные точки на основе локальной геометрии
-    if (affinePairs.length >= 3) {
-        // Вычисляем центроид
-        let centerX = 0, centerY = 0;
-        for (const pair of affinePairs) {
-            centerX += pair.src.x;
-            centerY += pair.src.y;
-        }
-        centerX /= affinePairs.length;
-        centerY /= affinePairs.length;
+    if (photoPoints.length >= 3) {
+        // 1. Вычисляем центроиды
+        let photoCenterX = 0, photoCenterY = 0;
+        let modelCenterX = 0, modelCenterY = 0;
+        let totalWeight = 0;
        
-        // Находим основное направление (PCA)
-        let sumXX = 0, sumYY = 0, sumXY = 0;
-        for (const pair of affinePairs) {
-            const dx = pair.src.x - centerX;
-            const dy = pair.src.y - centerY;
-            sumXX += dx * dx;
-            sumYY += dy * dy;
-            sumXY += dx * dy;
+        for (let i = 0; i < photoPoints.length; i++) {
+            const w = photoPoints[i].weight;
+            photoCenterX += photoPoints[i].x * w;
+            photoCenterY += photoPoints[i].y * w;
+            modelCenterX += modelPoints[i].x * w;
+            modelCenterY += modelPoints[i].y * w;
+            totalWeight += w;
         }
        
-        const trace = sumXX + sumYY;
-        const det = sumXX * sumYY - sumXY * sumXY;
-        const sqrtTerm = Math.sqrt(Math.max(0, trace * trace - 4 * det));
-        const lambda1 = (trace + sqrtTerm) / 2;
-        const lambda2 = (trace - sqrtTerm) / 2;
+        photoCenterX /= totalWeight;
+        photoCenterY /= totalWeight;
+        modelCenterX /= totalWeight;
+        modelCenterY /= totalWeight;
        
-        // Главное направление (вдоль следа)
-        let mainDirX = 1, mainDirY = 0;
-        if (Math.abs(sumXY) > 1e-6) {
-            const eigenX = sumXY;
-            const eigenY = lambda1 - sumXX;
-            const len = Math.sqrt(eigenX * eigenX + eigenY * eigenY);
-            if (len > 1e-6) {
-                mainDirX = eigenX / len;
-                mainDirY = eigenY / len;
-            }
-        }
+        // 2. Находим bounding box фото (взвешенный)
+        let photoMinX = Infinity, photoMaxX = -Infinity;
+        let photoMinY = Infinity, photoMaxY = -Infinity;
+        let modelMinX = Infinity, modelMaxX = -Infinity;
+        let modelMinY = Infinity, modelMaxY = -Infinity;
        
-        // Перпендикулярное направление (поперёк следа)
-        const perpDirX = -mainDirY;
-        const perpDirY = mainDirX;
-       
-        // Оцениваем ширину по разбросу точек в перпендикулярном направлении
-        let perpSpread = 0;
-        for (const pair of affinePairs) {
-            const perp = (pair.src.x - centerX) * perpDirX + (pair.src.y - centerY) * perpDirY;
-            perpSpread = Math.max(perpSpread, Math.abs(perp));
-        }
-       
-        // Характерная ширина
-        const typicalWidth = Math.max(perpSpread * 1.5, 15);
-       
-        console.log(`   📐 Оценка ширины следа: ${typicalWidth.toFixed(1)}px`);
-       
-        // Создаём виртуальные пары для каждой оригинальной пары
-        let virtualPairsAdded = 0;
-       
-        for (const pair of affinePairs) {
-            const offsetX = perpDirX * typicalWidth;
-            const offsetY = perpDirY * typicalWidth;
+        for (let i = 0; i < photoPoints.length; i++) {
+            const w = photoPoints[i].weight;
+            // Для фото используем оригинальные координаты
+            photoMinX = Math.min(photoMinX, photoPoints[i].x);
+            photoMaxX = Math.max(photoMaxX, photoPoints[i].x);
+            photoMinY = Math.min(photoMinY, photoPoints[i].y);
+            photoMaxY = Math.max(photoMaxY, photoPoints[i].y);
            
-            // Левая и правая виртуальные точки
-            affinePairs.push({
-                src: { x: pair.src.x - offsetX, y: pair.src.y - offsetY },
-                dst: { x: pair.dst.x - offsetX, y: pair.dst.y - offsetY },
-                weight: pair.weight * 0.5,
-                type: 'virtual'
-            });
-            affinePairs.push({
-                src: { x: pair.src.x + offsetX, y: pair.src.y + offsetY },
-                dst: { x: pair.dst.x + offsetX, y: pair.dst.y + offsetY },
-                weight: pair.weight * 0.5,
-                type: 'virtual'
-            });
-            virtualPairsAdded += 2;
+            // Для модели используем координаты, центрированные относительно фото
+            const dx = photoPoints[i].x - photoCenterX;
+            const dy = photoPoints[i].y - photoCenterY;
+           
+            // Применяем текущий поворот и масштаб для оценки позиции в модели
+            const rot = finalTransform?.rotation || 0;
+            const scale = finalTransform?.scale || 1;
+            const projectedX = modelCenterX + (dx * scale * Math.cos(rot) - dy * scale * Math.sin(rot));
+            const projectedY = modelCenterY + (dx * scale * Math.sin(rot) + dy * scale * Math.cos(rot));
+           
+            modelMinX = Math.min(modelMinX, projectedX);
+            modelMaxX = Math.max(modelMaxX, projectedX);
+            modelMinY = Math.min(modelMinY, projectedY);
+            modelMaxY = Math.max(modelMaxY, projectedY);
         }
        
-        console.log(`   📐 Добавлено ${virtualPairsAdded} виртуальных пар для учёта ширины`);
-    }
-   
-    console.log(`   📊 Всего пар для аффинной коррекции: ${affinePairs.length}`);
-   
-    // Вычисляем аффинную трансформацию
-    const affineTransform = this.affineRefiner.refine(affinePairs);
-   
-    // Проверяем, что результат валидный
-    if (affineTransform && !isNaN(affineTransform.a) && !isNaN(affineTransform.e)) {
-        const legacyTransform = this.affineRefiner.toLegacyTransform(affineTransform);
+        // 3. Вычисляем размеры bounding box
+        const photoWidth = photoMaxX - photoMinX;
+        const photoHeight = photoMaxY - photoMinY;
+        const modelWidth = modelMaxX - modelMinX;
+        const modelHeight = modelMaxY - modelMinY;
        
-        console.log(`\n✅ АФФИННАЯ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
-        console.log(`   Новый масштаб X: ${legacyTransform.scaleX?.toFixed(3) || '?'} (было ${finalTransform?.scale?.toFixed(3) || '?'})`);
-        console.log(`   Новый масштаб Y: ${legacyTransform.scaleY?.toFixed(3) || '?'}`);
+        // 4. Вычисляем масштабы
+        const scaleX = modelWidth / photoWidth;
+        const scaleY = modelHeight / photoHeight;
        
-        finalTransform = legacyTransform;
+        // 5. Ограничиваем масштабы (защита от выбросов)
+        const safeScaleX = Math.min(Math.max(scaleX, 0.5), 2.0);
+        const safeScaleY = Math.min(Math.max(scaleY, 0.5), 2.0);
+       
+        console.log(`\n📊 BOUNDING BOX АНАЛИЗ:`);
+        console.log(`   Фото: ${photoWidth.toFixed(1)} x ${photoHeight.toFixed(1)}`);
+        console.log(`   Модель (оценка): ${modelWidth.toFixed(1)} x ${modelHeight.toFixed(1)}`);
+        console.log(`   Масштаб X: ${scaleX.toFixed(3)} → ${safeScaleX.toFixed(3)}`);
+        console.log(`   Масштаб Y: ${scaleY.toFixed(3)} → ${safeScaleY.toFixed(3)}`);
+       
+        // 6. Создаём новый transform
+        const newTransform = {
+            scale: (safeScaleX + safeScaleY) / 2,  // средний для обратной совместимости
+            rotation: finalTransform?.rotation || 0,
+            translation: finalTransform?.translation || { x: 0, y: 0 },
+            scaleX: safeScaleX,
+            scaleY: safeScaleY,
+            method: 'bounding_box'
+        };
+       
+        // 7. Корректируем сдвиг под новые масштабы
+        // Находим, как должна сместиться центральная точка
+        const photoCenterRelX = photoCenterX;
+        const photoCenterRelY = photoCenterY;
+       
+        const newModelCenterX = modelCenterX;
+        const newModelCenterY = modelCenterY;
+       
+        // Поворачиваем и масштабируем центр фото
+        const rot = newTransform.rotation;
+        const rotatedX = photoCenterRelX * Math.cos(rot) - photoCenterRelY * Math.sin(rot);
+        const rotatedY = photoCenterRelX * Math.sin(rot) + photoCenterRelY * Math.cos(rot);
+       
+        // Новый сдвиг
+        newTransform.translation = {
+            x: newModelCenterX - rotatedX * newTransform.scale,
+            y: newModelCenterY - rotatedY * newTransform.scale
+        };
+       
+        console.log(`\n✅ КОРРЕКЦИЯ ПО BOUNDING BOX ЗАВЕРШЕНА`);
+        console.log(`   Новый масштаб X: ${newTransform.scaleX.toFixed(3)} (было ${finalTransform?.scale?.toFixed(3) || '?'})`);
+        console.log(`   Новый масштаб Y: ${newTransform.scaleY.toFixed(3)}`);
+        console.log(`   Разница: ${((newTransform.scaleX / newTransform.scaleY - 1) * 100).toFixed(1)}%`);
+       
+        // Сохраняем
+        finalTransform = newTransform;
         if (existingModel) {
             existingModel.transform = finalTransform;
-            existingModel.affineTransform = affineTransform;
+            existingModel.boundingBoxCorrection = {
+                scaleX: safeScaleX,
+                scaleY: safeScaleY,
+                photoBounds: { minX: photoMinX, maxX: photoMaxX, minY: photoMinY, maxY: photoMaxY },
+                modelBounds: { minX: modelMinX, maxX: modelMaxX, minY: modelMinY, maxY: modelMaxY }
+            };
         }
     } else {
-        console.log(`   ⚠️ Аффинная коррекция вернула невалидный результат, оставляю текущий transform`);
+        console.log(`   ⚠️ Недостаточно точек (${photoPoints.length}), пропускаю коррекцию`);
     }
 }
                  
