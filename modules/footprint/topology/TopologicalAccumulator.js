@@ -1918,7 +1918,7 @@ if (finalValidatedMatches.length >= 3) {
     const legacyTransform = this.affineRefiner.toLegacyTransform(affineTransform);
    
     console.log(`\n✅ АФФИННАЯ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
-    console.log(`   Новый масштаб X: ${legacyTransform.scaleX.toFixed(3)} (было ${finalTransform.scale.toFixed(3)})`);
+    console.log(`   Новый масштаб X: ${legacyTransform.scaleX.toFixed(3)} (было ${finalTransform?.scale?.toFixed(3) || 'не определён'})`);
     console.log(`   Новый масштаб Y: ${legacyTransform.scaleY.toFixed(3)}`);
    
     // Сохраняем обновлённый transform
