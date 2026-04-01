@@ -159,8 +159,7 @@ if (this.debug) {
         const rp1 = (p1.radialProfile || [0,0,0,0,0,0,0,0]).slice(0,4);
         const rp2 = (p2.radialProfile || [0,0,0,0,0,0,0,0]).slice(0,4);
         const rp3 = (p3.radialProfile || [0,0,0,0,0,0,0,0]).slice(0,4);
-       
-        // Квантуем в 2 уровня (0-0.5 = 0, >0.5 = 1)
+      
         const quantize = (val) => val > 0.5 ? 1 : 0;
         const rpVectors1 = rp1.map(quantize);
         const rpVectors2 = rp2.map(quantize);
@@ -214,102 +213,55 @@ if (this.debug) {
     // Строим связи между треугольниками
     this.buildNeighbors(triangles);
 
-            const morph2 = [
-                Math.floor(p2.eccentricity * 2) || 0,
-                Math.floor((p2.asymmetry || 0) * 2) || 0
-            ];
+    // 🔥 ВЫЧИСЛЯЕМ 6 ПРИЗНАКОВ ТРЕУГОЛЬНИКА
+    for (const t of triangles) {
+        t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
 
-            const morph3 = [
-                Math.floor(p3.eccentricity * 2) || 0,
-                Math.floor((p3.asymmetry || 0) * 2) || 0
-            ];
-
-            const orient = (p2.x - p1.x)*(p3.y - p1.y) - (p2.y - p1.y)*(p3.x - p1.x);
-            const orientation = Math.sign(orient);
-
-            const morphVectors = [morph1, morph2, morph3].sort((a, b) => {
-                for (let i = 0; i < 2; i++) {
-                    if (a[i] !== b[i]) return a[i] - b[i];
-                }
-                return 0;
-            });
-
-            const triangle = {
-                id: `tri_${p1.id}_${p2.id}_${p3.id}`,
-                points: [p1.id, p2.id, p3.id],
-                p1, p2, p3,
-                morphVectors: morphVectors.flat(),
-                orientation: orientation,
-                degree: 0,
-                edges: [
-                    { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
-                    { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
-                    { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
-                ]
-            };
-
-            triangles.push(triangle);
-        }
-
-        // Строим связи между треугольниками
-        this.buildNeighbors(triangles);
-
-        // 🔥 ВЫЧИСЛЯЕМ 6 ПРИЗНАКОВ ТРЕУГОЛЬНИКА
-        for (const t of triangles) {
-            t.degree = t.edges.filter(e => e.neighborTriangles.length > 0).length;
-
-            // 1. Длины сторон
-            const sideAB = this.calcDistance(t.p1, t.p2);
-            const sideBC = this.calcDistance(t.p2, t.p3);
-            const sideCA = this.calcDistance(t.p3, t.p1);
-          
-            // 2. Находим внешние точки для каждого ребра
-            const externalDists = [0, 0, 0]; // AD, BE, CF
-          
-            for (let i = 0; i < t.edges.length; i++) {
-                const edge = t.edges[i];
-              
-                // Находим противоположную вершину
-                const opposite = [t.p1, t.p2, t.p3].find(p =>
-                    p.id !== edge.v1.id && p.id !== edge.v2.id
-                );
-              
-                // Ищем внешнюю точку
-                for (const neighborTri of edge.neighborTriangles) {
-                    for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
-                        if (v.id !== edge.v1.id && v.id !== edge.v2.id) {
-                            // Это внешняя точка
-                            edge.externalPoint = v;
-                          
-                            // Расстояние от противоположной вершины до внешней точки
-                            const dist = this.calcDistance(opposite, v);
-                          
-                            externalDists[i] = dist;
-                            break;
-                        }
+        // 1. Длины сторон
+        const sideAB = this.calcDistance(t.p1, t.p2);
+        const sideBC = this.calcDistance(t.p2, t.p3);
+        const sideCA = this.calcDistance(t.p3, t.p1);
+     
+        // 2. Находим внешние точки для каждого ребра
+        const externalDists = [0, 0, 0];
+     
+        for (let i = 0; i < t.edges.length; i++) {
+            const edge = t.edges[i];
+         
+            const opposite = [t.p1, t.p2, t.p3].find(p =>
+                p.id !== edge.v1.id && p.id !== edge.v2.id
+            );
+         
+            for (const neighborTri of edge.neighborTriangles) {
+                for (const v of [neighborTri.p1, neighborTri.p2, neighborTri.p3]) {
+                    if (v.id !== edge.v1.id && v.id !== edge.v2.id) {
+                        edge.externalPoint = v;
+                        const dist = this.calcDistance(opposite, v);
+                        externalDists[i] = dist;
+                        break;
                     }
                 }
             }
-          
-            // Собираем все 6 расстояний
-            const allDists = [
-                sideAB, sideBC, sideCA,
-                externalDists[0], externalDists[1], externalDists[2]
-            ];
-          
-            // Нормируем относительно максимального
-            const maxDist = Math.max(...allDists.filter(d => d > 0));
-            t.normalizedDistances = allDists.map(d => maxDist > 0 ? d / maxDist : 0);
-          
-            // Для отладки
-            if (this.debug && t.degree > 0) {
-                console.log(`   Треугольник ${t.points.map(p => p.substring(0,8)).join(',')}:`);
-                console.log(`      6 признаков: [${t.normalizedDistances.map(d => d.toFixed(3)).join(', ')}]`);
-            }
         }
-
-        return triangles;
+     
+        const allDists = [
+            sideAB, sideBC, sideCA,
+            externalDists[0], externalDists[1], externalDists[2]
+        ];
+     
+        const maxDist = Math.max(...allDists.filter(d => d > 0));
+        t.normalizedDistances = allDists.map(d => maxDist > 0 ? d / maxDist : 0);
+     
+        if (this.debug && t.degree > 0) {
+            console.log(`   Треугольник ${t.points.map(p => p.substring(0,8)).join(',')}:`);
+            console.log(`      6 признаков: [${t.normalizedDistances.map(d => d.toFixed(3)).join(', ')}]`);
+        }
     }
+
+    return triangles;
+}
+
+        
 
     /**
      * Вычисление расстояния между двумя точками
