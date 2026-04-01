@@ -1895,10 +1895,12 @@ if (this.debug && refinementIteration > 1) {
 
 // ===== ШАГ 3.10: АФФИННАЯ КОРРЕКЦИЯ =====
 if (finalValidatedMatches.length >= 3) {
-    console.log(`\n🔧 ЗАПУСК АФФИННОЙ КОРРЕКЦИИ по ${finalValidatedMatches.length} парам`);
+    console.log(`\n🔧 ЗАПУСК АФФИННОЙ КОРРЕКЦИИ...`);
    
     // Подготавливаем пары для аффинного рефайнера
-    const affinePairs = [];
+    let affinePairs = [];
+   
+    // 1. Добавляем существующие пары
     for (const match of finalValidatedMatches) {
         const photoPoint = exactGraph.nodes.get(match.pointA);
         const modelPoint = existingModel.graph.nodes.get(match.pointB);
@@ -1906,26 +1908,113 @@ if (finalValidatedMatches.length >= 3) {
             affinePairs.push({
                 src: { x: photoPoint.x, y: photoPoint.y },
                 dst: { x: modelPoint.x, y: modelPoint.y },
-                weight: match.confidence || 0.5
+                weight: match.confidence || 0.5,
+                type: 'original'
             });
         }
     }
    
+    // 2. Создаём виртуальные точки на основе локальной геометрии
+    if (affinePairs.length >= 3) {
+        // Вычисляем центроид
+        let centerX = 0, centerY = 0;
+        for (const pair of affinePairs) {
+            centerX += pair.src.x;
+            centerY += pair.src.y;
+        }
+        centerX /= affinePairs.length;
+        centerY /= affinePairs.length;
+       
+        // Находим основное направление (PCA)
+        let sumXX = 0, sumYY = 0, sumXY = 0;
+        for (const pair of affinePairs) {
+            const dx = pair.src.x - centerX;
+            const dy = pair.src.y - centerY;
+            sumXX += dx * dx;
+            sumYY += dy * dy;
+            sumXY += dx * dy;
+        }
+       
+        const trace = sumXX + sumYY;
+        const det = sumXX * sumYY - sumXY * sumXY;
+        const sqrtTerm = Math.sqrt(Math.max(0, trace * trace - 4 * det));
+        const lambda1 = (trace + sqrtTerm) / 2;
+        const lambda2 = (trace - sqrtTerm) / 2;
+       
+        // Главное направление (вдоль следа)
+        let mainDirX = 1, mainDirY = 0;
+        if (Math.abs(sumXY) > 1e-6) {
+            const eigenX = sumXY;
+            const eigenY = lambda1 - sumXX;
+            const len = Math.sqrt(eigenX * eigenX + eigenY * eigenY);
+            if (len > 1e-6) {
+                mainDirX = eigenX / len;
+                mainDirY = eigenY / len;
+            }
+        }
+       
+        // Перпендикулярное направление (поперёк следа)
+        const perpDirX = -mainDirY;
+        const perpDirY = mainDirX;
+       
+        // Оцениваем ширину по разбросу точек в перпендикулярном направлении
+        let perpSpread = 0;
+        for (const pair of affinePairs) {
+            const perp = (pair.src.x - centerX) * perpDirX + (pair.src.y - centerY) * perpDirY;
+            perpSpread = Math.max(perpSpread, Math.abs(perp));
+        }
+       
+        // Характерная ширина
+        const typicalWidth = Math.max(perpSpread * 1.5, 15);
+       
+        console.log(`   📐 Оценка ширины следа: ${typicalWidth.toFixed(1)}px`);
+       
+        // Создаём виртуальные пары для каждой оригинальной пары
+        let virtualPairsAdded = 0;
+       
+        for (const pair of affinePairs) {
+            const offsetX = perpDirX * typicalWidth;
+            const offsetY = perpDirY * typicalWidth;
+           
+            // Левая и правая виртуальные точки
+            affinePairs.push({
+                src: { x: pair.src.x - offsetX, y: pair.src.y - offsetY },
+                dst: { x: pair.dst.x - offsetX, y: pair.dst.y - offsetY },
+                weight: pair.weight * 0.5,
+                type: 'virtual'
+            });
+            affinePairs.push({
+                src: { x: pair.src.x + offsetX, y: pair.src.y + offsetY },
+                dst: { x: pair.dst.x + offsetX, y: pair.dst.y + offsetY },
+                weight: pair.weight * 0.5,
+                type: 'virtual'
+            });
+            virtualPairsAdded += 2;
+        }
+       
+        console.log(`   📐 Добавлено ${virtualPairsAdded} виртуальных пар для учёта ширины`);
+    }
+   
+    console.log(`   📊 Всего пар для аффинной коррекции: ${affinePairs.length}`);
+   
     // Вычисляем аффинную трансформацию
     const affineTransform = this.affineRefiner.refine(affinePairs);
    
-    // Конвертируем в формат для совместимости
-    const legacyTransform = this.affineRefiner.toLegacyTransform(affineTransform);
-   
-    console.log(`\n✅ АФФИННАЯ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
-    console.log(`   Новый масштаб X: ${legacyTransform.scaleX.toFixed(3)} (было ${finalTransform?.scale?.toFixed(3) || 'не определён'})`);
-    console.log(`   Новый масштаб Y: ${legacyTransform.scaleY.toFixed(3)}`);
-   
-    // Сохраняем обновлённый transform
-    finalTransform = legacyTransform;
-    if (existingModel) {
-        existingModel.transform = finalTransform;
-        existingModel.affineTransform = affineTransform; // сохраняем полную матрицу
+    // Проверяем, что результат валидный
+    if (affineTransform && !isNaN(affineTransform.a) && !isNaN(affineTransform.e)) {
+        const legacyTransform = this.affineRefiner.toLegacyTransform(affineTransform);
+       
+        console.log(`\n✅ АФФИННАЯ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
+        console.log(`   Новый масштаб X: ${legacyTransform.scaleX?.toFixed(3) || '?'} (было ${finalTransform?.scale?.toFixed(3) || '?'})`);
+        console.log(`   Новый масштаб Y: ${legacyTransform.scaleY?.toFixed(3) || '?'}`);
+       
+        finalTransform = legacyTransform;
+        if (existingModel) {
+            existingModel.transform = finalTransform;
+            existingModel.affineTransform = affineTransform;
+        }
+    } else {
+        console.log(`   ⚠️ Аффинная коррекция вернула невалидный результат, оставляю текущий transform`);
     }
 }
                  
