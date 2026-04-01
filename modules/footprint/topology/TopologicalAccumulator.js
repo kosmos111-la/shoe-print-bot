@@ -682,6 +682,16 @@ if (existingModel) {
                     if (existingModel) {
                         existingModel.transform = finalTransform;
                     }
+                  // 🔥 СОХРАНЯЕМ КОНТУР В СУЩЕСТВУЮЩУЮ МОДЕЛЬ
+    if (outlineContour && !existingModel.metadata.outlineContour) {
+        existingModel.metadata.outlineContour = outlineContour;
+        console.log(`💾 Контур следа сохранён в существующую модель ${modelIdHint.substring(0,12)}`);
+        console.log(`   точек в контуре: ${outlineContour.points.length}`);
+    } else if (outlineContour && existingModel.metadata.outlineContour) {
+        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
+    } else if (!outlineContour) {
+        console.log(`⚠️ Нет контура для сохранения`);
+    }
 
                     if (this.debug) {
                         console.log(`\n💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
@@ -2017,7 +2027,10 @@ if (this.debug) {
         // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
             console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, options);
+            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
+    ...options,
+    outlineContour: outlineContour  // 🔥 ПЕРЕДАЁМ КОНТУР
+});
             this.photoToModel.set(photoId, result.modelId);
             return {
                 ...result,
@@ -2965,31 +2978,36 @@ const finalResult = {
         }
 
         const model = {
-            id: modelId,
-            graph: exactGraph,
-            knnGraph: null,
-            knnFingerprints: knnFingerprints,
-            morphologyMap: morphologyMap,
-            originalPoints: originalPoints,
-            patternData: patternData,
-            clusterData: clusterData,
-            metadata: {
-                name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-                createdAt: new Date(),
-                pointsCount: originalPoints.length,
-                nodesCount: exactGraph.nodes.size,
-                edgesCount: exactGraph.edges.size,
-                photoCount: 1,
-                source: options.source || 'unknown'
-            },
-            history: [{
-                action: 'created',
-                timestamp: new Date(),
-                points: originalPoints.length,
-                nodes: exactGraph.nodes.size
-            }]
-        };
-
+    id: modelId,
+    graph: exactGraph,
+    knnGraph: null,
+    knnFingerprints: knnFingerprints,
+    morphologyMap: morphologyMap,
+    originalPoints: originalPoints,
+    patternData: patternData,
+    clusterData: clusterData,
+    metadata: {
+        name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
+        createdAt: new Date(),
+        pointsCount: originalPoints.length,
+        nodesCount: exactGraph.nodes.size,
+        edgesCount: exactGraph.edges.size,
+        photoCount: 1,
+        source: options.source || 'unknown'
+    },
+    history: [{
+        action: 'created',
+        timestamp: new Date(),
+        points: originalPoints.length,
+        nodes: exactGraph.nodes.size
+    }]
+};
+ // 🔥 СОХРАНЯЕМ КОНТУР В МОДЕЛЬ (если передан)
+    if (options.outlineContour) {
+        model.metadata.outlineContour = options.outlineContour;
+        console.log(`💾 Контур следа сохранён в новую модель ${modelId.substring(0,12)}`);
+        console.log(`   точек в контуре: ${options.outlineContour.points.length}`);
+    }
         this.models.set(modelId, model);
         this.currentModelId = modelId;
         this.stats.totalModels++;
