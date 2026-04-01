@@ -84,21 +84,30 @@ class ClusterVisualizer {
         const avgY = (minY + maxY) / 2;
 
         if (this.config.showEdges && topologyData.edges) {
-        this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
-    }
+    this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+}
 
-    // 🔥 НОВОЕ: Рисуем контур следа модели
-    if (topologyData.outlineContour && topologyData.outlineContour.points) {
-        this.drawFootprintContour(
-            ctx,
-            topologyData.outlineContour.points,
-            avgX, avgY, centerX, centerY, scale,
-            false // isPhoto = false (контур модели)
-        );
-    }
+// 🔥 НОВОЕ: Рисуем контур следа модели
+console.log(`\n🔍 ДИАГНОСТИКА КОНТУРА В drawModel:`);
+console.log(`   outlineContour: ${topologyData.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+if (topologyData.outlineContour) {
+    console.log(`   points.length: ${topologyData.outlineContour.points?.length || 0}`);
+    console.log(`   class: ${topologyData.outlineContour.class}`);
+    console.log(`   type: ${topologyData.outlineContour.type}`);
+   
+    this.drawFootprintContour(
+        ctx,
+        topologyData.outlineContour.points,
+        avgX, avgY, centerX, centerY, scale,
+        false // isPhoto = false (контур модели)
+    );
+} else {
+    console.log(`   ⚠️ Контур отсутствует в topologyData`);
+    console.log(`   Доступные ключи: ${Object.keys(topologyData).join(', ')}`);
+}
 
-        const modelMatchMap = topologyData.modelMatchMap || new Map();
-        console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} записей`);
+const modelMatchMap = topologyData.modelMatchMap || new Map();
+console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} записей`);
 
         // Рисуем структуры (треугольники)
         const structures = (topologyData.structures || []).filter(s => s && s.id);
@@ -297,21 +306,25 @@ class ClusterVisualizer {
         const avgY = (minY + maxY) / 2;
 
          if (this.config.showEdges && topologyData.edges) {
-        this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
-    }
+    this.drawEdges(ctx, topologyData, avgX, avgY, centerX, centerY, scale);
+}
 
-    // 🔥 НОВОЕ: Рисуем контур следа из фото
-    if (topologyData.outlineContour && topologyData.outlineContour.points) {
-        this.drawFootprintContour(
-            ctx,
-            topologyData.outlineContour.points,
-            avgX, avgY, centerX, centerY, scale,
-            true // isPhoto = true (контур из фото)
-        );
-    }
+// 🔥 НОВОЕ: Рисуем контур следа из фото
+console.log(`\n🔍 ДИАГНОСТИКА КОНТУРА В drawPhoto:`);
+console.log(`   outlineContour: ${topologyData.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+if (topologyData.outlineContour) {
+    console.log(`   points.length: ${topologyData.outlineContour.points?.length || 0}`);
+   
+    this.drawFootprintContour(
+        ctx,
+        topologyData.outlineContour.points,
+        avgX, avgY, centerX, centerY, scale,
+        true // isPhoto = true (контур из фото)
+    );
+}
 
-    const photoPoints = topologyData.photoPoints || [];
-        console.log(`   📸 Рисую ${photoPoints.length} точек фото`);
+const photoPoints = topologyData.photoPoints || [];
+console.log(`   📸 Рисую ${photoPoints.length} точек фото`);
         const matchMap = topologyData.matchMap || new Map();
         console.log(`   📋 matchMap содержит ${matchMap.size} записей`);
 
