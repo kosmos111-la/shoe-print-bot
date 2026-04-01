@@ -20,22 +20,28 @@ class ModelVisualization {
 async createVisualization(options = {}) {
     try {
         const {
-            points = [],
-            photoPoints = [],
-            transform = null,
-            matches = new Map(),
-            edges = [],
-            triangles = [],
-            structures = [],
-            pointToStructure = new Map(),
-            outlineContour = null,        // 🔥 ДОБАВИТЬ
-            photoOutlineContour = null,   // 🔥 ДОБАВИТЬ (для фото)
-            width = 1200,
-            height = 1000,
-            padding = 50,
-            outputPath = null
-        } = options;
-
+    points = [],
+    photoPoints = [],
+    transform = null,
+    matches = new Map(),
+    edges = [],
+    triangles = [],
+    structures = [],
+    pointToStructure = new Map(),
+    outlineContour = null,
+    photoOutlineContour = null,  // 🔥 ДОБАВИТЬ
+    width = 1200,
+    height = 1000,
+    padding = 50,
+    outputPath = null
+} = options;
+// 🔥 ДИАГНОСТИКА КОНТУРОВ
+if (outlineContour) {
+    console.log(`   📐 Контур модели: ${outlineContour.points.length} точек`);
+}
+if (photoOutlineContour) {
+    console.log(`   📐 Контур фото: ${photoOutlineContour.points.length} точек`);
+}
         if (!points || points.length === 0) {
             console.log('⚠️ Нет точек модели для визуализации');
             return null;
