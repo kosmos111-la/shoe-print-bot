@@ -3156,32 +3156,14 @@ const finalResult = {
         // 🔥 edges уже Set, это нормально
         const edges = graph.edges;
 
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                for (let k = j + 1; k < nodeIds.length; k++) {
-                    const a = nodeIds[i];
-                    const b = nodeIds[j];
-                    const c = nodeIds[k];
-
-                    if (edges.has([a, b].sort().join('--')) &&
-                        edges.has([b, c].sort().join('--')) &&
-                        edges.has([c, a].sort().join('--'))) {
-                        triangles.push([a, b, c]);
-                    }
-                }
-            }
-        }
-        return triangles;
-    }
-
-   getVisualizationData(modelId = null, reliablePhotoIds = []) {
+        for (let i = 0; i < nodeIds.length; i++) {getVisualizationData(modelId = null, reliablePhotoIds = []) {
     const targetId = modelId || this.currentModelId;
     if (!targetId || !this.models.has(targetId)) return null;
 
     const model = this.models.get(targetId);
     const graph = model.graph;
 
-    // 🔥 НОВОЕ: Получаем контур следа из метаданных модели (ДО ВСЕХ ВЫЧИСЛЕНИЙ)
+    // 🔥 ПОЛУЧАЕМ КОНТУР (ОДИН РАЗ)
     const outlineContour = model.metadata?.outlineContour || null;
    
     if (this.debug) {
@@ -3193,27 +3175,10 @@ const finalResult = {
     }
 
     const rawStructures = model.structures || [];
-    console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,12)}`);
-    console.log(`   • rawStructures: ${rawStructures.length}`);
-
-    let totalRays = 0;
-    for (const s of rawStructures) {
-        const rays = s.rays || [];
-        totalRays += rays.length;
-        if (rays.length > 0 && this.debug) {
-            console.log(`   • Структура ${s.id.substring(0,12)} имеет ${rays.length} лучей`);
-        }
-    }
-    console.log(`   • Всего лучей в структурах: ${totalRays}`);
-   
-    // 🔥 ОДНО ОБЪЯВЛЕНИЕ pointToStructure
     const pointToStructure = model.pointToStructure || new Map();
-
     const structureColors = this.generateStructureColors(rawStructures);
-
-    const structures = rawStructures
-    .filter(s => s && s.id)
-    .map(s => ({
+   
+    const structures = rawStructures.filter(s => s && s.id).map(s => ({
         id: s.id,
         pointCount: s.pointIds ? s.pointIds.length : 0,
         pointIds: s.pointIds || [],
@@ -3222,17 +3187,13 @@ const finalResult = {
         confidence: s.confidence || 0,
         color: structureColors.get(s.id) || '#CCCCCC',
         rays: s.rays || [],
-        triangles: s.triangles || []  // ← здесь должны быть треугольники
+        triangles: s.triangles || []
     }));
-
-console.log(`   • Всего треугольников в структурах: ${structures.reduce((sum, s) => sum + (s.triangles?.length || 0), 0)}`);
 
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
         ...node,
         structureId: pointToStructure.get(node.id) || null,
-        structureColor: pointToStructure.has(node.id)
-            ? structureColors.get(pointToStructure.get(node.id))
-            : null
+        structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null
     }));
 
     const pointsByConfirmation = {
@@ -3243,7 +3204,7 @@ console.log(`   • Всего треугольников в структур�
     };
 
     const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
-
+   
     let reliableNodeIds = new Set(reliablePhotoIds);
     if (reliableNodeIds.size === 0) {
         for (const [nodeId, node] of graph.nodes) {
@@ -3251,36 +3212,9 @@ console.log(`   • Всего треугольников в структур�
         }
     }
 
-    console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,12)}`);
-    console.log(`   • rawStructures: ${rawStructures.length}`);
-    console.log(`   • structures после фильтрации: ${structures.length}`);
-    console.log(`   • model.pointToStructure: ${pointToStructure.size}`);
-
     const modelTriangles = this.extractTrianglesFromGraph(graph);
-    console.log(`   • modelTriangles из модели: ${modelTriangles.length} треугольников`);
-    if (modelTriangles.length > 0) {
-        console.log(`   • Первый треугольник модели: p1=${modelTriangles[0]?.p1?.id?.substring(0,20)}`);
-    }
-    console.log(`   • pointToStructure содержит ID модели: ${Array.from(pointToStructure.keys()).slice(0,3).map(k => k.substring(0,20)).join(', ')}`);
-
-     // 🔥 НОВОЕ: Получаем контур следа из метаданных модели
-    const outlineContour = model.metadata?.outlineContour || null;
-   
-    if (outlineContour && this.debug) {
-        console.log(`📐 Для визуализации передан контур следа (${outlineContour.points.length} точек)`);
-    }
 
     return {
-        modelId: targetId,
-        // 🔥 ДОБАВЛЯЕМ ДИАГНОСТИКУ ПЕРЕД ВОЗВРАТОМ
-const outlineContour = model.metadata?.outlineContour || null;
-console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
-console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
-if (outlineContour) {
-    console.log(`   points: ${outlineContour.points?.length || 0}`);
-}
-
-return {
         modelId: targetId,
         modelName: model.metadata.name,
         points: pointsWithStructure,
@@ -3288,7 +3222,7 @@ return {
         structures: structures,
         triangles: modelTriangles,
         pointToStructure: pointToStructure,
-        outlineContour: outlineContour,  // 🔥 ДОБАВЛЯЕМ КОНТУР
+        outlineContour: outlineContour,  // 🔥 КОНТУР ДОБАВЛЕН
         stats: {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
