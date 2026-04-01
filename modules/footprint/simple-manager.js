@@ -347,9 +347,17 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
                 // 🔥 СОЗДАЁМ ДВЕ ВИЗУАЛИЗАЦИИ
                 const baseFilename = `topology_${userId}_${Date.now()}`;
 
-                const vizResult = await visualizer.visualizeTopologicalModel(visualizationData, {
-                    filename: `${baseFilename}.png`
-                });
+                // 🔥 ДИАГНОСТИКА ПЕРЕД ВЫЗОВОМ
+console.log(`\n🔍 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ:`);
+console.log(`   visualizationData.outlineContour: ${visualizationData.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+if (visualizationData.outlineContour) {
+    console.log(`   points: ${visualizationData.outlineContour.points?.length || 0}`);
+    console.log(`   class: ${visualizationData.outlineContour.class}`);
+}
+
+const vizResult = await visualizer.visualizeTopologicalModel(visualizationData, {
+    filename: `${baseFilename}.png`
+});
 
 
                 if (vizResult && vizResult.modelPath) {
