@@ -3181,6 +3181,17 @@ const finalResult = {
     const model = this.models.get(targetId);
     const graph = model.graph;
 
+    // 🔥 НОВОЕ: Получаем контур следа из метаданных модели (ДО ВСЕХ ВЫЧИСЛЕНИЙ)
+    const outlineContour = model.metadata?.outlineContour || null;
+   
+    if (this.debug) {
+        console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
+        console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+        if (outlineContour) {
+            console.log(`   points: ${outlineContour.points?.length || 0}`);
+        }
+    }
+
     const rawStructures = model.structures || [];
     console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,12)}`);
     console.log(`   • rawStructures: ${rawStructures.length}`);
@@ -3270,32 +3281,32 @@ if (outlineContour) {
 }
 
 return {
-    modelId: targetId,
-    modelName: model.metadata.name,
-    points: pointsWithStructure,
-    edges: Array.from(graph.edges),
-    structures: structures,
-    triangles: modelTriangles,
-    pointToStructure: pointToStructure,
-    outlineContour: outlineContour,  // 🔥 ДОБАВЛЯЕМ КОНТУР
-    stats: {
-        totalNodes: graph.nodes.size,
-        totalEdges: graph.edges.size,
-        confirmed3: pointsByConfirmation.confirmed3.length,
-        confirmed2: pointsByConfirmation.confirmed2.length,
-        confirmed1: pointsByConfirmation.confirmed1.length,
-        confirmed0: pointsByConfirmation.confirmed0.length,
-        structureCount: structures.length,
-        reliableNodes: reliableNodeIds.size
-    },
-    pointsByConfirmation: pointsByConfirmation,
-    metadata: model.metadata,
-    allModels: this.getAllModels(),
-    currentModelId: this.currentModelId,
-    modelMatchMap: modelMatchMapFromModel,
-    transform: model.transform,
-    uniquePoints: model.uniquePoints
-};
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: pointsWithStructure,
+        edges: Array.from(graph.edges),
+        structures: structures,
+        triangles: modelTriangles,
+        pointToStructure: pointToStructure,
+        outlineContour: outlineContour,  // 🔥 ДОБАВЛЯЕМ КОНТУР
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            structureCount: structures.length,
+            reliableNodes: reliableNodeIds.size
+        },
+        pointsByConfirmation: pointsByConfirmation,
+        metadata: model.metadata,
+        allModels: this.getAllModels(),
+        currentModelId: this.currentModelId,
+        modelMatchMap: modelMatchMapFromModel,
+        transform: model.transform,
+        uniquePoints: model.uniquePoints
+    };
 }
 
 generateStructureColors(structures) {
