@@ -177,11 +177,57 @@ for (const structure of structures) {
              console.log(`   🎨 Цветных треугольников: ${colored}/${triangles.length}`);
         }
        
-        // Рисуем рёбра (поверх треугольников, чтобы рёбра были видны)
-        this.drawEdges(ctx, edges, points, bounds, scale, width, height);
-       
-        // Рисуем точки модели (поверх всего)
-        this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
+        // 🔥 РИСУЕМ КОНТУР МОДЕЛИ (если есть)
+if (outlineContour && outlineContour.points) {
+    console.log(`   🎨 Рисую контур модели: ${outlineContour.points.length} точек`);
+    this.drawFootprintContour(ctx, outlineContour.points, bounds, scale, width, height, false);
+}
+
+// 🔥 РИСУЕМ ТРАНСФОРМИРОВАННЫЙ КОНТУР ФОТО (если есть)
+if (photoOutlineContour && photoOutlineContour.points && transform) {
+    const transformedPoints = photoOutlineContour.points.map(p => this.applyTransform(p, transform));
+    console.log(`   🎨 Рисую контур фото (трансформированный): ${transformedPoints.length} точек`);
+    this.drawFootprintContour(ctx, transformedPoints, bounds, scale, width, height, true);
+}
+
+// Рисуем рёбра (поверх треугольников, чтобы рёбра были видны)
+this.drawEdges(ctx, edges, points, bounds, scale, width, height);
+
+// Рисуем точки модели (поверх всего)
+this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
+```
+
+И добавить метод drawFootprintContour в конец класса ModelVisualization:
+
+```javascript
+/**
+* Рисует контур следа (пунктирной линией)
+*/
+drawFootprintContour(ctx, points, bounds, scale, width, height, isPhoto = false) {
+    if (!points || points.length < 3) return;
+
+    const transformedPoints = points.map(p => ({
+        x: this.projectX(p.x, bounds, scale, width),
+        y: this.projectY(p.y, bounds, scale, height)
+    }));
+
+    ctx.beginPath();
+    ctx.moveTo(transformedPoints[0].x, transformedPoints[0].y);
+    for (let i = 1; i < transformedPoints.length; i++) {
+        ctx.lineTo(transformedPoints[i].x, transformedPoints[i].y);
+    }
+    ctx.closePath();
+
+    ctx.strokeStyle = isPhoto ? '#AA00FF' : '#00AAFF';
+    ctx.setLineDash([8, 8]);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+   
+    // Полупрозрачная заливка
+    ctx.fillStyle = isPhoto ? 'rgba(170, 0, 255, 0.05)' : 'rgba(0, 170, 255, 0.05)';
+    ctx.fill();
+}
 
             // Рисуем трансформированные точки фото
             if (transformedPhotoPoints.length > 0) {
