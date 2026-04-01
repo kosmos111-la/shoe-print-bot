@@ -3149,14 +3149,39 @@ const finalResult = {
     }
 
     computeTriangles(graph) {
-        if (!graph || !graph.nodes || !graph.edges) return [];
+    if (!graph || !graph.nodes || !graph.edges) return [];
 
-        const triangles = [];
-        const nodeIds = Array.from(graph.nodes.keys());
-        // 🔥 edges уже Set, это нормально
-        const edges = graph.edges;
+    const triangles = [];
+    const nodeIds = Array.from(graph.nodes.keys());
+    const edges = graph.edges;
 
-        for (let i = 0; i < nodeIds.length; i++) {getVisualizationData(modelId = null, reliablePhotoIds = []) {
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
+
+                if (edges.has([a, b].sort().join('--')) &&
+                    edges.has([b, c].sort().join('--')) &&
+                    edges.has([c, a].sort().join('--'))) {
+
+                    const p1 = graph.nodes.get(a);
+                    const p2 = graph.nodes.get(b);
+                    const p3 = graph.nodes.get(c);
+
+                    if (p1 && p2 && p3) {
+                        triangles.push({ p1, p2, p3 });
+                    }
+                }
+            }
+        }
+    }
+
+    return triangles;
+}
+
+getVisualizationData(modelId = null, reliablePhotoIds = []) {
     const targetId = modelId || this.currentModelId;
     if (!targetId || !this.models.has(targetId)) return null;
 
@@ -3165,7 +3190,7 @@ const finalResult = {
 
     // 🔥 ПОЛУЧАЕМ КОНТУР (ОДИН РАЗ)
     const outlineContour = model.metadata?.outlineContour || null;
-   
+
     if (this.debug) {
         console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
         console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
@@ -3177,7 +3202,7 @@ const finalResult = {
     const rawStructures = model.structures || [];
     const pointToStructure = model.pointToStructure || new Map();
     const structureColors = this.generateStructureColors(rawStructures);
-   
+
     const structures = rawStructures.filter(s => s && s.id).map(s => ({
         id: s.id,
         pointCount: s.pointIds ? s.pointIds.length : 0,
@@ -3204,7 +3229,7 @@ const finalResult = {
     };
 
     const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
-   
+
     let reliableNodeIds = new Set(reliablePhotoIds);
     if (reliableNodeIds.size === 0) {
         for (const [nodeId, node] of graph.nodes) {
@@ -3222,7 +3247,7 @@ const finalResult = {
         structures: structures,
         triangles: modelTriangles,
         pointToStructure: pointToStructure,
-        outlineContour: outlineContour,  // 🔥 КОНТУР ДОБАВЛЕН
+        outlineContour: outlineContour,
         stats: {
             totalNodes: graph.nodes.size,
             totalEdges: graph.edges.size,
@@ -3251,11 +3276,11 @@ generateStructureColors(structures) {
         '#FFB7B2', '#B5F2E8', '#FFDAC1', '#E2F0CB', '#B5E3FF',
         '#FF9AA2', '#FFDAC1', '#B5EAD7', '#C7CEE6', '#F5C6A0'
     ];
-   
+
     structures.forEach((structure, idx) => {
         colors.set(structure.id, palette[idx % palette.length]);
     });
-   
+
     return colors;
 }
 
