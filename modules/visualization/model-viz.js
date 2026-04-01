@@ -195,39 +195,8 @@ this.drawEdges(ctx, edges, points, bounds, scale, width, height);
 
 // Рисуем точки модели (поверх всего)
 this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
-```
 
-И добавить метод drawFootprintContour в конец класса ModelVisualization:
 
-```javascript
-/**
-* Рисует контур следа (пунктирной линией)
-*/
-drawFootprintContour(ctx, points, bounds, scale, width, height, isPhoto = false) {
-    if (!points || points.length < 3) return;
-
-    const transformedPoints = points.map(p => ({
-        x: this.projectX(p.x, bounds, scale, width),
-        y: this.projectY(p.y, bounds, scale, height)
-    }));
-
-    ctx.beginPath();
-    ctx.moveTo(transformedPoints[0].x, transformedPoints[0].y);
-    for (let i = 1; i < transformedPoints.length; i++) {
-        ctx.lineTo(transformedPoints[i].x, transformedPoints[i].y);
-    }
-    ctx.closePath();
-
-    ctx.strokeStyle = isPhoto ? '#AA00FF' : '#00AAFF';
-    ctx.setLineDash([8, 8]);
-    ctx.lineWidth = 2;
-    ctx.stroke();
-    ctx.setLineDash([]);
-   
-    // Полупрозрачная заливка
-    ctx.fillStyle = isPhoto ? 'rgba(170, 0, 255, 0.05)' : 'rgba(0, 170, 255, 0.05)';
-    ctx.fill();
-}
 
             // Рисуем трансформированные точки фото
             if (transformedPhotoPoints.length > 0) {
@@ -464,7 +433,34 @@ for (const point of groupedPoints.values()) {
             console.log(`   🔗 Нарисовано рёбер: ${drawn}`);
         }
     }
+/**
+* Рисует контур следа (пунктирной линией)
+*/
+drawFootprintContour(ctx, points, bounds, scale, width, height, isPhoto = false) {
+    if (!points || points.length < 3) return;
 
+    const transformedPoints = points.map(p => ({
+        x: this.projectX(p.x, bounds, scale, width),
+        y: this.projectY(p.y, bounds, scale, height)
+    }));
+
+    ctx.beginPath();
+    ctx.moveTo(transformedPoints[0].x, transformedPoints[0].y);
+    for (let i = 1; i < transformedPoints.length; i++) {
+        ctx.lineTo(transformedPoints[i].x, transformedPoints[i].y);
+    }
+    ctx.closePath();
+
+    ctx.strokeStyle = isPhoto ? '#AA00FF' : '#00AAFF';
+    ctx.setLineDash([8, 8]);
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.setLineDash([]);
+   
+    // Полупрозрачная заливка
+    ctx.fillStyle = isPhoto ? 'rgba(170, 0, 255, 0.05)' : 'rgba(0, 170, 255, 0.05)';
+    ctx.fill();
+}
     /**
      * Рисует легенду
      */
