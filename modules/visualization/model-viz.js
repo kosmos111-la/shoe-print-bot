@@ -17,7 +17,7 @@ class ModelVisualization {
      * @param {Object} options - параметры визуализации
      * @returns {string} - путь к файлу
      */
-    async createVisualization(options = {}) {
+async createVisualization(options = {}) {
     try {
         const {
             points = [],
@@ -27,7 +27,9 @@ class ModelVisualization {
             edges = [],
             triangles = [],
             structures = [],
-            pointToStructure = new Map(),  // 🔥 ОДНО ОБЪЯВЛЕНИЕ
+            pointToStructure = new Map(),
+            outlineContour = null,        // 🔥 ДОБАВИТЬ
+            photoOutlineContour = null,   // 🔥 ДОБАВИТЬ (для фото)
             width = 1200,
             height = 1000,
             padding = 50,
