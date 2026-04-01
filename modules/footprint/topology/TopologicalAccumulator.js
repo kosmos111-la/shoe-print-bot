@@ -13,6 +13,7 @@ const PatternAnalyzer = require('../analysis/PatternAnalyzer');
 const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
 const ValidationModule = require('../validation/ValidationModule');
 const StructureManager = require('./StructureManager');
+const AffineRefiner = require('./AffineRefiner');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -72,6 +73,13 @@ class TopologicalAccumulator {
             confidenceThreshold: options.confidenceThreshold || 0.8
         });
 
+this.affineRefiner = new AffineRefiner({
+    debug: this.debug,
+    maxIterations: 3,
+    useRansac: true,
+    ransacThreshold: 5
+});
+     
         // 🔥 АНАЛИЗАТОРЫ
         this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
         this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug });
@@ -1885,6 +1893,42 @@ if (this.debug && refinementIteration > 1) {
                         }
                     }
 
+// ===== ШАГ 3.10: АФФИННАЯ КОРРЕКЦИЯ =====
+if (finalValidatedMatches.length >= 3) {
+    console.log(`\n🔧 ЗАПУСК АФФИННОЙ КОРРЕКЦИИ по ${finalValidatedMatches.length} парам`);
+   
+    // Подготавливаем пары для аффинного рефайнера
+    const affinePairs = [];
+    for (const match of finalValidatedMatches) {
+        const photoPoint = exactGraph.nodes.get(match.pointA);
+        const modelPoint = existingModel.graph.nodes.get(match.pointB);
+        if (photoPoint && modelPoint) {
+            affinePairs.push({
+                src: { x: photoPoint.x, y: photoPoint.y },
+                dst: { x: modelPoint.x, y: modelPoint.y },
+                weight: match.confidence || 0.5
+            });
+        }
+    }
+   
+    // Вычисляем аффинную трансформацию
+    const affineTransform = this.affineRefiner.refine(affinePairs);
+   
+    // Конвертируем в формат для совместимости
+    const legacyTransform = this.affineRefiner.toLegacyTransform(affineTransform);
+   
+    console.log(`\n✅ АФФИННАЯ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
+    console.log(`   Новый масштаб X: ${legacyTransform.scaleX.toFixed(3)} (было ${finalTransform.scale.toFixed(3)})`);
+    console.log(`   Новый масштаб Y: ${legacyTransform.scaleY.toFixed(3)}`);
+   
+    // Сохраняем обновлённый transform
+    finalTransform = legacyTransform;
+    if (existingModel) {
+        existingModel.transform = finalTransform;
+        existingModel.affineTransform = affineTransform; // сохраняем полную матрицу
+    }
+}
+                 
                     // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
                     console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
