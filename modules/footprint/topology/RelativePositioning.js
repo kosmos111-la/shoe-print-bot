@@ -275,9 +275,9 @@ class RelativePositioning {
                           morphScore * 0.3 +
                           neighborRolesScore * 0.1;
        
-        if (this.debug && totalScore > 0.7 && totalScore < 0.8) {
-            console.log(`      Сравнение ${photoId.slice(0,8)}... ↔ ${modelId.slice(0,8)}... = ${(totalScore*100).toFixed(0)}% (морфология: ${(morphScore*100).toFixed(0)}%)`);
-        }
+       // if (this.debug && totalScore > 0.7 && totalScore < 0.8) {
+       //     console.log(`      Сравнение ${photoId.slice(0,8)}... ↔ ${modelId.slice(0,8)}... = ${(totalScore*100).toFixed(0)}% (морфология: ${(morphScore*100).toFixed(0)}%)`);
+       // }
        
         return totalScore;
     }
