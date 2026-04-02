@@ -1896,11 +1896,11 @@ if (this.debug && refinementIteration > 1) {
 // ===== ШАГ 3.10: КОРРЕКЦИЯ ПО BOUNDING BOX =====
 if (finalValidatedMatches.length >= 3) {
     console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
-   
+
     // Собираем точки
     const photoPoints = [];
     const modelPoints = [];
-   
+
     for (const match of finalValidatedMatches) {
         const photoPoint = exactGraph.nodes.get(match.pointA);
         const modelPoint = existingModel.graph.nodes.get(match.pointB);
@@ -1909,13 +1909,13 @@ if (finalValidatedMatches.length >= 3) {
             modelPoints.push({ x: modelPoint.x, y: modelPoint.y, weight: match.confidence || 0.5 });
         }
     }
-   
+
     if (photoPoints.length >= 3) {
         // 1. Вычисляем центроиды
         let photoCenterX = 0, photoCenterY = 0;
         let modelCenterX = 0, modelCenterY = 0;
         let totalWeight = 0;
-       
+
         for (let i = 0; i < photoPoints.length; i++) {
             const w = photoPoints[i].weight;
             photoCenterX += photoPoints[i].x * w;
@@ -1924,16 +1924,17 @@ if (finalValidatedMatches.length >= 3) {
             modelCenterY += modelPoints[i].y * w;
             totalWeight += w;
         }
-       
+
         photoCenterX /= totalWeight;
         photoCenterY /= totalWeight;
         modelCenterX /= totalWeight;
         modelCenterY /= totalWeight;
-       
-        // 2. 🔥 НОВОЕ: Применяем текущий transform к точкам фото
-        const currentRot = finalTransform?.rotation || 0;
-        const currentScale = finalTransform?.scale || 1;
-       
+
+        // 🔥 ИСПРАВЛЕНИЕ: Берём transform из существующей модели
+        const currentRot = existingModel?.transform?.rotation || finalTransform?.rotation || 0;
+        const currentScale = existingModel?.transform?.scale || finalTransform?.scale || 1;
+
+        // 2. Применяем текущий transform к точкам фото
         const transformedPhotoPoints = photoPoints.map(p => ({
             x: modelCenterX + ((p.x - photoCenterX) * currentScale * Math.cos(currentRot) -
                                (p.y - photoCenterY) * currentScale * Math.sin(currentRot)),
@@ -1941,7 +1942,7 @@ if (finalValidatedMatches.length >= 3) {
                                (p.y - photoCenterY) * currentScale * Math.cos(currentRot)),
             weight: p.weight
         }));
-       
+
         // 3. Находим bounding box трансформированного фото
         let transMinX = Infinity, transMaxX = -Infinity;
         let transMinY = Infinity, transMaxY = -Infinity;
@@ -1951,8 +1952,8 @@ if (finalValidatedMatches.length >= 3) {
             transMinY = Math.min(transMinY, p.y);
             transMaxY = Math.max(transMaxY, p.y);
         }
-       
-        // 4. Находим bounding box модели (прямо по точкам)
+
+        // 4. Находим bounding box модели
         let modelMinX = Infinity, modelMaxX = -Infinity;
         let modelMinY = Infinity, modelMaxY = -Infinity;
         for (const p of modelPoints) {
@@ -1961,32 +1962,33 @@ if (finalValidatedMatches.length >= 3) {
             modelMinY = Math.min(modelMinY, p.y);
             modelMaxY = Math.max(modelMaxY, p.y);
         }
-       
+
         // 5. Вычисляем размеры
         const transWidth = transMaxX - transMinX;
         const transHeight = transMaxY - transMinY;
         const modelWidth = modelMaxX - modelMinX;
         const modelHeight = modelMaxY - modelMinY;
-       
-        // 6. Вычисляем масштабы (целевой / текущий)
+
+        // 6. Вычисляем масштабы
         const scaleX = modelWidth / transWidth;
         const scaleY = modelHeight / transHeight;
-       
+
         // 7. Ограничиваем
         const safeScaleX = Math.min(Math.max(scaleX, 0.8), 1.2);
         const safeScaleY = Math.min(Math.max(scaleY, 0.8), 1.2);
-       
+
         // 8. Усредняем
         const avgScale = (safeScaleX + safeScaleY) / 2;
-       
+
         console.log(`\n📊 BOUNDING BOX АНАЛИЗ (после трансформации):`);
         console.log(`   Трансформированное фото: ${transWidth.toFixed(1)} x ${transHeight.toFixed(1)}`);
         console.log(`   Модель: ${modelWidth.toFixed(1)} x ${modelHeight.toFixed(1)}`);
+        console.log(`   Текущий масштаб: ${currentScale.toFixed(3)}`);
         console.log(`   Требуемый масштаб X: ${scaleX.toFixed(3)} → ${safeScaleX.toFixed(3)}`);
         console.log(`   Требуемый масштаб Y: ${scaleY.toFixed(3)} → ${safeScaleY.toFixed(3)}`);
         console.log(`   Усреднённый масштаб: ${avgScale.toFixed(3)}`);
-       
-        // 9. Применяем коррекцию к transform
+
+        // 9. Применяем коррекцию
         const newTransform = {
             scale: currentScale * avgScale,
             rotation: currentRot,
@@ -2000,11 +2002,11 @@ if (finalValidatedMatches.length >= 3) {
             scaleY: safeScaleY,
             method: 'bounding_box_iterative'
         };
-       
+
         console.log(`\n✅ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
         console.log(`   Новый масштаб: ${newTransform.scale.toFixed(3)} (было ${currentScale.toFixed(3)})`);
         console.log(`   Изменение: ${((newTransform.scale / currentScale - 1) * 100).toFixed(1)}%`);
-       
+
         finalTransform = newTransform;
         if (existingModel) {
             existingModel.transform = finalTransform;
