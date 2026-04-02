@@ -1911,7 +1911,7 @@ if (finalValidatedMatches.length >= 3) {
     }
    
     if (photoPoints.length >= 3) {
-        // 1. Вычисляем центроиды (взвешенные)
+        // 1. Вычисляем центроиды
         let photoCenterX = 0, photoCenterY = 0;
         let modelCenterX = 0, modelCenterY = 0;
         let totalWeight = 0;
@@ -1930,111 +1930,84 @@ if (finalValidatedMatches.length >= 3) {
         modelCenterX /= totalWeight;
         modelCenterY /= totalWeight;
        
-        // 2. Находим bounding box с отсечением выбросов (используем перцентили)
-        const photoX = photoPoints.map(p => p.x).sort((a, b) => a - b);
-        const photoY = photoPoints.map(p => p.y).sort((a, b) => a - b);
-        const modelX = modelPoints.map(p => p.x).sort((a, b) => a - b);
-        const modelY = modelPoints.map(p => p.y).sort((a, b) => a - b);
+        // 2. 🔥 НОВОЕ: Применяем текущий transform к точкам фото
+        const currentRot = finalTransform?.rotation || 0;
+        const currentScale = finalTransform?.scale || 1;
        
-        // Берём 5-й и 95-й перцентили для устойчивости к выбросам
-        const p5 = Math.floor(photoPoints.length * 0.05);
-        const p95 = Math.floor(photoPoints.length * 0.95);
+        const transformedPhotoPoints = photoPoints.map(p => ({
+            x: modelCenterX + ((p.x - photoCenterX) * currentScale * Math.cos(currentRot) -
+                               (p.y - photoCenterY) * currentScale * Math.sin(currentRot)),
+            y: modelCenterY + ((p.x - photoCenterX) * currentScale * Math.sin(currentRot) +
+                               (p.y - photoCenterY) * currentScale * Math.cos(currentRot)),
+            weight: p.weight
+        }));
        
-        const photoMinX = photoX[p5];
-        const photoMaxX = photoX[p95];
-        const photoMinY = photoY[p5];
-        const photoMaxY = photoY[p95];
+        // 3. Находим bounding box трансформированного фото
+        let transMinX = Infinity, transMaxX = -Infinity;
+        let transMinY = Infinity, transMaxY = -Infinity;
+        for (const p of transformedPhotoPoints) {
+            transMinX = Math.min(transMinX, p.x);
+            transMaxX = Math.max(transMaxX, p.x);
+            transMinY = Math.min(transMinY, p.y);
+            transMaxY = Math.max(transMaxY, p.y);
+        }
        
-        const modelMinX = modelX[p5];
-        const modelMaxX = modelX[p95];
-        const modelMinY = modelY[p5];
-        const modelMaxY = modelY[p95];
+        // 4. Находим bounding box модели (прямо по точкам)
+        let modelMinX = Infinity, modelMaxX = -Infinity;
+        let modelMinY = Infinity, modelMaxY = -Infinity;
+        for (const p of modelPoints) {
+            modelMinX = Math.min(modelMinX, p.x);
+            modelMaxX = Math.max(modelMaxX, p.x);
+            modelMinY = Math.min(modelMinY, p.y);
+            modelMaxY = Math.max(modelMaxY, p.y);
+        }
        
-        // 3. Вычисляем размеры
-        const photoWidth = photoMaxX - photoMinX;
-        const photoHeight = photoMaxY - photoMinY;
+        // 5. Вычисляем размеры
+        const transWidth = transMaxX - transMinX;
+        const transHeight = transMaxY - transMinY;
         const modelWidth = modelMaxX - modelMinX;
         const modelHeight = modelMaxY - modelMinY;
        
-        // 4. Вычисляем масштабы
-        const scaleX = modelWidth / photoWidth;
-        const scaleY = modelHeight / photoHeight;
+        // 6. Вычисляем масштабы (целевой / текущий)
+        const scaleX = modelWidth / transWidth;
+        const scaleY = modelHeight / transHeight;
        
-        // 5. Ограничиваем масштабы (защита от выбросов)
-        const safeScaleX = Math.min(Math.max(scaleX, 0.5), 2.0);
-        const safeScaleY = Math.min(Math.max(scaleY, 0.5), 2.0);
+        // 7. Ограничиваем
+        const safeScaleX = Math.min(Math.max(scaleX, 0.8), 1.2);
+        const safeScaleY = Math.min(Math.max(scaleY, 0.8), 1.2);
        
-        // 6. Усредняем масштабы (след должен сохранять пропорции)
+        // 8. Усредняем
         const avgScale = (safeScaleX + safeScaleY) / 2;
        
-        console.log(`\n📊 BOUNDING BOX АНАЛИЗ (5-95 перцентили):`);
-        console.log(`   Фото: ${photoWidth.toFixed(1)} x ${photoHeight.toFixed(1)}`);
+        console.log(`\n📊 BOUNDING BOX АНАЛИЗ (после трансформации):`);
+        console.log(`   Трансформированное фото: ${transWidth.toFixed(1)} x ${transHeight.toFixed(1)}`);
         console.log(`   Модель: ${modelWidth.toFixed(1)} x ${modelHeight.toFixed(1)}`);
-        console.log(`   Масштаб X: ${scaleX.toFixed(3)} → ${safeScaleX.toFixed(3)}`);
-        console.log(`   Масштаб Y: ${scaleY.toFixed(3)} → ${safeScaleY.toFixed(3)}`);
+        console.log(`   Требуемый масштаб X: ${scaleX.toFixed(3)} → ${safeScaleX.toFixed(3)}`);
+        console.log(`   Требуемый масштаб Y: ${scaleY.toFixed(3)} → ${safeScaleY.toFixed(3)}`);
         console.log(`   Усреднённый масштаб: ${avgScale.toFixed(3)}`);
-        console.log(`   Разница X/Y: ${(Math.abs(safeScaleX - safeScaleY) / avgScale * 100).toFixed(1)}%`);
        
-        // 7. Вычисляем поворот через средний угол
-        let sumCos = 0, sumSin = 0;
-        let validCount = 0;
-       
-        for (let i = 0; i < photoPoints.length; i++) {
-            const dxPhoto = photoPoints[i].x - photoCenterX;
-            const dyPhoto = photoPoints[i].y - photoCenterY;
-            const dxModel = modelPoints[i].x - modelCenterX;
-            const dyModel = modelPoints[i].y - modelCenterY;
-           
-            const lenPhoto = Math.sqrt(dxPhoto * dxPhoto + dyPhoto * dyPhoto);
-            const lenModel = Math.sqrt(dxModel * dxModel + dyModel * dyModel);
-           
-            if (lenPhoto > 1 && lenModel > 1) {
-                const normPhotoX = dxPhoto / lenPhoto;
-                const normPhotoY = dyPhoto / lenPhoto;
-                const normModelX = dxModel / lenModel;
-                const normModelY = dyModel / lenModel;
-               
-                const cos = normPhotoX * normModelX + normPhotoY * normModelY;
-                const sin = normPhotoX * normModelY - normPhotoY * normModelX;
-               
-                sumCos += cos;
-                sumSin += sin;
-                validCount++;
-            }
-        }
-       
-        const rotation = validCount > 0 ? Math.atan2(sumSin, sumCos) : (finalTransform?.rotation || 0);
-       
-        console.log(`   Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}° (по ${validCount} векторам)`);
-       
-        // 8. Создаём новый transform
+        // 9. Применяем коррекцию к transform
         const newTransform = {
-            scale: avgScale,
-            rotation: rotation,
+            scale: currentScale * avgScale,
+            rotation: currentRot,
             translation: {
-                x: modelCenterX - (photoCenterX * avgScale * Math.cos(rotation) - photoCenterY * avgScale * Math.sin(rotation)),
-                y: modelCenterY - (photoCenterX * avgScale * Math.sin(rotation) + photoCenterY * avgScale * Math.cos(rotation))
+                x: modelCenterX - (photoCenterX * currentScale * avgScale * Math.cos(currentRot) -
+                                   photoCenterY * currentScale * avgScale * Math.sin(currentRot)),
+                y: modelCenterY - (photoCenterX * currentScale * avgScale * Math.sin(currentRot) +
+                                   photoCenterY * currentScale * avgScale * Math.cos(currentRot))
             },
             scaleX: safeScaleX,
             scaleY: safeScaleY,
-            method: 'bounding_box_percentile'
+            method: 'bounding_box_iterative'
         };
        
         console.log(`\n✅ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
-        console.log(`   Новый масштаб: ${newTransform.scale.toFixed(3)} (было ${finalTransform?.scale?.toFixed(3) || '?'})`);
-        console.log(`   Разница: ${((newTransform.scale / (finalTransform?.scale || 1) - 1) * 100).toFixed(1)}%`);
+        console.log(`   Новый масштаб: ${newTransform.scale.toFixed(3)} (было ${currentScale.toFixed(3)})`);
+        console.log(`   Изменение: ${((newTransform.scale / currentScale - 1) * 100).toFixed(1)}%`);
        
-        // Сохраняем
         finalTransform = newTransform;
         if (existingModel) {
             existingModel.transform = finalTransform;
-            existingModel.boundingBoxCorrection = {
-                scaleX: safeScaleX,
-                scaleY: safeScaleY,
-                avgScale: avgScale,
-                photoBounds: { minX: photoMinX, maxX: photoMaxX, minY: photoMinY, maxY: photoMaxY },
-                modelBounds: { minX: modelMinX, maxX: modelMaxX, minY: modelMinY, maxY: modelMaxY }
-            };
         }
     }
 }
