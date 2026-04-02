@@ -1,4634 +1,1608 @@
-// modules/footprint/topology/TopologicalAccumulator.js
-// 🏗️ МУЛЬТИ-МОДЕЛЬНЫЙ АККУМУЛЯТОР - ИСПРАВЛЕННАЯ ВЕРСИЯ 
-
-const GraphBuilder = require('./GraphBuilder');
-const KNNGraphBuilder = require('./KNNGraphBuilder');
-const LocalGroupSignature = require('./LocalGroupSignature');
-const MorphologyEncoder = require('./MorphologyEncoder');
-const CenterMatcher = require('./CenterMatcher');
-const RelativePositioning = require('./RelativePositioning');
-const TopologicalFingerprint = require('./TopologicalFingerprint');
-const TriangleMatcher = require('../matching/TriangleMatcher');
-const PatternAnalyzer = require('../analysis/PatternAnalyzer');
-const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
-const ValidationModule = require('../validation/ValidationModule');
-const StructureManager = require('./StructureManager');
-const AffineRefiner = require('./AffineRefiner');
-
-class TopologicalAccumulator {
-    constructor(options = {}) {
-        this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || true;
-
-        // 🔥 РЕЖИМЫ РАБОТЫ
-        this.fastMode = options.fastMode || false;
-        this.similarityThreshold = options.similarityThreshold || 0.6;
-
-        // 🔥 ДОПУСКИ ДЛЯ ПРИЗНАКОВ
-        this.tolerances = {
-            compactness: 0.4,
-            eccentricity: 0.15,
-            normalizedArea: 0.75,
-            radialProfile: 0.3,
-            degree: 2,
-            triangles: 1,
-            role: 'soft'
-        };
-
-        // Компоненты
-        this.graphBuilder = new GraphBuilder({ debug: this.debug });
-        this.knnBuilder = new KNNGraphBuilder({
-            debug: this.debug,
-            k: options.k || 8
-        });
-
-        this.fingerprinter = new TopologicalFingerprint({
-            debug: this.debug,
-            iterations: options.wlIterations || 3,
-            structuralSimilarityThreshold: 0.5
-        });
-
-        this.localGroupSignature = new LocalGroupSignature({
-            debug: this.debug,
-            depth: options.localDepth || 3,
-            useMorphology: true
-        });
-
-        this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
-
-        this.centerMatcher = new CenterMatcher({
-            debug: this.debug,
-            localGroupSignature: this.localGroupSignature,
-            morphologyEncoder: this.morphologyEncoder,
-            minLocalSimilarity: options.minLocalSimilarity || 0.5,
-            minMorphologySimilarity: options.minMorphologySimilarity || 0.6,
-            minConsistentPairs: options.minConsistentPairs || 1
-        });
-
-        this.relativePositioning = new RelativePositioning({
-            debug: this.debug,
-            localGroupSignature: this.localGroupSignature,
-            minPathSimilarity: options.minPathSimilarity || 0.5,
-            maxPathLengthDiff: options.maxPathLengthDiff || 3,
-            confidenceThreshold: options.confidenceThreshold || 0.8
-        });
-
-this.affineRefiner = new AffineRefiner({
-    debug: this.debug,
-    maxIterations: 3,
-    useRansac: true,
-    ransacThreshold: 5
-});
-     
-        // 🔥 АНАЛИЗАТОРЫ
-        this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
-        this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug });
-
-        // 🔥 ИНВАРИАНТНЫЕ ПАРАМЕТРЫ
-        this.duplicateCompactnessThreshold = options.duplicateCompactnessThreshold || 0.3;
-        this.duplicateAreaThreshold = options.duplicateAreaThreshold || 0.15;
-        this.duplicateGraphDistance = options.duplicateGraphDistance || 2;
-
-        // 🔥 ХРАНИЛИЩЕ МОДЕЛЕЙ
-        this.models = new Map();
-        this.currentModelId = null;
-        this.modelRelations = new Map();
-        this.photoToModel = new Map();
-
- // 🔥 ДОБАВИТЬ ВАЛИДАТОР
-    const ValidationModule = require('../validation/ValidationModule');
-    this.validator = new ValidationModule({
-        debug: this.debug,
-        positionThreshold: 0.15,
-        morphologyThreshold: 0.85
-    });
-      
-        // Статистика
-        this.stats = {
-            totalModels: 0,
-            totalEnhancements: 0,
-            totalCenterMatches: 0,
-            totalRelativeMatches: 0,
-            totalNodesRemoved: 0,
-            totalDuplicatesSkipped: 0,
-            differentFootprintsDetected: 0,
-            triangleMatchesCount: 0,
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
-
-        console.log(`🏗 МУЛЬТИ-МОДЕЛЬНЫЙ TopologicalAccumulator создан: "${this.name}"`);
-        console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ' : 'ПОЛНЫЙ'}`);
-        console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
-    }
-
-    // ==================== ОСНОВНОЙ МЕТОД ====================
-
-    async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
-
-        const photoId = options.photoId || `photo_${Date.now()}`;
-        const contours = options.contours || [];
-        const modelIdHint = options.modelId;
-
-    // 🔥 НОВОЕ: Извлекаем контур следа из contours
-    const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
-   
-    if (outlineContour && this.debug) {
-        console.log(`📐 Найден контур следа (${outlineContour.points.length} точек) для сохранения в модель`);
-    }
-
-        if (this.debug) {
-            console.log(`\n🔍 ОТЛАДКА processPoints:`);
-            console.log(`   • photoId: ${photoId}`);
-            console.log(`   • modelIdHint: ${modelIdHint}`);
-            console.log(`   • models.has: ${this.models.has(modelIdHint)}`);
-        }
-
-        // 1. Строим графы
-        const exactGraph = this.graphBuilder.buildGraph(points, options.source || 'photo');
-        const knnGraph = this.knnBuilder.buildGraph(points, options.source || 'photo_knn');
-        const morphologyMap = this.morphologyEncoder.encode(points, contours);
-        const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
-
-        // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
-        if (modelIdHint && this.models.has(modelIdHint)) {
-            console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
-
-            const existingModel = this.models.get(modelIdHint);
-
-            // Создаем временную модель из нового фото
-            const tempModel = {
-                graph: exactGraph,
-                morphologyMap: morphologyMap,
-                metadata: { name: 'temp' }
-            };
-
-            if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-            const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
-
-            // 🔥 ВРЕМЕННО: срабатывает даже с 1 точкой
-            if (triangleResult.count >= 1) {
-                console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
-
-                // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
-                if (this.debug) console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
-
-                // Так как все ID одинаковые, группируем просто по порядку (каждые 3 точки)
-                const tempAnchors = [];
-                const matches = triangleResult.matches;
-
-                for (let i = 0; i < matches.length; i += 3) {
-                    if (i + 2 < matches.length) {
-                        const group = [
-                            matches[i],
-                            matches[i+1],
-                            matches[i+2]
-                        ];
-
-                        tempAnchors.push({
-                            aIndex: -1,
-                            bIndex: -1,
-                            geometryScore: Math.min(...group.map(m => m.confidence)),
-                            points: group.map(m => ({
-                                pointA: m.pointA,
-                                pointB: m.pointB,
-                                confidence: m.confidence
-                            }))
-                        });
-                    }
-                }
-
-                if (this.debug) console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
-
-                // Получаем треугольники из графов (ПЕРЕД проверкой!)
-                if (this.debug) console.log(`\n🔍 ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ГРАФОВ`);
-                const trianglesA = this.extractTrianglesFromGraph(exactGraph);
-                const trianglesB = this.extractTrianglesFromGraph(existingModel.graph);
-
-                if (this.debug) {
-                    console.log(`   • Треугольников в A: ${trianglesA.length}`);
-                    console.log(`   • Треугольников в B: ${trianglesB.length}`);
-                }
-
-                // ===== ШАГ 2: ГЛОБАЛЬНАЯ ПРОВЕРКА =====
-                if (this.debug) console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
-
-                const consistent = this.checkGlobalConsistency(
-                    tempAnchors,
-                    trianglesA,
-                    trianglesB,
-                    exactGraph,
-                    existingModel.graph
-                );
-
-                // ===== ШАГ 3: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
-                const finalMatches = this.twoStagePositioning(
-                    consistent.points,
-                    triangleResult.matches,
-                    exactGraph,
-                    existingModel.graph,
-                    morphologyMap,
-                    existingModel.morphologyMap
-                );
-
-                if (this.debug) {
-                    console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
-                    console.log(`   • Было matches: ${triangleResult.matches.length}`);
-                    console.log(`   • Стало matches: ${finalMatches.length}`);
-                }
-
-                // ===== ШАГ 3.5: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
-                console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
-
-                const ValidationModule = require('../validation/ValidationModule');
-                const validator = new ValidationModule({
-                    debug: this.debug,
-                    positionThreshold: 0.15,
-                    morphologyThreshold: 0.85
-                });
-
-                // 🔥 ИСПРАВЛЕНИЕ: Используем ТОЛЬКО согласованные якоря для вычисления transform
-                let anchorsForValidation = [];
-
-// Пытаемся получить треугольники из triangleResult
-if (triangleResult && triangleResult.triangles && triangleResult.triangles.length > 0) {
-    console.log(`\n🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (${triangleResult.triangles.length} шт)`);
-   
-    for (const tri of triangleResult.triangles) {
-        // Проверяем, что у треугольника есть соответствия
-        if (tri.pB1 && tri.pB2 && tri.pB3) {
-            anchorsForValidation.push({
-                pointA: tri.p1.id,
-                pointB: tri.pB1.id,
-                confidence: tri.confidence || 0.9,
-                triangleId: tri.id
-            });
-            anchorsForValidation.push({
-                pointA: tri.p2.id,
-                pointB: tri.pB2.id,
-                confidence: tri.confidence || 0.9,
-                triangleId: tri.id
-            });
-            anchorsForValidation.push({
-                pointA: tri.p3.id,
-                pointB: tri.pB3.id,
-                confidence: tri.confidence || 0.9,
-                triangleId: tri.id
-            });
-        }
-    }
-   
-    if (anchorsForValidation.length > 0) {
-        console.log(`   ✅ Создано ${anchorsForValidation.length} якорей из ${anchorsForValidation.length/3} треугольников`);
-    }
+📊 BOUNDING BOX АНАЛИЗ (после трансформации):
+   Трансформированное фото: 171.4 x 541.9
+   Модель: 171.5 x 539.5
+   Текущий масштаб: 1.005
+   Требуемый масштаб X: 1.001 → 1.001
+   Требуемый масштаб Y: 0.996 → 0.996
+   Усреднённый масштаб: 0.998
+✅ КОРРЕКЦИЯ ЗАВЕРШЕНА
+   Новый масштаб: 1.003 (было 1.005)
+   Изменение: -0.2%
+📤 Передаём в updateModelWithOptimalMatches: 92 точек
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+📸 Добавляю 7 новых точек из фото в модель
+      ✅ Добавлена новая точка (374.3, 171.6)
+      ✅ Добавлена новая точка (376.5, 225.9)
+      ✅ Добавлена новая точка (323.1, 186.1)
+      ✅ Добавлена новая точка (364.4, 121.5)
+      ✅ Добавлена новая точка (323.7, 233.5)
+      ✅ Добавлена новая точка (316.4, 529.7)
+📊 Результат обновления модели:
+   • Подтверждено существующих: 92
+   • Новых точек добавлено: 6
+   • Всего узлов в модели: 86
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 1.9px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 1.9px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 4.7px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 2.9px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 4.3px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 2.2px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 1.8px)
+🔗 Слито 7 дублирующихся точек
+✅ Дублирующихся точек в модели нет
+🔍 buildTriangleMatchMap: начало
+   • result.matches.length = 92
+   • Якорей (треугольников): не указано
+📋 ШАГ 1: Сортировка matches по уверенности
+   1. уверенность: 99.5%
+   2. уверенность: 99.3%
+   3. уверенность: 99.3%
+   4. уверенность: 99.3%
+   5. уверенность: 99.1%
+📋 ШАГ 2: Построение максимального непротиворечивого множества
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.5%)
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.3%)
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.3%)
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.3%)
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.1%)
+   ⚠️ Пропущено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.0%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512214
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.0%)
+   ⚠️ Пропущено: pt_177512214 ↔️ pt_177512213 (уверенность: 99.0%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512214
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 98.7%)
+   ⚠️ Пропущено: pt_177512214 ↔️ pt_177512213 (уверенность: 98.7%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512214
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 98.7%)
+   ⚠️ Пропущено: pt_177512214 ↔️ pt_177512213 (уверенность: 98.7%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512214
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 98.7%)
+   ✅ Добавлено: pt_177512214 ↔️ pt_177512213 (уверенность: 98.7%)
+   ⚠️ Пропущено: pt_177512214 ↔️ pt_177512213 (уверенность: 98.1%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512214
+📊 ИТОГ ПОСТРОЕНИЯ:
+   • Добавлено уникальных соответствий: 63
+   • Пропущено (конфликты): 29
+   • Всего обработано matches: 92
+📋 ШАГ 3: Назначение номеров парам
+   Пара 1: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 2: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 3: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 4: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 5: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 6: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 7: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 8: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 9: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 10: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 11: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 12: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 13: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 14: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 15: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 16: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 17: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 18: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 19: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 20: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 21: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 22: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 23: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 24: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 25: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 26: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 27: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 28: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 29: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 30: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 31: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 32: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 33: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 34: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 35: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 36: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 37: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 38: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 39: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 40: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 41: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 42: pt_177512214 ↔️ pt_177512213 [structure]
+   Пара 43: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 44: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 45: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 46: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 47: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 48: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 49: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 50: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 51: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 52: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 53: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 54: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 55: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 56: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 57: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 58: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 59: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 60: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 61: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 62: pt_177512214 ↔️ pt_177512213 [new_pair]
+   Пара 63: pt_177512214 ↔️ pt_177512213 [new_pair]
+📊 ИТОГ buildTriangleMatchMap:
+   • matchMap size: 63
+   • modelMatchMap size: 63
+   • Уникальных photo точек: 63
+   • Уникальных model точек: 63
+📊 СТАТИСТИКА ИСХОДНЫХ ДАННЫХ:
+   • Уникальных photo точек в matches: 73
+   • Уникальных model точек в matches: 63
+   • Покрытие photo точек: 86.3%
+   • Покрытие model точек: 100.0%
+💾 Сохранение в модель model_177512:
+   ✅ modelMatchMap сохранён (63 записей)
+   ✅ matchMap сохранён (63 записей)
+   📊 Статистика сохранена в модели
+🔍 ОТЛАДКА: 92 согласованных точек
+   • matchMap передан в визуализацию: 63 пар
+   • modelMatchMap сохранён в модель: 63 пар
+🧹 Очищено 0 неподтверждённых точек
+📊 СТАТИСТИКА МОДЕЛИ:
+   • 🟠 Подтвержденных (2+ фото): 92
+   • 🔵 Только в модели: -13
+   • 🔵 Только в новом фото: -12
+   • Всего в модели теперь: 79
+💾 Модель model_177512 обновлена в хранилище (79 узлов)
+🔍 matchMap передан в результат: 63 пар
+🎯 ТОПОЛОГИЧЕСКОЕ РЕШЕНИЕ В ПЕСОЧНИЦЕ: different_footprint (52.5%)
+📐 ДИАГНОСТИКА photoContours:
+   photoContours.length: 81
+   ✅ outline в photoContours: ЕСТЬ, точек: 519
+🔍 getVisualizationData: контур из метаданных:
+   outlineContour: ЕСТЬ
+   points: 522
+📊 extractTrianglesFromGraph: найдено 131 треугольников
+🔍 matchMap найден во вложенном объекте: 63 пар
+✅ matchMap добавлен: 63 пар
+✅ photoPoints создано: 63 точек
+🎨 Готовлю топологическую визуализацию...
+🎨 ClusterVisualizer (с уникальными точками) создан
+🔍 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ:
+   visualizationData.outlineContour: ЕСТЬ
+   points: 522
+   class: Outline-trail
+🎨 Визуализация топологической модели...
+📊 Всего точек в модели: 79
+   🔗 Рёбер отрисовано: 197
+🔍 ДИАГНОСТИКА КОНТУРА В drawModel:
+   outlineContour: ЕСТЬ
+   points.length: 522
+   class: Outline-trail
+   type: footprint_outline
+   📋 modelMatchMap содержит 63 записей
+   🎨 Отрисовка 2 структур...
+      Главная структура: 25 треугольников
+   🎨 Нарисовано треугольников: 25
+   🖌 Отрисовка 79 узлов модели...
+   📋 modelMatchMap в drawModelPoints: 63 записей
+   🎯 Модель: уникальных: 7, остальных: 72
+✅ Модель сохранена: data/footprints/visualizations/topology/topology_699140291_1775122154059_model.png
+   🔗 Рёбер отрисовано: 197
+🔍 ДИАГНОСТИКА КОНТУРА В drawPhoto:
+   outlineContour: ЕСТЬ
+   points.length: 522
+   📸 Рисую 63 точек фото
+   📋 matchMap содержит 63 записей
+   🎯 Фото: 🟣 63 сопоставлено, 🔵 0 новых, 🟣 7 только в фото
+✅ Фото сохранено: data/footprints/visualizations/topology/topology_699140291_1775122154059_photo.png
+✅ Модель сохранена: data/footprints/visualizations/topology/topology_699140291_1775122154059_model.png
+✅ Фото сохранено: data/footprints/visualizations/topology/topology_699140291_1775122154059_photo.png
+🤖 Отправляю топологический результат в Telegram...
+✅ Топологические визуализации отправлены в Telegram
+🏗 СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...
+📊 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:
+   • Точек модели: 79
+   • Соответствий: 63
+🏗 ModelVisualization для продакшена создан
+   • triangles из visualizationData: 131
+   • Первый треугольник: p1=pt_1775122137053_1_0
+   🔍 pointToStructure из visualizationData: 30 записей
+   📊 Точек модели: 79
+   📸 Точек фото: 0
+   🔄 Трансформация: есть
+   🔗 Соответствий: 63
+   🔍 pointToStructure содержит 30 записей
+   🔍 pointToStructure ID модели: pt_1775122144654_5_4, pt_1775122144654_10_, pt_1775122144654_51_
+   🔍 structures: 2 шт
+   🔍 Первая структура: {
+  "id": "struct_1775122152953_uza59r",
+  "pointCount": 30,
+  "pointIds": [
+    "pt_1775122144654_5_4",
+    "pt_1775122144654_10_9",
+    "pt_1775122144654_51_50",
+    "pt_1775122144654_37_36",
+    "pt_1775122144654_16_15",
+    "pt_1775122144654_22_21",
+    "pt_1775122144654_25_24",
+    "pt_1775122144654_49_48",
+    "pt_1775122144654_12_11",
+    "pt_1775122144654_33_32",
+    "pt_1775122144654_56_55",
+    "pt_1775122144654_18_17",
+    "pt_1775122144654_32_31",
+    "pt_1775122144654_47_46",
+    "p
+   🔺 Рисую 131 треугольников...
+   🔍 ID первых треугольников: pt_1775122137053_1_0, pt_1775122137053_1_0, pt_1775122137053_1_0
+   🔍 Первые 3 треугольника:
+      1: p1=pt_1775122137053_1_0, p2=pt_1775122137053_7_5, p3=pt_1775122137054_51_
+      2: p1=pt_1775122137053_1_0, p2=pt_1775122137053_7_5, p3=pt_1775122137054_61_
+      3: p1=pt_1775122137053_1_0, p2=pt_1775122137053_12_, p3=pt_1775122137054_33_
+   🔍 Первые 5 pointToStructure ключей:
+      pt_1775122144654_5_4 -> struct_17751
+      pt_1775122144654_10_ -> struct_17751
+      pt_1775122144654_51_ -> struct_17751
+      pt_1775122144654_37_ -> struct_17751
+      pt_1775122144654_16_ -> struct_17751
+   🎨 Цветных треугольников: 0/131
+   🔗 Нарисовано рёбер: 197
+   📊 Модель: красных 0, оранж 0, жёлт 3, син 15, сер 0, сопоставлено 61
+✅ Модель с наложением сохранена: /opt/render/project/src/temp/model_clean_1775122155305.png
+✅ Чистая модель сохранена: /opt/render/project/src/temp/model_clean_1775122155305.png
+🏗 СОЗДАЮ ВИЗУАЛИЗАЦИЮ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО...
+📊 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:
+   • Точек модели: 79
+   • Точек фото: 80
+   • Соответствий: 63
+   • Трансформация: ✅ ЕСТЬ
+🔄 ПАРАМЕТРЫ ТРАНСФОРМАЦИИ:
+   • Масштаб: 1.003
+   • Поворот: -94.9°
+   • Сдвиг: (26.8, 625.8)
+🏗 ModelVisualization для продакшена создан
+📐 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ С НАЛОЖЕНИЕМ:
+   visualizationData.outlineContour: ЕСТЬ
+      точек: 522
+   topologicalResult.photoContours: 81
+      outline в photoContours: ЕСТЬ, точек: 519
+   📐 Контур модели: 522 точек
+   📐 Контур фото: 519 точек
+   📊 Точек модели: 79
+   📸 Точек фото: 80
+   🔄 Трансформация: есть
+   🔗 Соответствий: 63
+   🔍 pointToStructure содержит 0 записей
+   🔄 Применяю трансформацию к 80 точкам фото:
+      Масштаб: 1.003
+      Поворот: -94.9°
+      Пример трансформации:
+         Исходная: (426, 218)
+         После: (207, 181)
+   🔍 structures: 0 шт
+   🎨 Рисую контур модели: 522 точек
+   🎨 Рисую контур фото (трансформированный): 519 точек
+   🔗 Нарисовано рёбер: 197
+   📊 Модель: красных 0, оранж 0, жёлт 3, син 15, сер 0, сопоставлено 61
+   📸 Фото: сопоставлено 63, не сопоставлено 17
+✅ Модель с наложением сохранена: /opt/render/project/src/temp/model_overlay_1775122156150.png
+✅ Визуализация с наложением создана: /opt/render/project/src/temp/model_overlay_1775122156150.png
+📊 ИТОГОВЫЙ РЕЗУЛЬТАТ В ПЕСОЧНИЦЕ:
+   Фото ID: AgACAgIAAxkBAAJcq2nN_YeeAAGng3RVASovFv88Ky-GgQACshVrGwe0cEoFgDNcx1UkHQEAAwIAA3gAAzoE
+   Фото в сессии: 2
+   Топологическое решение: different_footprint
+   Сходство: 52.5%
+📊 Результат addPhotoToSession: {
+  success: true,
+  nodesAdded: 80,
+  hasMergeVisualization: false,
+  mergeMethod: undefined,
+  similarity: undefined,
+  decision: undefined
 }
-
-// Если не получилось — используем consistent.points
-if (anchorsForValidation.length === 0) {
-    console.log(`   ⚠️ Нет треугольников, использую consistent.points`);
-    anchorsForValidation = consistent.points.map(p => ({
-        pointA: p.pointA,
-        pointB: p.pointB,
-        confidence: p.confidence
-    }));
-}
-
-                if (this.debug) console.log(`\n🔍 ЭТАП 1: Вычисление базового transform по ${anchorsForValidation.length} надёжным якорям`);
-
-                // Сначала вычисляем transform по надёжным якорям
-                const baseTransform = validator.calculateTransform(
-                    anchorsForValidation,
-                    exactGraph,
-                    existingModel.graph
-                );
-
-                if (!baseTransform) {
-                    console.log(`❌ Не удалось вычислить базовый transform`);
-                    return {
-                        status: 'transform_failed',
-                        modelId: modelIdHint,
-                        similarity: triangleResult?.similarity || 0,
-                        message: 'Не удалось вычислить transform по якорям'
-                    };
-                }
-
-                if (this.debug) {
-                    console.log(`\n📐 БАЗОВЫЙ TRANSFORM (${anchorsForValidation.length} якорей):`);
-                    console.log(`   • Масштаб: ${baseTransform.scale.toFixed(3)}`);
-                    console.log(`   • Поворот: ${(baseTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                    console.log(`   • Сдвиг: (${baseTransform.translation.x.toFixed(1)}, ${baseTransform.translation.y.toFixed(1)})`);
-                }
-
-              // 🔥 ЭТАП 2: Построение топологических структур (НОВЫЙ ПОДХОД)
-console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
-
-// Создаём менеджер структур
-const structureManager = new StructureManager(validator, {
-    debug: this.debug,
-    minConfidence: 0.7,
-    maxScaleDeviation: 0.1,
-    maxRotationDeviation: 5
-});
-
-// 🔥 ПОЛУЧАЕМ ВСЕ ТРЕУГОЛЬНИКИ ИЗ ГРАФА
-const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
-console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
-console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
-console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
-
-// Проверяем, есть ли externalPoint в исходных треугольниках
-if (triangleResult.triangles && triangleResult.triangles.length > 0) {
-    let trianglesWithExternal = 0;
-    let edgesWithExternal = 0;
-    for (const tri of triangleResult.triangles) {
-        if (tri.edges) {
-            for (const e of tri.edges) {
-                if (e.externalPoint) edgesWithExternal++;
-            }
-            if (tri.edges.some(e => e.externalPoint)) trianglesWithExternal++;
-        }
-    }
-    console.log(`   • В triangleResult: ${trianglesWithExternal}/${triangleResult.triangles.length} треугольников с лучами, ${edgesWithExternal} рёбер с externalPoint`);
-}
-
-// 🔥 ГРУППИРУЕМ ЯКОРЯ ПО triangleId
-const anchorsByTriangle = new Map();
-
-for (const anchor of anchorsForValidation) {
-    const triId = anchor.triangleId;
-    if (!triId) {
-        if (this.debug) console.log(`   ⚠️ Якорь без triangleId: ${anchor.pointA}`);
-        continue;
-    }
-
-    if (!anchorsByTriangle.has(triId)) {
-        anchorsByTriangle.set(triId, []);
-    }
-    anchorsByTriangle.get(triId).push(anchor);
-}
-
-console.log(`   • Найдено уникальных треугольников-якорей: ${anchorsByTriangle.size}`);
-
-// 🔥 СОЗДАЁМ МАПУ ЯКОРНЫХ ТРЕУГОЛЬНИКОВ (только те, у которых есть 3 якоря)
-const anchorTrianglesMap = new Map();      // якорные треугольники (24 шт)
-const anchorTriangleIds = new Set();       // ID якорных треугольников
-
-for (const [triId, anchors] of anchorsByTriangle) {
-    if (anchors.length !== 3) continue;
-
-    // Находим оригинальный треугольник из triangleResult
-    const originalTriangle = triangleResult.triangles?.find(t => t.id === triId);
-
-    const a1 = anchors[0];
-    const a2 = anchors[1];
-    const a3 = anchors[2];
-
-    const p1 = exactGraph.nodes.get(a1.pointA);
-    const p2 = exactGraph.nodes.get(a2.pointA);
-    const p3 = exactGraph.nodes.get(a3.pointA);
-
-    const pB1 = existingModel.graph.nodes.get(a1.pointB);
-    const pB2 = existingModel.graph.nodes.get(a2.pointB);
-    const pB3 = existingModel.graph.nodes.get(a3.pointB);
-
-    if (p1.id === p2.id || p1.id === p3.id || p2.id === p3.id) continue;
-
-    // Создаём рёбра с сохранением externalPoint
-    const edges = [];
-    if (originalTriangle && originalTriangle.edges) {
-        for (let i = 0; i < originalTriangle.edges.length; i++) {
-            const origEdge = originalTriangle.edges[i];
-            edges.push({
-                v1: [p1, p2, p3][i],
-                v2: [p1, p2, p3][(i+1) % 3],
-                neighborTriangles: [],
-                externalPoint: origEdge.externalPoint || null
-            });
-        }
-    } else {
-        edges = [
-            { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
-            { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
-            { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
-        ];
-    }
-
-    // Сохраняем якорный треугольник
-    const anchorTriangle = {
-        id: triId,
-        p1, p2, p3,
-        pB1, pB2, pB3,
-        confidence: (a1.confidence + a2.confidence + a3.confidence) / 3,
-        edges: edges
-    };
-   
-    anchorTrianglesMap.set(triId, anchorTriangle);
-    anchorTriangleIds.add(triId);
-}
-
-console.log(`   • Создано якорных треугольников: ${anchorTrianglesMap.size}`);
-
-// 🔥 СОЗДАЁМ МАПУ ТРЕУГОЛЬНИКОВ-КАНДИДАТОВ (все остальные, без якорей)
-// Это треугольники, которые НЕ входят в якорные, но могут быть присоединены геометрически
-const candidateTriangles = allGraphTriangles.filter(t => !anchorTriangleIds.has(t.id));
-console.log(`   • Треугольников-кандидатов для расширения: ${candidateTriangles.length}`);
-
-// 🔥 ПЕРЕДАЁМ В STRUCTUREBUILDER ТОЛЬКО ЯКОРНЫЕ ТРЕУГОЛЬНИКИ (24 шт)
-// Структура строится ТОЛЬКО из них, без мусора
-console.log(`\n📊 ПЕРЕДАЮ В STRUCTUREBUILDER: ${anchorTrianglesMap.size} якорных треугольников`);
-
-const structures = structureManager.buildStructures(
-    anchorsForValidation,
-    Array.from(anchorTrianglesMap.values()),  // ← только 24 якоря!
-    exactGraph,
-    existingModel.graph,
-    morphologyMap,
-    existingModel.morphologyMap
-);
-
-// ==================== ЭТАП 2: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ ====================
-if (structures.length > 0 && !this.fastMode) {
-    console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
-
-    // Берём главную структуру (самую большую)
-    const mainStructure = structures[0];
-    console.log(`   • Исходная структура: ${mainStructure.triangleIds.size} треугольников`);
-
-    // Расширяем структуру, используя ТОЛЬКО треугольники-кандидаты (без якорей)
-    let expanded = true;
-    let iteration = 0;
-    const maxIterations = 10;
-
-    while (expanded && iteration < maxIterations) {
-        expanded = false;
-        iteration++;
-
-        // Получаем граничные рёбра структуры
-        const boundaryEdges = this.getBoundaryEdgesFromStructure(mainStructure);
-        console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
-
-        for (const edge of boundaryEdges) {
-            // Ищем соседний треугольник СРЕДИ КАНДИДАТОВ (не в структуре)
-            const neighbor = this.findNeighborTriangleInGraph(
-                edge,
-                candidateTriangles,  // ← ищем только среди кандидатов!
-                mainStructure
-            );
-
-            if (neighbor) {
-                // Пытаемся добавить геометрически
-                const added = this.tryAddGeometricTriangle(
-                    neighbor, mainStructure, exactGraph, existingModel.graph,
-                    morphologyMap, existingModel.morphologyMap
-                );
-
-                if (added) {
-                    expanded = true;
-                    // 🔥 Удаляем добавленный треугольник из кандидатов
-                    const idx = candidateTriangles.findIndex(t => t.id === neighbor.id);
-                    if (idx !== -1) candidateTriangles.splice(idx, 1);
-                    console.log(`      ✅ Добавлен треугольник ${neighbor.id.substring(0,12)} (осталось кандидатов: ${candidateTriangles.length})`);
-                }
-            }
-        }
-    }
-
-    console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
-    console.log(`   • Осталось кандидатов: ${candidateTriangles.length}`);
-}   
-             
-// Сохраняем структуры в модель
-if (existingModel) {
-    existingModel.structures = structures.map(s => ({
-        id: s.id,
-        triangleIds: Array.from(s.triangleIds),
-        pointIds: Array.from(s.pointIds),
-        transform: s.transform,
-        confidence: s.calculateConfidence(),
-        rays: s.rays || [],
-        // 🔥 ДОБАВЛЯЕМ САМИ ТРЕУГОЛЬНИКИ
-        triangles: Array.from(s.triangles.values()).map(t => ({
-            id: t.id,
-            p1: t.p1,
-            p2: t.p2,
-            p3: t.p3,
-            pB1: t.pB1,
-            pB2: t.pB2,
-            pB3: t.pB3,
-            confidence: t.confidence,
-            edges: t.edges ? t.edges.map(e => ({
-                v1: e.v1,
-                v2: e.v2,
-                externalPoint: e.externalPoint
-            })) : []
-        }))
-    }));
-
-    existingModel.pointToStructure = new Map();
-    for (const structure of structures) {
-        for (const pointId of structure.pointIds) {
-            existingModel.pointToStructure.set(pointId, structure.id);
-        }
-    }
-
-    console.log(`   💾 Сохранено структур: ${structures.length}, всего лучей: ${structures.reduce((sum, s) => sum + (s.rays?.length || 0), 0)}`);
-    console.log(`   💾 Сохранено треугольников: ${structures.reduce((sum, s) => sum + s.triangles.size, 0)}`);
-}
-             
-                console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
-
-                // Анализируем отношения между структурами
-                const relations = structureManager.analyzeRelations();
-                if (relations.count > 1 && this.debug) {
-                    console.log(`\n🔍 ОБНАРУЖЕНО ${relations.count} НЕЗАВИСИМЫХ СТРУКТУР:`);
-                    relations.relations.forEach((r, i) => {
-                        console.log(`   • Структуры ${i+1}: разница масштаба ${(r.scaleDiff*100).toFixed(1)}%, поворота ${r.rotationDiff.toFixed(1)}°`);
-                    });
-                }
-
-                // Сохраняем transform'ы структур в модель
-                if (!existingModel.structures) {
-                    existingModel.structures = [];
-                }
-                for (const structure of structures) {
-                    existingModel.structures.push({
-                        id: structure.id,
-                        transform: structure.transform,
-                        points: Array.from(structure.pointIds),
-                        confidence: structure.calculateConfidence()
-                    });
-                }
-
-                // Для обратной совместимости - используем transform самой уверенной структуры
-                let primaryTransform = null;
-                if (structures.length > 0) {
-                    const best = structureManager.getBestStructure();
-                    primaryTransform = best?.transform || null;
-                    if (this.debug && structures.length > 1) {
-                        console.log(`\n🎯 Выбрана главная структура с уверенностью ${(best.calculateConfidence()*100).toFixed(1)}%`);
-                    }
-                }
-
-                // ===== ЭТАП 3: Финальная валидация =====
-                console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
-
-                let finalValidationResult = null;
-                let allValidatedPoints = [];
-                let finalTransform = null;
-
-                // Валидируем каждую структуру отдельно
-                for (const structure of structures) {
-                    if (structure.triangleIds.size === 0) continue;
-
-                    const structureAnchors = structure.getAnchors();
-                    if (structureAnchors.length === 0) continue;
-
-                    console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
-                   
-                    // 🔥 ДИАГНОСТИКА: показываем первые якоря структуры
-                    if (this.debug && structureAnchors.length > 0) {
-                        console.log(`      🔍 Первые 3 якоря структуры:`);
-                        structureAnchors.slice(0, 3).forEach((a, i) => {
-                            const pA = exactGraph.nodes.get(a.pointA);
-                            const pB = existingModel.graph.nodes.get(a.pointB);
-                            if (pA && pB) {
-                                console.log(`         ${i+1}: A(${pA.x.toFixed(1)},${pA.y.toFixed(1)}) ↔ B(${pB.x.toFixed(1)},${pB.y.toFixed(1)}) [${(a.confidence*100).toFixed(0)}%]`);
-                            } else {
-                                console.log(`         ${i+1}: точка не найдена! A=${!!pA}, B=${!!pB}`);
-                            }
-                        });
-                    }
-
-                    const validationResult = validator.validateAll(
-                        exactGraph,
-                        existingModel.graph,
-                        structureAnchors,
-                        morphologyMap,
-                        existingModel.morphologyMap
-                    );
-                   
-                    // 🔥 ДИАГНОСТИКА: результат валидации
-                    if (this.debug) {
-                        console.log(`      📊 Результат валидации: success=${validationResult.success}`);
-                        if (validationResult.results) {
-                            console.log(`         Якорей: ${validationResult.results.anchors?.length || 0}`);
-                            console.log(`         Подтверждено: ${validationResult.results.confirmed?.length || 0}`);
-                            console.log(`         Кандидатов: ${validationResult.results.candidates?.length || 0}`);
-                            console.log(`         Отвергнуто: ${validationResult.results.rejected?.length || 0}`);
-                        }
-                        if (validationResult.transform) {
-                            console.log(`         Transform: масштаб ${validationResult.transform.scale.toFixed(3)}, поворот ${(validationResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                        }
-                    }
-
-                    if (validationResult.success) {
-                        if (validationResult.results) {
-                            allValidatedPoints.push(...validationResult.results.confirmed);
-                            allValidatedPoints.push(...validationResult.results.anchors);
-                        }
-
-                        structure.transform = validationResult.transform;
-
-                        if (!finalValidationResult || (validationResult.transform &&
-                            Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
-                            finalValidationResult = validationResult;
-                            finalTransform = validationResult.transform;
-                        }
-                       
-                        if (this.debug) {
-                            console.log(`      ✅ Структура ${structure.id} успешно валидирована`);
-                        }
-                    } else {
-                        if (this.debug) {
-                            console.log(`      ⚠️ Структура ${structure.id} НЕ прошла валидацию!`);
-                            if (validationResult.error) {
-                                console.log(`         Ошибка: ${validationResult.error}`);
-                            }
-                        }
-                    }
-                }
-
-                // Если не удалось ни одной структуры - используем якоря
-                if (!finalValidationResult) {
-                    console.log(`\n⚠️ Структуры не дали результата, используем якоря...`);
-                   
-                    if (this.debug) {
-                        console.log(`   Якорей для валидации: ${anchorsForValidation.length}`);
-                        anchorsForValidation.slice(0, 3).forEach((a, i) => {
-                            const pA = exactGraph.nodes.get(a.pointA);
-                            const pB = existingModel.graph.nodes.get(a.pointB);
-                            if (pA && pB) {
-                                console.log(`      Якорь ${i+1}: A(${pA.x.toFixed(1)},${pA.y.toFixed(1)}) ↔ B(${pB.x.toFixed(1)},${pB.y.toFixed(1)})`);
-                            }
-                        });
-                    }
-                   
-                    finalValidationResult = validator.validateAll(
-                        exactGraph,
-                        existingModel.graph,
-                        anchorsForValidation,
-                        morphologyMap,
-                        existingModel.morphologyMap
-                    );
-                   
-                    if (this.debug && finalValidationResult) {
-                        console.log(`   Результат валидации якорей: success=${finalValidationResult.success}`);
-                        if (finalValidationResult.results) {
-                            console.log(`      Якорей: ${finalValidationResult.results.anchors?.length || 0}`);
-                            console.log(`      Подтверждено: ${finalValidationResult.results.confirmed?.length || 0}`);
-                        }
-                    }
-                   
-                    if (finalValidationResult.success) {
-                        finalTransform = finalValidationResult.transform;
-                    }
-                }
-
-                if (finalValidationResult && finalValidationResult.success) {
-                    // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
-                    if (existingModel) {
-                        existingModel.transform = finalTransform;
-                    }
-                  // 🔥 СОХРАНЯЕМ КОНТУР В СУЩЕСТВУЮЩУЮ МОДЕЛЬ
-    if (outlineContour && !existingModel.metadata.outlineContour) {
-        existingModel.metadata.outlineContour = outlineContour;
-        console.log(`💾 Контур следа сохранён в существующую модель ${modelIdHint.substring(0,12)}`);
-        console.log(`   точек в контуре: ${outlineContour.points.length}`);
-    } else if (outlineContour && existingModel.metadata.outlineContour) {
-        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
-    } else if (!outlineContour) {
-        console.log(`⚠️ Нет контура для сохранения`);
-    }
-
-                    if (this.debug) {
-                        console.log(`\n💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
-                        console.log(`   • Масштаб: ${finalTransform?.scale.toFixed(3) || 'нет'}`);
-                        console.log(`   • Поворот: ${finalTransform ? (finalTransform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`);
-                        console.log(`   • Сдвиг: ${finalTransform ? `(${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})` : 'нет'}`);
-                    }
-
-                    // 🔥 Формируем финальный список matches (ОДИН РАЗ!)
-                    let finalValidatedMatches = [];
-
-                    for (const structure of structures) {
-                        const anchors = structure.getAnchors();
-                        for (const anchor of anchors) {
-                            if (anchor.pointA && anchor.pointB) {
-                                finalValidatedMatches.push({
-                                    pointA: anchor.pointA,
-                                    pointB: anchor.pointB,
-                                    confidence: anchor.confidence,
-                                    status: 'structure',
-                                    structureId: structure.id
-                                });
-                            }
-                        }
-                    }
-
-                    console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
-
-                    // ===== ШАГ 3.6: Финальное притягивание близких точек с топологической проверкой =====
-                    if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
-
-const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null) => {
-    const pulledMatches = [];
-    const usedPhotoPoints = new Set();
-    const usedModelPoints = new Set();
-    let pulledCount = 0;
-    let topologyCheckedCount = 0;
-    let topologyRejectedCount = 0;
-
-    // Сортируем matches по уверенности
-    const sortedMatches = [...matches].sort((a, b) => b.confidence - a.confidence);
-
-    // Строим карту уже сопоставленных точек для быстрого доступа
-    const matchedPhotoMap = new Map(); // photoId -> modelId
-    const matchedModelMap = new Map(); // modelId -> photoId
-    for (const match of sortedMatches) {
-        matchedPhotoMap.set(match.pointA, match.pointB);
-        matchedModelMap.set(match.pointB, match.pointA);
-    }
-
-    for (const match of sortedMatches) {
-        const photoPoint = photoGraph?.nodes?.get(match.pointA);
-        const modelPoint = modelGraph?.nodes?.get(match.pointB);
-
-        if (!photoPoint || !modelPoint) continue;
-
-        // Проецируем точку фото в пространство модели
-        const projected = {
-            x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
-               photoPoint.y * transform.scale * Math.sin(transform.rotation) +
-               transform.translation.x,
-            y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
-               photoPoint.y * transform.scale * Math.cos(transform.rotation) +
-               transform.translation.y
-        };
-
-        // Вычисляем расстояние до точки модели
-        const dx = projected.x - modelPoint.x;
-        const dy = projected.y - modelPoint.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-
-        // 🔥 Если точка уже близко — просто сохраняем
-        if (dist < threshold && dist > 0.5) {
-            // Точки рядом — притягиваем!
-            if (this.debug && dist > 1) {
-                console.log(`   🧲 Точки рядом (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)}`);
-            }
-
-            // Усредняем позицию (взвешенно по уверенности)
-            const weight = match.confidence || 0.5;
-            const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
-            const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
-
-            // Обновляем модель
-            modelPoint.x = avgX;
-            modelPoint.y = avgY;
-            modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
-            modelPoint.pulled = true;
-            modelPoint.pullDistance = dist;
-
-            pulledMatches.push({
-                ...match,
-                pulled: true,
-                pullDistance: dist,
-                newPosition: { x: avgX, y: avgY },
-                topologyChecked: false
-            });
-
-            usedPhotoPoints.add(match.pointA);
-            usedModelPoints.add(match.pointB);
-            pulledCount++;
-            continue;
-        }
-
-        // 🔥 Если точка далеко — пробуем найти правильную с топологической проверкой
-        if (dist >= threshold) {
-            // Находим всех соседей точки A в графе фото
-            const photoNeighbors = this.findNodeNeighbors(match.pointA, photoGraph);
-            const matchedNeighbors = photoNeighbors.filter(n => matchedPhotoMap.has(n.id));
-           
-            // 🔥 Если у точки нет сопоставленных соседей — не можем проверить топологию, пропускаем
-            if (matchedNeighbors.length < 2) {
-                if (this.debug && dist > threshold * 2) {
-                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - мало соседей для проверки`);
-                }
-                pulledMatches.push(match);
-                usedPhotoPoints.add(match.pointA);
-                usedModelPoints.add(match.pointB);
-                continue;
-            }
-
-            // 🔥 Ищем кандидатов среди точек модели в расширенном радиусе
-            const candidates = [];
-            for (const [candidateId, candidatePoint] of modelGraph.nodes) {
-                if (usedModelPoints.has(candidateId)) continue;
-               
-                const candidateDx = projected.x - candidatePoint.x;
-                const candidateDy = projected.y - candidatePoint.y;
-                const candidateDist = Math.sqrt(candidateDx*candidateDx + candidateDy*candidateDy);
-               
-                if (candidateDist < threshold * 2) { // радиус поиска в 2 раза больше
-                    candidates.push({ id: candidateId, point: candidatePoint, dist: candidateDist });
-                }
-            }
-           
-            // Сортируем по расстоянию
-            candidates.sort((a, b) => a.dist - b.dist);
-           
-            let bestCandidate = null;
-            let bestTopologyScore = 0;
-           
-            // Проверяем каждого кандидата на топологию
-            for (const candidate of candidates) {
-                const modelNeighbors = this.findNodeNeighbors(candidate.id, modelGraph);
-                const matchedModelNeighbors = modelNeighbors.filter(n => matchedModelMap.has(n.id));
-               
-                // Количество сопоставленных соседей должно совпадать
-                if (matchedModelNeighbors.length !== matchedNeighbors.length) continue;
-               
-                // Проверяем, что соседи соответствуют друг другу
-                let topologyScore = 0;
-                for (const photoNeighbor of matchedNeighbors) {
-                    const expectedModelId = matchedPhotoMap.get(photoNeighbor.id);
-                    if (matchedModelNeighbors.some(n => n.id === expectedModelId)) {
-                        topologyScore++;
-                    }
-                }
-               
-                const matchRatio = topologyScore / matchedNeighbors.length;
-                if (matchRatio > bestTopologyScore && matchRatio >= 0.7) { // минимум 70% совпадения
-                    bestTopologyScore = matchRatio;
-                    bestCandidate = candidate;
-                }
-            }
-           
-            if (bestCandidate) {
-                // Нашли правильную точку! Притягиваем
-                topologyCheckedCount++;
-               
-                if (this.debug) {
-                    console.log(`   🧲 Топологический магнит: ${match.pointA.substring(0,12)} → ${bestCandidate.id.substring(0,12)} (${bestCandidate.dist.toFixed(1)}px, совпадение ${(bestTopologyScore*100).toFixed(0)}%)`);
-                }
-               
-                const weight = match.confidence || 0.5;
-                const avgX = (projected.x * weight + bestCandidate.point.x * (1 - weight));
-                const avgY = (projected.y * weight + bestCandidate.point.y * (1 - weight));
-               
-                bestCandidate.point.x = avgX;
-                bestCandidate.point.y = avgY;
-                bestCandidate.point.confirmationCount = (bestCandidate.point.confirmationCount || 1) + 1;
-                bestCandidate.point.pulled = true;
-                bestCandidate.point.pullDistance = bestCandidate.dist;
-               
-                pulledMatches.push({
-                    pointA: match.pointA,
-                    pointB: bestCandidate.id,
-                    confidence: match.confidence,
-                    pulled: true,
-                    pullDistance: bestCandidate.dist,
-                    topologyChecked: true,
-                    topologyScore: bestTopologyScore,
-                    originalPointB: match.pointB
-                });
-               
-                usedPhotoPoints.add(match.pointA);
-                usedModelPoints.add(bestCandidate.id);
-                pulledCount++;
-            } else {
-                // Не нашли подходящего кандидата — оставляем как есть
-                topologyRejectedCount++;
-                if (this.debug && dist > threshold * 2) {
-                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - нет подходящего кандидата`);
-                }
-                pulledMatches.push(match);
-                usedPhotoPoints.add(match.pointA);
-                usedModelPoints.add(match.pointB);
-            }
-        } else {
-            // Точки уже почти совпадают
-            pulledMatches.push(match);
-            usedPhotoPoints.add(match.pointA);
-            usedModelPoints.add(match.pointB);
-        }
-    }
-
-    if (this.debug) {
-        console.log(`\n📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ:`);
-        console.log(`   • Притянуто точек: ${pulledCount}`);
-        console.log(`   • Топологически проверено: ${topologyCheckedCount}`);
-        console.log(`   • Отвергнуто топологией: ${topologyRejectedCount}`);
-        console.log(`   • Осталось без изменений: ${pulledMatches.length - pulledCount}`);
-    }
-
-    return { pulledMatches, pulledCount };
-};
-                    // Применяем притягивание если есть transform и matches
-                    if (finalTransform && finalValidatedMatches && finalValidatedMatches.length > 0) {
-                        const { pulledMatches, pulledCount } = magneticPull(
-                            finalValidatedMatches,
-                            exactGraph,
-                            existingModel.graph,
-                            finalTransform,
-                            25
-                        );
-
-                        if (pulledCount > 0) {
-                            if (this.debug) console.log(`\n✅ Притянуто ${pulledCount} точек!`);
-                            finalValidatedMatches = pulledMatches;
-                        }
-                    } else {
-                        if (this.debug) console.log(`\n⚠️ Нет transform или matches для притягивания`);
-                    }
-// ===== ТЕСТ: АНАЛИЗ ОШИБОК ПО ЗОНАМ =====
-if (this.debug && finalTransform && finalValidatedMatches.length > 0) {
-    console.log(`\n📊 АНАЛИЗ ОШИБОК ПО ЗОНАМ (после магнита):`);
-   
-    const errorsByZone = { heel: [], arch: [], toe: [] };
-    const zoneNames = { heel: 'пятка', arch: 'свод', toe: 'носок' };
-   
-    // Определяем границы зон по Y в системе модели
-    const allY = finalValidatedMatches.map(match => {
-        const modelPoint = existingModel.graph.nodes.get(match.pointB);
-        return modelPoint?.y || 0;
-    }).filter(y => y > 0);
-   
-    if (allY.length > 0) {
-        const yMin = Math.min(...allY);
-        const yMax = Math.max(...allY);
-        const yRange = yMax - yMin;
-       
-        const zoneBounds = {
-            heel: { min: yMax - yRange * 0.3, max: yMax },
-            arch: { min: yMin + yRange * 0.3, max: yMax - yRange * 0.3 },
-            toe: { min: yMin, max: yMin + yRange * 0.3 }
-        };
-       
-        for (const match of finalValidatedMatches) {
-            const photoPoint = exactGraph.nodes.get(match.pointA);
-            const modelPoint = existingModel.graph.nodes.get(match.pointB);
-           
-            if (!photoPoint || !modelPoint) continue;
-           
-            // Проецируем фото-точку через transform
-            const projected = {
-                x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                   photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                   finalTransform.translation.x,
-                y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                   photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                   finalTransform.translation.y
-            };
-           
-            const error = Math.sqrt((projected.x - modelPoint.x)**2 + (projected.y - modelPoint.y)**2);
-            const y = modelPoint.y; // используем Y модели
-           
-            // Определяем зону
-            let zone = 'arch';
-            if (y >= zoneBounds.heel.min) zone = 'heel';
-            if (y <= zoneBounds.toe.max) zone = 'toe';
-           
-            errorsByZone[zone].push(error);
-        }
-       
-        // Выводим статистику
-        console.log(`\n📊 ОШИБКИ ПО ЗОНАМ (после магнита):`);
-        for (const [zone, errors] of Object.entries(errorsByZone)) {
-            if (errors.length > 0) {
-                const avg = errors.reduce((a, b) => a + b, 0) / errors.length;
-                const max = Math.max(...errors);
-                const min = Math.min(...errors);
-                console.log(`   • ${zoneNames[zone]}: ${errors.length} точек, средняя ${avg.toFixed(1)}px (мин ${min.toFixed(1)}px, макс ${max.toFixed(1)}px)`);
-            } else {
-                console.log(`   • ${zoneNames[zone]}: нет точек`);
-            }
-        }
-       
-        // Диагностика: нужно ли зональное выравнивание?
-        const heelAvg = errorsByZone.heel.reduce((a,b)=>a+b,0) / (errorsByZone.heel.length || 1);
-        const toeAvg = errorsByZone.toe.reduce((a,b)=>a+b,0) / (errorsByZone.toe.length || 1);
-        const archAvg = errorsByZone.arch.reduce((a,b)=>a+b,0) / (errorsByZone.arch.length || 1);
-       
-        console.log(`\n🔍 ДИАГНОСТИКА:`);
-        if (Math.abs(heelAvg - toeAvg) > 2) {
-            console.log(`   ⚠️ ЗНАЧИТЕЛЬНАЯ РАЗНИЦА: пятка ${heelAvg.toFixed(1)}px vs носок ${toeAvg.toFixed(1)}px`);
-            console.log(`   → Рекомендуется ЗОНАЛЬНЫЙ TRANSFORM`);
-        } else if (Math.max(heelAvg, toeAvg, archAvg) > 3) {
-            console.log(`   ⚠️ ВЫСОКАЯ ОШИБКА: средняя ${Math.max(heelAvg, toeAvg, archAvg).toFixed(1)}px`);
-            console.log(`   → Нужно смягчить пороги или улучшить магнит`);
-        } else {
-            console.log(`   ✅ ОШИБКИ В НОРМЕ: магнит работает хорошо`);
-        }
-    }
-}
-                    // ===== ШАГ 3.7: ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК =====
-                    if (this.debug) console.log(`\n📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК`);
-
-                    // Получаем все точки из графов
-                    const allPointsInA = Array.from(exactGraph?.nodes?.values() || []);
-                    const allPointsInB = Array.from(existingModel?.graph?.nodes?.values() || []);
-
-                    if (this.debug) {
-                        console.log(`   • Всего точек в A: ${allPointsInA.length}`);
-                        console.log(`   • Всего точек в B: ${allPointsInB.length}`);
-                    }
-
-                    // Множества уже сопоставленных точек
-                    const matchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
-                    const matchedPointsB = new Set(finalValidatedMatches?.map(m => m?.pointB) || []);
-
-                    if (this.debug) {
-                        console.log(`   • Сопоставлено точек в A: ${matchedPointsA.size}`);
-                        console.log(`   • Сопоставлено точек в B: ${matchedPointsB.size}`);
-                    }
-
-                    // ===== ШАГ 3.8: ПОИСК НОВЫХ ПАР СРЕДИ НЕСОПОСТАВЛЕННЫХ =====
-                    if (this.debug) console.log(`\n🔍 ПОИСК НОВЫХ ПАР СРЕДИ НЕСОПОСТАВЛЕННЫХ ТОЧЕК`);
-
-                    // Получаем все точки модели без пары
-                    const unmatchedModelPoints = new Map();
-                    for (const [id, node] of existingModel.graph.nodes) {
-                        if (!matchedPointsB.has(id)) {
-                            unmatchedModelPoints.set(id, node);
-                        }
-                    }
-
-                    // Получаем все точки фото без пары (из originalPhotoPoints)
-                    const unmatchedPhotoPoints = points.filter(p => !matchedPointsA.has(p.id));
-
-                    if (this.debug) {
-                        console.log(`   • Несопоставленных точек модели: ${unmatchedModelPoints.size}`);
-                        console.log(`   • Несопоставленных точек фото: ${unmatchedPhotoPoints.length}`);
-                    }
-
-                    // Проверяем каждую точку фото без пары
-                    let newPairsFound = 0;
-                    const newPairs = [];
-
-                    for (const photoPoint of unmatchedPhotoPoints) {
-                        const projected = {
-                            x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                               photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                               finalTransform.translation.x,
-                            y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                               photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                               finalTransform.translation.y
-                        };
-
-                        let bestMatch = null;
-                        let bestDist = Infinity;
-
-                        for (const [modelId, modelPoint] of unmatchedModelPoints) {
-                            const dx = projected.x - modelPoint.x;
-                            const dy = projected.y - modelPoint.y;
-                            const dist = Math.sqrt(dx*dx + dy*dy);
-
-                            if (dist < bestDist && dist < 20) {  // ← радиус 20px
-                                bestDist = dist;
-                                bestMatch = { modelId, modelPoint };
-                            }
-                        }
-
-                        if (bestMatch) {
-                            if (this.debug) {
-                                console.log(`\n   🆕 Найдена потенциальная пара:`);
-                                console.log(`      Фото ${photoPoint.id.substring(0,12)} (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)})`);
-                                console.log(`      Модель ${bestMatch.modelId.substring(0,12)} (${bestMatch.modelPoint.x.toFixed(1)}, ${bestMatch.modelPoint.y.toFixed(1)})`);
-                                console.log(`      Расстояние: ${bestDist.toFixed(1)}px`);
-                            }
-
-                            const photoMorph = morphologyMap.get(photoPoint.id);
-                            const modelMorph = existingModel.morphologyMap.get(bestMatch.modelId);
-
-                            if (photoMorph && modelMorph) {
-                                let morphScore = 0;
-                                let checks = 0;
-
-                                if (photoMorph.eccentricity && modelMorph.eccentricity) {
-                                    const ratio = Math.min(photoMorph.eccentricity, modelMorph.eccentricity) /
-                                                 Math.max(photoMorph.eccentricity, modelMorph.eccentricity);
-                                    morphScore += ratio;
-                                    checks++;
-                                }
-
-                                if (photoMorph.asymmetry && modelMorph.asymmetry) {
-                                    const ratio = Math.min(photoMorph.asymmetry, modelMorph.asymmetry) /
-                                                 Math.max(photoMorph.asymmetry, modelMorph.asymmetry);
-                                    morphScore += ratio;
-                                    checks++;
-                                }
-
-                                const finalMorphScore = checks > 0 ? morphScore / checks : 0.5;
-                                if (this.debug) console.log(`      Морфология: ${(finalMorphScore * 100).toFixed(1)}%`);
-
-                                if (finalMorphScore > 0.45) {  // с 70% до 45%
-    newPairs.push({
-        pointA: photoPoint.id,
-        pointB: bestMatch.modelId,
-        confidence: 1 - (bestDist / 30),
-        status: 'new_pair'
-    });
-    newPairsFound++;
-}
-                            }
-                        }
-                    }
-
-                    if (newPairsFound > 0) {
-                        console.log(`\n✅ Найдено ${newPairsFound} новых пар среди несопоставленных точек!`);
-                        finalValidatedMatches = [...finalValidatedMatches, ...newPairs];
-
-                        matchedPointsA.clear();
-                        matchedPointsB.clear();
-                        for (const match of finalValidatedMatches) {
-                            matchedPointsA.add(match.pointA);
-                            matchedPointsB.add(match.pointB);
-                        }
-
-                        if (this.debug) {
-                            console.log(`   • Теперь сопоставлено точек в A: ${matchedPointsA.size}`);
-                            console.log(`   • Теперь сопоставлено точек в B: ${matchedPointsB.size}`);
-                        }
-                    } else {
-                        if (this.debug) console.log(`\n⚠️ Новых пар не найдено`);
-                    }
-
-// ===== МЯГКОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ НЕСОПОСТАВЛЕННЫХ ТОЧЕК =====
-if (this.debug) console.log(`\n🧲 МЯГКОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ НЕСОПОСТАВЛЕННЫХ ТОЧЕК`);
-
-let softPulled = 0;
-const softThreshold = 15; // порог в пикселях для мягкого притягивания (было 12)
-
-// Обновляем множества после добавления новых пар
-const updatedMatchedPointsA = new Set(finalValidatedMatches.map(m => m.pointA));
-const updatedMatchedPointsB = new Set(finalValidatedMatches.map(m => m.pointB));
-
-const remainingPhotoPoints = points.filter(p => !updatedMatchedPointsA.has(p.id));
-const remainingModelPoints = Array.from(existingModel.graph.nodes.values())
-    .filter(p => !updatedMatchedPointsB.has(p.id));
-
-for (const photoPoint of remainingPhotoPoints) {
-    if (!photoPoint || !photoPoint.id) continue;
-   
-    const projected = this.applyTransform(photoPoint, finalTransform);
-   
-    let bestMatch = null;
-    let bestDist = Infinity;
-   
-    for (const modelPoint of remainingModelPoints) {
-        if (!modelPoint || !modelPoint.id) continue;
-       
-        const dx = projected.x - modelPoint.x;
-        const dy = projected.y - modelPoint.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-       
-        if (dist < bestDist && dist < softThreshold) {
-            bestDist = dist;
-            bestMatch = modelPoint;
-        }
-    }
-   
-    if (bestMatch && bestDist > 0.5) {
-        // Усредняем позицию (мягкое притягивание)
-        const weight = 0.5;
-        const avgX = (projected.x * weight + bestMatch.x * (1 - weight));
-        const avgY = (projected.y * weight + bestMatch.y * (1 - weight));
-       
-        bestMatch.x = avgX;
-        bestMatch.y = avgY;
-        bestMatch.softPulled = true;
-        bestMatch.softPullDistance = bestDist;
-       
-        softPulled++;
-       
-        if (this.debug && softPulled <= 10) {
-            console.log(`   🧲 Мягкое притягивание: ${photoPoint.id.substring(0,12)} → ${bestMatch.id.substring(0,12)} (${bestDist.toFixed(1)}px)`);
-        }
-    }
-}
-
-if (this.debug && softPulled > 0) {
-    console.log(`   ✅ Мягко притянуто ${softPulled} точек (порог ${softThreshold}px)`);
-}
-
-// ===== ИТЕРАТИВНОЕ УТОЧНЕНИЕ TRANSFORM =====
-if (softPulled > 0 && this.debug) console.log(`\n🔄 ИТЕРАТИВНОЕ УТОЧНЕНИЕ TRANSFORM (после мягкого притягивания)`);
-
-let refinementIteration = 0;
-const maxRefinements = 3;
-let transformRefined = finalTransform;
-
-while (refinementIteration < maxRefinements) {
-    refinementIteration++;
-   
-    // Собираем все актуальные соответствия
-    const allAnchors = [];
-    for (const match of finalValidatedMatches) {
-        const photoPoint = exactGraph.nodes.get(match.pointA);
-        const modelPoint = existingModel.graph.nodes.get(match.pointB);
-        if (photoPoint && modelPoint) {
-            allAnchors.push({
-                pointA: match.pointA,
-                pointB: match.pointB,
-                confidence: match.confidence
-            });
-        }
-    }
-   
-    if (allAnchors.length < 3) break;
-   
-    // Пересчитываем transform
-    const newTransform = validator.calculateTransform(allAnchors, exactGraph, existingModel.graph);
-    if (!newTransform) break;
-   
-    // Проверяем, изменился ли transform
-    const scaleDiff = Math.abs(newTransform.scale - transformRefined.scale) / transformRefined.scale;
-    const rotDiff = Math.abs(newTransform.rotation - transformRefined.rotation) * 180 / Math.PI;
-   
-    if (scaleDiff < 0.01 && rotDiff < 0.5) {
-        if (this.debug) console.log(`   ✅ Transform стабилизировался (масштаб ${(scaleDiff*100).toFixed(2)}%, поворот ${rotDiff.toFixed(2)}°)`);
-        break;
-    }
-   
-    transformRefined = newTransform;
-   
-    if (this.debug) {
-        console.log(`   🔄 Итерация ${refinementIteration}: масштаб ${transformRefined.scale.toFixed(3)} (было ${finalTransform.scale.toFixed(3)}), поворот ${(transformRefined.rotation * 180 / Math.PI).toFixed(1)}° (было ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°)`);
-    }
-   
-    // Повторяем мягкое притягивание с новым transform
-    let softPulledAgain = 0;
-    const remainingPhotoPoints = points.filter(p => !updatedMatchedPointsA.has(p.id));
-    const remainingModelPoints = Array.from(existingModel.graph.nodes.values())
-        .filter(p => !updatedMatchedPointsB.has(p.id));
-   
-    for (const photoPoint of remainingPhotoPoints) {
-        if (!photoPoint || !photoPoint.id) continue;
-       
-        const projected = this.applyTransform(photoPoint, transformRefined);
-       
-        let bestMatch = null;
-        let bestDist = Infinity;
-       
-        for (const modelPoint of remainingModelPoints) {
-            if (!modelPoint || !modelPoint.id) continue;
-           
-            const dx = projected.x - modelPoint.x;
-            const dy = projected.y - modelPoint.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-           
-            if (dist < bestDist && dist < softThreshold) {
-                bestDist = dist;
-                bestMatch = modelPoint;
-            }
-        }
-       
-        if (bestMatch && bestDist > 0.5) {
-            const weight = 0.5;
-            const avgX = (projected.x * weight + bestMatch.x * (1 - weight));
-            const avgY = (projected.y * weight + bestMatch.y * (1 - weight));
-           
-            bestMatch.x = avgX;
-            bestMatch.y = avgY;
-            softPulledAgain++;
-        }
-    }
-   
-    if (this.debug && softPulledAgain > 0) {
-        console.log(`   🧲 Дополнительное мягкое притягивание: ${softPulledAgain} точек`);
-    }
-   
-    // Обновляем transform для следующей итерации
-    finalTransform = transformRefined;
-}
-
-if (this.debug && refinementIteration > 1) {
-    console.log(`   ✅ Уточнение transform завершено после ${refinementIteration} итераций`);
-}
-                 
-                 
-                    // Точки только в первом следе (модель)
-                    const uniqueInModel = allPointsInA
-                        .filter(p => p && p.id && !matchedPointsA.has(p.id))
-                        .map(p => ({
-                            id: p.id,
-                            x: p.x,
-                            y: p.y,
-                            type: 'unique_in_model'
-                        }));
-
-                    // Точки только во втором следе (фото)
-                    const uniqueInPhoto = points
-                        .filter(p => !matchedPointsA.has(p.id))
-                        .map(p => {
-                            const projected = {
-                                x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                                   p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                   finalTransform.translation.x,
-                                y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                   p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                                   finalTransform.translation.y
-                            };
-                            return {
-                                id: p.id,
-                                x: projected.x,
-                                y: projected.y,
-                                type: 'unique_in_photo'
-                            };
-                        });
-
-                    if (this.debug) {
-                        console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
-                        console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
-                    }
-
-                    // Сохраняем уникальные точки фото для последующего добавления в модель
-                    this.lastUniqueInPhoto = uniqueInPhoto;
-
-                    if (this.debug) {
-                        // ===== ТАБЛИЦА ТОЧЕК ИЗ ВИЗУАЛИЗАЦИИ =====
-                        console.log(`\n📊 ТОЧКИ В ВИЗУАЛИЗАЦИИ:`);
-                        console.log(`┌──────┬────────────┬──────────────┬──────────────┬──────────────┬──────────┐`);
-                        console.log(`│  #   │    Тип     │    Индекс     │  Координаты  │  Расстояние  │  Статус  │`);
-                        console.log(`├──────┼────────────┼──────────────┼──────────────┼──────────────┼──────────┤`);
-
-                        // Создаём карты индексов
-                        const photoIndexMap = new Map();
-                        const modelIndexMap = new Map();
-
-                        Array.from(exactGraph?.nodes?.keys() || []).forEach((id, idx) => photoIndexMap.set(id, idx + 1));
-                        Array.from(existingModel?.graph?.nodes?.keys() || []).forEach((id, idx) => modelIndexMap.set(id, idx + 1));
-
-                        let rowNumber = 1;
-
-                        // 1. Ярко-синие точки модели (без пары)
-                        for (const point of uniqueInModel) {
-                            const idx = modelIndexMap.get(point.id) || '?';
-                            console.log(`│ ${rowNumber.toString().padEnd(4)} │ Модель 🔵   │ ${idx.toString().padEnd(12)} │ (${point.x.toFixed(1)},${point.y.toFixed(1).padStart(6)}) │      —      │ без пары │`);
-                            rowNumber++;
-                        }
-
-                        // 2. Блёкло-синие точки фото (без пары)
-                        for (const point of uniqueInPhoto) {
-                            const idx = photoIndexMap.get(point.id) || '?';
-                            console.log(`│ ${rowNumber.toString().padEnd(4)} │ Фото 🔷     │ ${idx.toString().padEnd(12)} │ (${point.x.toFixed(1)},${point.y.toFixed(1).padStart(6)}) │      —      │ без пары │`);
-                            rowNumber++;
-                        }
-
-                        // 3. Пары (с расстояниями)
-                        for (const match of finalValidatedMatches) {
-                            if (!match?.pointA || !match?.pointB) continue;
-
-                            const photoIdx = photoIndexMap.get(match.pointA);
-                            const modelIdx = modelIndexMap.get(match.pointB);
-                            const photoPoint = exactGraph?.nodes?.get(match.pointA);
-                            const modelPoint = existingModel?.graph?.nodes?.get(match.pointB);
-
-                            if (photoPoint && modelPoint && finalTransform) {
-                                // Проецируем точку фото в пространство модели
-                                const projected = {
-                                    x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                                       photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                       finalTransform.translation.x,
-                                    y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                       photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                                       finalTransform.translation.y
-                                };
-
-                                const dist = Math.sqrt(
-                                    Math.pow(projected.x - modelPoint.x, 2) +
-                                    Math.pow(projected.y - modelPoint.y, 2)
-                                );
-
-                                // Определяем иконку статуса
-                                let statusIcon = '';
-                                switch(match.status) {
-                                    case 'anchor': statusIcon = '🔴'; break;
-                                    case 'validator_found': statusIcon = '🟢'; break;
-                                    case 'new_pair': statusIcon = '🆕'; break;
-                                    case 'blue_confirmed': statusIcon = '🔷'; break;
-                                    default: statusIcon = '🟡';
-                                }
-
-                                console.log(`│ ${rowNumber.toString().padEnd(4)} │ Пара ${statusIcon} │ фото ${photoIdx}→модель ${modelIdx} │ ${dist.toFixed(1).padStart(5)}px      │ ${match.status} │`);
-                                rowNumber++;
-                            }
-                        }
-
-                        console.log(`└──────┴────────────┴──────────────┴──────────────┴──────────────┴──────────┘`);
-
-                        // Итог
-                        console.log(`\n📊 ИТОГО В ВИЗУАЛИЗАЦИИ:`);
-                        console.log(`   • Модель 🔵: ${uniqueInModel.length} точек`);
-                        console.log(`   • Фото 🔷: ${uniqueInPhoto.length} точек`);
-                        console.log(`   • Пар: ${finalValidatedMatches.length} точек`);
-                        console.log(`   • ВСЕГО: ${uniqueInModel.length + uniqueInPhoto.length + finalValidatedMatches.length} точек`);
-                    }
-
-                    // Сохраняем в модель для визуализации
-                    if (existingModel) {
-                        existingModel.uniquePoints = {
-                            model: uniqueInModel,
-                            photo: uniqueInPhoto
-                        };
-                    }
-
-                    // ===== ШАГ 3.9: ПОЛНЫЙ ЦИКЛ ДЛЯ СИНИХ ТОЧЕК =====
-                    if (this.debug) console.log(`\n🔷 ПОЛНЫЙ ЦИКЛ ДЛЯ СИНИХ ТОЧЕК`);
-
-                    try {
-                        // Получаем оставшиеся синие точки
-                        const remainingPhotoPoints = unmatchedPhotoPoints.filter(p => !matchedPointsA.has(p?.id));
-                        const remainingModelPoints = Array.from(existingModel?.graph?.nodes?.values() || [])
-                            .filter(p => !matchedPointsB.has(p?.id));
-
-                        if (this.debug) {
-                            console.log(`   • Синих точек фото: ${remainingPhotoPoints.length}`);
-                            console.log(`   • Синих точек модели: ${remainingModelPoints.length}`);
-                        }
-
-                        if (remainingPhotoPoints.length === 0 || remainingModelPoints.length === 0) {
-                            if (this.debug) console.log(`   ⚠️ Нет синих точек для обработки`);
-                        } else {
-                            // ШАГ 1: Собираем кандидатов (как в валидаторе)
-                            let blueCandidates = [];
-
-                            for (const photoPoint of remainingPhotoPoints) {
-                                if (!photoPoint || !photoPoint.id) continue;
-
-                                try {
-                                    const projected = {
-                                        x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                                           photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                           finalTransform.translation.x,
-                                        y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                           photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                                           finalTransform.translation.y
-                                    };
-
-                                    // Ищем ближайшие точки модели
-                                    const candidates = [];
-                                    for (const modelPoint of remainingModelPoints) {
-                                        if (!modelPoint || !modelPoint.id) continue;
-
-                                        const dx = projected.x - modelPoint.x;
-                                        const dy = projected.y - modelPoint.y;
-                                        const dist = Math.sqrt(dx*dx + dy*dy);
-
-                                        if (dist < 20) {  // с 15px до 20px
-                                            candidates.push({
-                                                modelPoint,
-                                                distance: dist,
-                                                normalizedDist: dist / 100
-                                            });
-                                        }
-                                    }
-
-                                    if (candidates.length > 0) {
-                                        candidates.sort((a, b) => a.distance - b.distance);
-                                        blueCandidates.push({
-                                            pointA: photoPoint.id,
-                                            candidates: candidates.slice(0, 3), // топ-3 кандидата
-                                            photoPoint,
-                                            projected
-                                        });
-                                    }
-                                } catch (pointError) {
-                                    if (this.debug) console.log(`   ⚠️ Ошибка обработки точки ${photoPoint?.id?.substring(0,12)}: ${pointError.message}`);
-                                }
-                            }
-
-                            if (this.debug) console.log(`\n📊 Найдено ${blueCandidates.length} точек-кандидатов`);
-
-                            // ШАГ 2: ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА (как в checkGlobalConsistency)
-                            if (this.debug) console.log(`\n🔍 ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА СИНИХ КАНДИДАТОВ`);
-
-                            let topologicallyConsistent = [];
-
-                            for (const candidate of blueCandidates) {
-                                try {
-                                    if (this.debug) console.log(`\n   Проверка точки ${candidate.pointA.substring(0,12)}...`);
-
-                                    // Для каждого кандидата проверяем топологию
-                                    const photoNeighbors = this.findNodeNeighbors(candidate.pointA, exactGraph) || [];
-                                    const photoNeighborIds = photoNeighbors.map(n => n?.id).filter(id => id);
-
-                                    // Какие из соседей уже сопоставлены?
-                                    const matchedNeighbors = photoNeighborIds.filter(id => matchedPointsA.has(id));
-
-                                    if (matchedNeighbors.length < 2) {
-                                        if (this.debug) console.log(`      ⚠️ Мало сопоставленных соседей (${matchedNeighbors.length}) - пропускаем`);
-                                        continue;
-                                    }
-
-                                    // Для каждого кандидата из топ-3
-                                    for (const modelCandidate of candidate.candidates) {
-                                        const modelPoint = modelCandidate.modelPoint;
-                                        if (!modelPoint || !modelPoint.id) continue;
-
-                                        const modelNeighbors = this.findNodeNeighbors(modelPoint.id, existingModel.graph) || [];
-                                        const modelNeighborIds = modelNeighbors.map(n => n?.id).filter(id => id);
-
-                                        // Проверяем, что соседи модели тоже сопоставлены
-                                        const matchedModelNeighbors = modelNeighborIds.filter(id => matchedPointsB.has(id));
-
-                                        if (matchedModelNeighbors.length !== matchedNeighbors.length) {
-                                            continue;
-                                        }
-
-                                        // Проверяем, что соседи соответствуют друг другу
-                                        let topologyMatch = true;
-                                        for (let i = 0; i < matchedNeighbors.length; i++) {
-                                            const photoNeighbor = matchedNeighbors[i];
-                                            // Находим, какой точке модели соответствует этот сосед
-                                            const match = finalValidatedMatches.find(m => m?.pointA === photoNeighbor);
-                                            if (!match || !match.pointB) {
-                                                topologyMatch = false;
-                                                break;
-                                            }
-                                            // Проверяем, есть ли этот modelId среди соседей модели
-                                            if (!modelNeighborIds.includes(match.pointB)) {
-                                                topologyMatch = false;
-                                                break;
-                                            }
-                                        }
-
-                                        if (topologyMatch) {
-                                            if (this.debug) console.log(`      ✅ Топология согласована с кандидатом ${modelPoint.id.substring(0,12)}`);
-                                            topologicallyConsistent.push({
-                                                pointA: candidate.pointA,
-                                                pointB: modelPoint.id,
-                                                distance: modelCandidate.distance,
-                                                photoPoint: candidate.photoPoint,
-                                                modelPoint: modelPoint,
-                                                projected: candidate.projected
-                                            });
-                                            break; // Берём первого подходящего
-                                        }
-                                    }
-                                } catch (candidateError) {
-                                    if (this.debug) console.log(`   ⚠️ Ошибка проверки кандидата: ${candidateError.message}`);
-                                }
-                            }
-
-                            if (this.debug) console.log(`\n📊 Топологически согласовано: ${topologicallyConsistent.length} точек`);
-
-                            // ШАГ 3: ИТЕРАТИВНОЕ НАТЯГИВАНИЕ (как в этапе 2)
-                            if (topologicallyConsistent.length > 0) {
-                                if (this.debug) console.log(`\n🔧 ИТЕРАТИВНОЕ НАТЯГИВАНИЕ СИНИХ ТОЧЕК`);
-
-                                let workingAnchors = finalValidatedMatches.map(m => ({
-                                    pointA: m?.pointA,
-                                    pointB: m?.pointB,
-                                    confidence: m?.confidence || 0.5
-                                })).filter(a => a.pointA && a.pointB);
-
-                                let addedBluePoints = [];
-
-                                // Сортируем по расстоянию
-                                topologicallyConsistent.sort((a, b) => a.distance - b.distance);
-
-                                for (const candidate of topologicallyConsistent) {
-                                    try {
-                                        if (this.debug) console.log(`\n   Проверка кандидата ${candidate.pointA.substring(0,12)}...`);
-
-                                        const testAnchors = [...workingAnchors, {
-                                            pointA: candidate.pointA,
-                                            pointB: candidate.pointB,
-                                            confidence: 0.9
-                                        }];
-
-                                        const testTransform = validator.calculateTransform(
-                                            testAnchors,
-                                            exactGraph,
-                                            existingModel.graph
-                                        );
-
-                                        if (!testTransform) {
-                                            if (this.debug) console.log(`      ⚠️ Не удалось вычислить transform`);
-                                            continue;
-                                        }
-
-                                        // Проверяем все существующие якоря
-                                        let allConsistent = true;
-                                        for (const anchor of workingAnchors) {
-                                            if (!anchor || !anchor.pointA || !anchor.pointB) continue;
-
-                                            const nodeA = exactGraph?.nodes?.get(anchor.pointA);
-                                            const nodeB = existingModel?.graph?.nodes?.get(anchor.pointB);
-
-                                            if (!nodeA || !nodeB) continue;
-
-                                            const projected = validator.applyTransform(nodeA, testTransform);
-                                            const dx = projected.x - nodeB.x;
-                                            const dy = projected.y - nodeB.y;
-                                            const error = Math.sqrt(dx*dx + dy*dy);
-                                            const footprintSize = validator.getFootprintSize(Array.from(existingModel?.graph?.nodes?.values() || []));
-                                            const relativeError = error / (footprintSize || 1);
-
-                                            if (relativeError >= 0.05) {
-                                                allConsistent = false;
-                                                if (this.debug) console.log(`      ⚠️ Нарушена точка ${anchor.pointA.substring(0,12)}`);
-                                                break;
-                                            }
-                                        }
-
-                                        if (allConsistent) {
-                                            // Проверяем самого кандидата
-                                            const nodeA = exactGraph?.nodes?.get(candidate.pointA);
-                                            const nodeB = existingModel?.graph?.nodes?.get(candidate.pointB);
-
-                                            if (nodeA && nodeB) {
-                                                const projected = validator.applyTransform(nodeA, testTransform);
-                                                const dx = projected.x - nodeB.x;
-                                                const dy = projected.y - nodeB.y;
-                                                const error = Math.sqrt(dx*dx + dy*dy);
-                                                const footprintSize = validator.getFootprintSize(Array.from(existingModel?.graph?.nodes?.values() || []));
-                                                const relativeError = error / (footprintSize || 1);
-
-                                                if (relativeError < 0.05) {
-                                                    if (this.debug) console.log(`      ✅ Кандидат согласован!`);
-
-                                                    // Притягиваем (усредняем)
-                                                    const avgX = (projected.x + nodeB.x) / 2;
-                                                    const avgY = (projected.y + nodeB.y) / 2;
-
-                                                    nodeB.x = avgX;
-                                                    nodeB.y = avgY;
-                                                    nodeB.confirmationCount = (nodeB.confirmationCount || 1) + 1;
-
-                                                    addedBluePoints.push({
-                                                        pointA: candidate.pointA,
-                                                        pointB: candidate.pointB,
-                                                        confidence: 0.9,
-                                                        status: 'blue_confirmed'
-                                                    });
-
-                                                    workingAnchors = testAnchors;
-                                                }
-                                            }
-                                        }
-                                    } catch (iterError) {
-                                        if (this.debug) console.log(`   ⚠️ Ошибка итерации: ${iterError.message}`);
-                                    }
-                                }
-
-                                if (addedBluePoints.length > 0) {
-                                    console.log(`\n✅ Добавлено ${addedBluePoints.length} синих точек!`);
-                                    finalValidatedMatches = [...finalValidatedMatches, ...addedBluePoints];
-
-                                    // 🔥 ДОБАВЛЯЕМ МАГНИТ ДЛЯ НОВЫХ ПАР
-                                    if (this.debug) console.log(`\n🧲 ДОПОЛНИТЕЛЬНОЕ ПРИТЯГИВАНИЕ НОВЫХ ПАР`);
-
-                                    const { pulledMatches, pulledCount } = magneticPull(
-                                        finalValidatedMatches,
-                                        exactGraph,
-                                        existingModel.graph,
-                                        finalTransform,
-                                        20 // порог в пикселях
-                                    );
-
-                                    if (pulledCount > 0) {
-                                        if (this.debug) console.log(`\n✅ Притянуто ещё ${pulledCount} новых пар!`);
-                                        finalValidatedMatches = pulledMatches;
-                                    }
-
-                                    // ===== ДОПОЛНИТЕЛЬНОЕ СОПОСТАВЛЕНИЕ СИНИХ КАНДИДАТОВ =====
-                                    if (this.debug) console.log(`\n🔷 ДОПОЛНИТЕЛЬНОЕ СОПОСТАВЛЕНИЕ СИНИХ КАНДИДАТОВ`);
-
-                                    // Находим оставшиеся синие точки
-                                    const finalBluePhotoPoints = unmatchedPhotoPoints.filter(p => !matchedPointsA.has(p.id));
-                                    const finalBlueModelPoints = Array.from(existingModel.graph.nodes.values())
-                                        .filter(p => !matchedPointsB.has(p.id));
-
-                                    if (this.debug) {
-                                        console.log(`   • Осталось синих фото: ${finalBluePhotoPoints.length}`);
-                                        console.log(`   • Осталось синих модели: ${finalBlueModelPoints.length}`);
-                                    }
-
-                                    // Ищем явные пары по расстоянию
-                                    let finalBluePairs = 0;
-                                    const blueCandidates = [];
-
-                                    for (const photoPoint of finalBluePhotoPoints) {
-                                        const projected = {
-                                            x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                                               photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                               finalTransform.translation.x,
-                                            y: photoPoint.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                               photoPoint.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                                               finalTransform.translation.y
-                                        };
-
-                                        // Ищем ближайшую модель
-                                        let bestMatch = null;
-                                        let bestDist = Infinity;
-
-                                        for (const modelPoint of finalBlueModelPoints) {
-                                            const dx = projected.x - modelPoint.x;
-                                            const dy = projected.y - modelPoint.y;
-                                            const dist = Math.sqrt(dx*dx + dy*dy);
-
-                                            if (dist < bestDist && dist < 10) { // порог 10px
-                                                bestDist = dist;
-                                                bestMatch = modelPoint;
-                                            }
-                                        }
-
-                                        if (bestMatch) {
-                                            if (this.debug) {
-                                                console.log(`\n   🔍 Найдена пара:`);
-                                                console.log(`      Фото (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)})`);
-                                                console.log(`      Модель (${bestMatch.x.toFixed(1)}, ${bestMatch.y.toFixed(1)})`);
-                                                console.log(`      Расстояние: ${bestDist.toFixed(1)}px`);
-                                            }
-
-                                            // Проверяем морфологию
-                                            const photoMorph = morphologyMap.get(photoPoint.id);
-                                            const modelMorph = existingModel.morphologyMap.get(bestMatch.id);
-
-                                            if (photoMorph && modelMorph) {
-                                                let morphScore = 0;
-                                                let checks = 0;
-
-                                                if (photoMorph.eccentricity && modelMorph.eccentricity) {
-                                                    const ratio = Math.min(photoMorph.eccentricity, modelMorph.eccentricity) /
-                                                                 Math.max(photoMorph.eccentricity, modelMorph.eccentricity);
-                                                    morphScore += ratio;
-                                                    checks++;
-                                                }
-
-                                                if (photoMorph.asymmetry && modelMorph.asymmetry) {
-                                                    const ratio = Math.min(photoMorph.asymmetry, modelMorph.asymmetry) /
-                                                                 Math.max(photoMorph.asymmetry, modelMorph.asymmetry);
-                                                    morphScore += ratio;
-                                                    checks++;
-                                                }
-
-                                                const finalMorphScore = checks > 0 ? morphScore / checks : 0.5;
-                                                if (this.debug) console.log(`      Морфология: ${(finalMorphScore * 100).toFixed(1)}%`);
-
-                                                if (finalMorphScore > 0.6) { // чуть ниже порог для последнего шанса
-                                                    blueCandidates.push({
-                                                        pointA: photoPoint.id,
-                                                        pointB: bestMatch.id,
-                                                        distance: bestDist,
-                                                        morphScore: finalMorphScore
-                                                    });
-                                                }
-                                            }
-                                        }
-                                    }
-
-                                    if (blueCandidates.length > 0) {
-                                        if (this.debug) console.log(`\n📊 Найдено ${blueCandidates.length} финальных кандидатов`);
-
-                                        // Добавляем их в matches
-                                        for (const cand of blueCandidates) {
-                                            finalValidatedMatches.push({
-                                                pointA: cand.pointA,
-                                                pointB: cand.pointB,
-                                                confidence: 0.8,
-                                                status: 'final_blue'
-                                            });
-                                            finalBluePairs++;
-
-                                            // Притягиваем точки
-                                            const nodeA = exactGraph.nodes.get(cand.pointA);
-                                            const nodeB = existingModel.graph.nodes.get(cand.pointB);
-                                            if (nodeA && nodeB) {
-                                                const projected = {
-                                                    x: nodeA.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                                                       nodeA.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                                       finalTransform.translation.x,
-                                                    y: nodeA.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                                       nodeA.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                                                       finalTransform.translation.y
-                                                };
-
-                                                nodeB.x = (projected.x + nodeB.x) / 2;
-                                                nodeB.y = (projected.y + nodeB.y) / 2;
-                                                nodeB.confirmationCount++;
-                                            }
-                                        }
-
-                                        if (this.debug) console.log(`\n✅ Добавлено ${finalBluePairs} финальных синих пар!`);
-
-                                        // Обновляем статистику
-                                        matchedPointsA.clear();
-                                        matchedPointsB.clear();
-                                        for (const match of finalValidatedMatches) {
-                                            matchedPointsA.add(match.pointA);
-                                            matchedPointsB.add(match.pointB);
-                                        }
-                                    } else {
-                                        if (this.debug) console.log(`\n⚠️ Финальных кандидатов не найдено`);
-                                    }
-
-                                    // Обновляем множества
-                                    matchedPointsA.clear();
-                                    matchedPointsB.clear();
-                                    for (const match of finalValidatedMatches) {
-                                        if (match?.pointA) matchedPointsA.add(match.pointA);
-                                        if (match?.pointB) matchedPointsB.add(match.pointB);
-                                    }
-
-                                    // Пересчитываем уникальные точки
-                                    const uniqueInModel = allPointsInA
-                                        .filter(p => p && p.id && !matchedPointsA.has(p.id))
-                                        .map(p => ({
-                                            id: p.id,
-                                            x: p.x,
-                                            y: p.y,
-                                            type: 'unique_in_model'
-                                        }));
-
-                                    const uniqueInPhoto = points  // ← оригинальные точки фото
-                                        .filter(p => !matchedPointsA.has(p.id))
-                                        .map(p => {
-                                            const projected = {
-                                                x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                                                   p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                                   finalTransform.translation.x,
-                                                y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                                   p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                                                   finalTransform.translation.y
-                                            };
-                                            return {
-                                                id: p.id,
-                                                x: projected.x,
-                                                y: projected.y,
-                                                type: 'unique_in_photo'
-                                            };
-                                        });
-
-                                    if (this.debug) {
-                                        console.log(`\n📊 НОВАЯ СТАТИСТИКА:`);
-                                        console.log(`   • Сопоставлено точек в A: ${matchedPointsA.size}`);
-                                        console.log(`   • Сопоставлено точек в B: ${matchedPointsB.size}`);
-                                        console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
-                                        console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
-                                    }
-
-                                    // Обновляем uniquePoints в модели
-                                    if (existingModel) {
-                                        existingModel.uniquePoints = {
-                                            model: uniqueInModel,
-                                            photo: uniqueInPhoto
-                                        };
-                                    }
-                                } else {
-                                    if (this.debug) console.log(`\n⚠️ Ни один кандидат не прошёл проверку`);
-                                }
-                            } else {
-                                if (this.debug) console.log(`\n⚠️ Нет топологически согласованных кандидатов`);
-                            }
-                        }
-                    } catch (blueError) {
-                        if (this.debug) {
-                            console.log(`\n⚠️ Ошибка в обработке синих точек: ${blueError.message}`);
-                            console.log(blueError.stack);
-                        }
-                    }
-
-// ===== ШАГ 3.10: КОРРЕКЦИЯ ПО BOUNDING BOX =====
-if (finalValidatedMatches.length >= 3) {
-    console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
-
-    // Собираем точки
-    const photoPoints = [];
-    const modelPoints = [];
-
-    for (const match of finalValidatedMatches) {
-        const photoPoint = exactGraph.nodes.get(match.pointA);
-        const modelPoint = existingModel.graph.nodes.get(match.pointB);
-        if (photoPoint && modelPoint) {
-            photoPoints.push({ x: photoPoint.x, y: photoPoint.y, weight: match.confidence || 0.5 });
-            modelPoints.push({ x: modelPoint.x, y: modelPoint.y, weight: match.confidence || 0.5 });
-        }
-    }
-
-    if (photoPoints.length >= 3) {
-        // 1. Вычисляем центроиды
-        let photoCenterX = 0, photoCenterY = 0;
-        let modelCenterX = 0, modelCenterY = 0;
-        let totalWeight = 0;
-
-        for (let i = 0; i < photoPoints.length; i++) {
-            const w = photoPoints[i].weight;
-            photoCenterX += photoPoints[i].x * w;
-            photoCenterY += photoPoints[i].y * w;
-            modelCenterX += modelPoints[i].x * w;
-            modelCenterY += modelPoints[i].y * w;
-            totalWeight += w;
-        }
-
-        photoCenterX /= totalWeight;
-        photoCenterY /= totalWeight;
-        modelCenterX /= totalWeight;
-        modelCenterY /= totalWeight;
-
-        // 🔥 ИСПРАВЛЕНИЕ: Берём transform из существующей модели
-        const currentRot = existingModel?.transform?.rotation || finalTransform?.rotation || 0;
-        const currentScale = existingModel?.transform?.scale || finalTransform?.scale || 1;
-
-        // 2. Применяем текущий transform к точкам фото
-        const transformedPhotoPoints = photoPoints.map(p => ({
-            x: modelCenterX + ((p.x - photoCenterX) * currentScale * Math.cos(currentRot) -
-                               (p.y - photoCenterY) * currentScale * Math.sin(currentRot)),
-            y: modelCenterY + ((p.x - photoCenterX) * currentScale * Math.sin(currentRot) +
-                               (p.y - photoCenterY) * currentScale * Math.cos(currentRot)),
-            weight: p.weight
-        }));
-
-        // 3. Находим bounding box трансформированного фото
-        let transMinX = Infinity, transMaxX = -Infinity;
-        let transMinY = Infinity, transMaxY = -Infinity;
-        for (const p of transformedPhotoPoints) {
-            transMinX = Math.min(transMinX, p.x);
-            transMaxX = Math.max(transMaxX, p.x);
-            transMinY = Math.min(transMinY, p.y);
-            transMaxY = Math.max(transMaxY, p.y);
-        }
-
-        // 4. Находим bounding box модели
-        let modelMinX = Infinity, modelMaxX = -Infinity;
-        let modelMinY = Infinity, modelMaxY = -Infinity;
-        for (const p of modelPoints) {
-            modelMinX = Math.min(modelMinX, p.x);
-            modelMaxX = Math.max(modelMaxX, p.x);
-            modelMinY = Math.min(modelMinY, p.y);
-            modelMaxY = Math.max(modelMaxY, p.y);
-        }
-
-        // 5. Вычисляем размеры
-        const transWidth = transMaxX - transMinX;
-        const transHeight = transMaxY - transMinY;
-        const modelWidth = modelMaxX - modelMinX;
-        const modelHeight = modelMaxY - modelMinY;
-
-        // 6. Вычисляем масштабы
-        const scaleX = modelWidth / transWidth;
-        const scaleY = modelHeight / transHeight;
-
-        // 7. Ограничиваем
-        const safeScaleX = Math.min(Math.max(scaleX, 0.8), 1.2);
-        const safeScaleY = Math.min(Math.max(scaleY, 0.8), 1.2);
-
-        // 8. Усредняем
-        const avgScale = (safeScaleX + safeScaleY) / 2;
-
-        console.log(`\n📊 BOUNDING BOX АНАЛИЗ (после трансформации):`);
-        console.log(`   Трансформированное фото: ${transWidth.toFixed(1)} x ${transHeight.toFixed(1)}`);
-        console.log(`   Модель: ${modelWidth.toFixed(1)} x ${modelHeight.toFixed(1)}`);
-        console.log(`   Текущий масштаб: ${currentScale.toFixed(3)}`);
-        console.log(`   Требуемый масштаб X: ${scaleX.toFixed(3)} → ${safeScaleX.toFixed(3)}`);
-        console.log(`   Требуемый масштаб Y: ${scaleY.toFixed(3)} → ${safeScaleY.toFixed(3)}`);
-        console.log(`   Усреднённый масштаб: ${avgScale.toFixed(3)}`);
-
-        // 9. Применяем коррекцию
-        const newTransform = {
-            scale: currentScale * avgScale,
-            rotation: currentRot,
-            translation: {
-                x: modelCenterX - (photoCenterX * currentScale * avgScale * Math.cos(currentRot) -
-                                   photoCenterY * currentScale * avgScale * Math.sin(currentRot)),
-                y: modelCenterY - (photoCenterX * currentScale * avgScale * Math.sin(currentRot) +
-                                   photoCenterY * currentScale * avgScale * Math.cos(currentRot))
-            },
-            scaleX: safeScaleX,
-            scaleY: safeScaleY,
-            method: 'bounding_box_iterative'
-        };
-
-        console.log(`\n✅ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
-        console.log(`   Новый масштаб: ${newTransform.scale.toFixed(3)} (было ${currentScale.toFixed(3)})`);
-        console.log(`   Изменение: ${((newTransform.scale / currentScale - 1) * 100).toFixed(1)}%`);
-
-        finalTransform = newTransform;
-        if (existingModel) {
-            existingModel.transform = finalTransform;
-        }
-    }
-}
-                    
-                    // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
-                    console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
-
-                    const updateResult = this.updateModelWithOptimalMatches(
-    modelIdHint,
-    exactGraph,
-    finalValidatedMatches || [],
-    morphologyMap
-);
-
-// 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
-const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);  // с 3px до 5px
-if (this.debug && mergedCount > 0) {
-    console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
-}
-
-// После updateModelWithOptimalMatches
-
-// 🔥 ДИАГНОСТИКА ДУБЛИРУЮЩИХСЯ ТОЧЕК
-if (this.debug) {
-    const modelPoints = Array.from(existingModel.graph.nodes.values());
-    const duplicates = [];
-    for (let i = 0; i < modelPoints.length; i++) {
-        for (let j = i + 1; j < modelPoints.length; j++) {
-            const dx = modelPoints[i].x - modelPoints[j].x;
-            const dy = modelPoints[i].y - modelPoints[j].y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-            if (dist < 3) { // порог 3px
-                duplicates.push({
-                    id1: modelPoints[i].id,
-                    id2: modelPoints[j].id,
-                    dist: dist,
-                    pos1: { x: modelPoints[i].x, y: modelPoints[i].y },
-                    pos2: { x: modelPoints[j].x, y: modelPoints[j].y }
-                });
-            }
-        }
-    }
-    if (duplicates.length > 0) {
-        console.log(`\n⚠️ ОБНАРУЖЕНО ДУБЛИРУЮЩИХСЯ ТОЧЕК В МОДЕЛИ: ${duplicates.length}`);
-        duplicates.slice(0, 10).forEach(d => {
-            console.log(`   • ${d.id1.substring(0,12)} и ${d.id2.substring(0,12)}: расстояние ${d.dist.toFixed(1)}px`);
-        });
-    } else {
-        console.log(`\n✅ Дублирующихся точек в модели нет`);
-    }
-}
-                 
-                    // Обновляем KNN-граф и подписи
-                    if (existingModel) {
-                        existingModel.knnGraph = knnGraph;
-                        existingModel.knnFingerprints = new Map([...(existingModel.knnFingerprints || []), ...(knnFingerprints || [])]);
-                        existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-                        existingModel.metadata.lastEnhanced = new Date();
-                    }
-
-                    // Создаем matchMap для визуализации
-                    const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-                        { matches: finalValidatedMatches || [] },
-                        modelIdHint
-                    );
-
-                    // 🔥 СОХРАНЯЕМ modelMatchMap В МОДЕЛЬ
-                    if (existingModel) {
-                        existingModel.lastTriangleResult = {
-                            ...(existingModel.lastTriangleResult || {}),
-                            modelMatchMap: modelMatchMap,
-                            matchMap: matchMap,
-                            globalConsistency: consistent?.stats
-                        };
-                    }
-
-                    if (this.debug) {
-                        console.log(`\n🔍 ОТЛАДКА: ${finalValidatedMatches?.length || 0} согласованных точек`);
-                        console.log(`   • matchMap передан в визуализацию: ${matchMap?.size || 0} пар`);
-                        console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap?.size || 0} пар`);
-                    }
-
-                    // Очищаем неподтверждённые точки
-                    const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-                    this.stats.totalNodesRemoved += cleanResult.removed;
-                    this.stats.triangleMatchesCount += finalValidatedMatches?.length || 0;
-
-                     // Статистика
-                    const confirmedInModel = finalValidatedMatches?.length || 0;
-                    const onlyInModel = (existingModel?.graph?.nodes?.size || 0) - confirmedInModel;
-                    const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
-
-                    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-                    console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-                    console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-                    console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-                    console.log(`   • Всего в модели теперь: ${existingModel?.graph?.nodes?.size || 0}`);
-
-                    // 🔥 СОХРАНЯЕМ ОБНОВЛЁННУЮ МОДЕЛЬ
-                    if (existingModel && modelIdHint) {
-                        this.models.set(modelIdHint, existingModel);
-                        if (this.debug) {
-                            console.log(`💾 Модель ${modelIdHint.substring(0,12)} обновлена в хранилище (${existingModel.graph.nodes.size} узлов)`);
-                        }
-                    }
-
-                    this.photoToModel.set(photoId, modelIdHint);
-
-                    return {
-                        status: 'consistent_anchors',
-                        modelId: modelIdHint,
-                        similarity: triangleResult?.similarity || 0,
-                        centerMatches: finalMatches?.length || 0,
-                        totalMatches: finalMatches?.length || 0,
-                        newNodesAdded: updateResult?.newNodesAdded || 0,
-                        nodesRemoved: cleanResult?.removed || 0,
-                        matchMap: matchMap,
-                        modelMatchMap: modelMatchMap,
-                        consistency: consistent?.stats,
-                        originalPhotoPoints: points,
-                        transform: finalTransform,
-                        structures: structures.map(s => ({
-                            id: s.id,
-                            triangleCount: s.triangleIds.size,
-                            pointCount: s.pointIds.size,
-                            confidence: s.calculateConfidence(),
-                            transform: s.transform
-                        })),
-                        structureCount: structures.length,
-                        message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
-                    };
-                } else {
-                    console.log(`\n⚠️ Финальная валидация не удалась`);
-                    return {
-                        status: 'validation_failed',
-                        modelId: modelIdHint,
-                        similarity: triangleResult?.similarity || 0,
-                        message: 'Финальная валидация не удалась'
-                    };
-                }
-            } else {
-                if (this.debug) console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
-            }
-        } else {
-            if (this.debug) {
-                console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
-                console.log(`   modelIdHint: ${modelIdHint}`);
-                console.log(`   models.has: ${this.models.has(modelIdHint)}`);
-            }
-        }
-
-        // Если это первое фото вообще - создаём первую модель
-        if (this.models.size === 0) {
-            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-    ...options,
-    outlineContour: outlineContour  // 🔥 ПЕРЕДАЁМ КОНТУР
-});
-            this.photoToModel.set(photoId, result.modelId);
-            return {
-                ...result,
-                isFirstModel: true,
-                totalModels: this.models.size
-            };
-        }
-
-        // Если быстрый путь не сработал - идем по стандартному пути
-        if (this.debug) console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
-
-        // Сравниваем со ВСЕМИ существующими моделями
-        if (this.debug) console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
-
-        const comparisons = [];
-
-        for (const [modelId, model] of this.models) {
-            if (this.debug) console.log(`   Проверяю модель ${modelId.slice(0, 12)}...`);
-
-            const comparison = this.fingerprinter.compareGraphs(
-                model.knnGraph,
-                model.knnFingerprints,
-                knnGraph,
-                knnFingerprints
-            );
-
-            comparisons.push({
-                modelId,
-                similarity: comparison.similarity,
-                exactMatches: comparison.exactMatches.length,
-                similarMatches: comparison.similarMatches.length,
-                model
-            });
-        }
-
-        comparisons.sort((a, b) => b.similarity - a.similarity);
-        const bestMatch = comparisons[0];
-
-        if (this.debug) {
-            console.log(`\n📊 Лучшее совпадение:`);
-            console.log(`   Модель: ${bestMatch.modelId.slice(0, 12)}...`);
-            console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
-        }
-
-        // Если сходство выше порога - улучшаем существующую модель
-        if (bestMatch.similarity >= this.similarityThreshold) {
-            console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
-
-            this.switchToModel(bestMatch.modelId);
-
-            if (!this.fastMode) {
-                const enhancedResult = await this.enhanceExistingModel(
-                    bestMatch.modelId,
-                    exactGraph,
-                    knnGraph,
-                    knnFingerprints,
-                    morphologyMap,
-                    options
-                );
-
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'enhanced',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    ...enhancedResult,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId
-                };
-            } else {
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'matched_fast',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    exactMatches: bestMatch.exactMatches,
-                    similarMatches: bestMatch.similarMatches,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId,
-                    message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
-                };
-            }
-        }
-        // Если сходство ниже порога - создаём НОВУЮ модель
-        else {
-            console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
-            console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
-
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-                ...options,
-                comparedWith: bestMatch.modelId,
-                reason: 'different_footprint'
-            });
-
-            this.modelRelations.set(result.modelId, {
-                related: [bestMatch.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            const existingRel = this.modelRelations.get(bestMatch.modelId);
-            this.modelRelations.set(bestMatch.modelId, {
-                related: [...(existingRel?.related || []), result.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            this.photoToModel.set(photoId, result.modelId);
-            this.stats.differentFootprintsDetected++;
-
-              if (this.models.has(modelIdHint)) {
-    const model = this.models.get(modelIdHint);
-    if (outlineContour && !model.metadata.outlineContour) {
-        // Сохраняем только если ещё нет (или обновляем)
-        model.metadata.outlineContour = outlineContour;
-        console.log(`💾 Контур следа сохранён в модель ${modelIdHint.substring(0,12)}`);
-        console.log(`   точек в контуре: ${outlineContour.points.length}`);
-    } else if (outlineContour && model.metadata.outlineContour) {
-        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
-    } else if (!outlineContour) {
-        console.log(`⚠️ Нет контура для сохранения`);
-    }
-}
-
-    // В возвращаемом результате также передаём контур
-    return {
-                status: 'created_new',
-                modelId: result.modelId,
-                similarity: bestMatch.similarity,
-                comparedWith: bestMatch.modelId,
-                totalModels: this.models.size,
-     outlineContour: outlineContour,
-                isDifferentFootprint: true,
-                message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
-            };
-        }
-    }
-
-    // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
-
-    async compareByTriangleMatching(model1, model2, options = {}) {
-        const startTime = Date.now();
-        if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
-
-        // Извлекаем точки из моделей
-        const points1 = this.extractPointsFromModel(model1);
-        const points2 = this.extractPointsFromModel(model2);
-
-        if (this.debug) console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
-
-        // Создаем треугольный матчер
-        const triangleMatcher = new TriangleMatcher({
-            debug: false,  // ← уже выключено
-            compactnessThreshold: 0.4,
-            eccentricityThreshold: 0.2,
-            areaThreshold: 0.5,
-            ratioThreshold: 0.25
-        });
-
-        // 🔥 ЗАЩИТА: проверяем, что точки не пустые
-        if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
-            if (this.debug) console.log(`❌ Нет точек для сопоставления`);
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1?.map(p => p.id) || [],
-                noMatchB: points2?.map(p => p.id) || [],
-                stats: {}
-            };
-        }
-
-        // Запускаем треугольный поиск
-        if (this.debug) console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
-        let result;
-        try {
-            result = triangleMatcher.findMatches(
-                points1,
-                points2,
-                model1.graph,
-                model2.graph
-            );
-        } catch (error) {
-            if (this.debug) {
-                console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
-                console.log(error.stack);
-            }
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: {}
-            };
-        }
-
-        if (!result) {
-            if (this.debug) console.log(`❌ triangleMatcher.findMatches вернул null/undefined`);
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: {}
-            };
-        }
-
-        if (!result.matches) {
-            if (this.debug) {
-                console.log(`❌ result.matches = undefined`);
-                console.log(`   result =`, result);
-                console.log(`   keys =`, Object.keys(result));
-            }
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: result.stats || {}
-            };
-        }
-
-        if (this.debug) console.log(`✅ triangleMatcher.findMatches выполнен, matches: ${result.matches.length}`);
-
-        // Находим точки без пары
-        const matchedPointA = new Set(result.matches.map(m => m.pointA));
-        const matchedPointB = new Set(result.matches.map(m => m.pointB));
-
-        const noMatchA = points1
-            .filter(p => !matchedPointA.has(p.id))
-            .map(p => p.id);
-
-        const noMatchB = points2
-            .filter(p => !matchedPointB.has(p.id))
-            .map(p => p.id);
-
-const finalResult = {
-    success: true,
-    matches: result.matches,
-    triangles: result.triangles,  // 🔥 ПЕРЕДАЁМ ДАЛЬШЕ
-    count: result.matches.length,
-    sufficient: result.matches.length >= 12,
-    similarity: result.matches.length / Math.min(points1.length, points2.length),
-    time: Date.now() - startTime,
-    ambiguous: [],
-    noMatchA,
-    noMatchB,
-    stats: result.stats
-};
-
-        if (this.debug) {
-            console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
-            console.log(`   • Найдено соответствий: ${finalResult.count}`);
-            console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
-            console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
-            console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
-            console.log(`   • Время: ${finalResult.time}ms`);
-        }
-
-        return finalResult;
-    }
-
-    // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
-
-    /**
-     * Извлечение точек из модели
-     */
-    extractPointsFromModel(model) {
-        const points = [];
-        const graph = model.graph;
-        const morphologyMap = model.morphologyMap || new Map();
-
-        for (const [nodeId, node] of graph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-
-            points.push({
-                id: nodeId,
-                x: node.x,
-                y: node.y,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-
-                // МОРФОЛОГИЯ
-                compactness: morph.compactness || 0,
-                eccentricity: morph.eccentricity || 0,
-                normalizedArea: morph.normalizedArea || 1,
-                radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
-                orientation: morph.orientation || 0,
-                asymmetry: morph.asymmetry || 0,
-
-                // 🔥 КОНТУР (для новых признаков)
-                contour: morph.contour || null,
-
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
-            });
-        }
-
-        if (this.debug) console.log(`📊 Извлечено ${points.length} точек из модели с морфологией`);
-        return points;
-    }
-
-    /**
-     * Строит matchMap для визуализации
-     */
-    buildTriangleMatchMap(result, targetModelId = null) {
-        if (this.debug) {
-            console.log(`\n🔍 buildTriangleMatchMap: начало`);
-            console.log(`   • result.matches.length = ${result.matches?.length || 0}`);
-            console.log(`   • Якорей (треугольников): ${result.anchors || 'не указано'}`);
-        }
-
-        if (!result.matches || result.matches.length === 0) {
-            if (this.debug) console.log(`   ⚠️ Нет matches для построения map`);
-            return { matchMap: new Map(), modelMatchMap: new Map() };
-        }
-
-        // ===== ШАГ 1: Сортируем все matches по убыванию уверенности =====
-        if (this.debug) console.log(`\n📋 ШАГ 1: Сортировка matches по уверенности`);
-
-        const sortedMatches = [...result.matches].sort((a, b) => b.confidence - a.confidence);
-
-        // Покажем первые 5 для отладки
-        if (this.debug) {
-            sortedMatches.slice(0, 5).forEach((m, i) => {
-                console.log(`   ${i+1}. уверенность: ${(m.confidence*100).toFixed(1)}%`);
-            });
-        }
-
-        // ===== ШАГ 2: Строим максимальное непротиворечивое множество =====
-        if (this.debug) console.log(`\n📋 ШАГ 2: Построение максимального непротиворечивого множества`);
-
-        const pointCorrespondence = new Map(); // pointA -> pointB
-        const reverseCorrespondence = new Map(); // pointB -> pointA
-        let added = 0;
-        let skipped = 0;
-
-        for (const match of sortedMatches) {
-            const pointA = match.pointA;
-            const pointB = match.pointB;
-
-            // Проверяем, свободны ли обе точки
-            const aFree = !pointCorrespondence.has(pointA);
-            const bFree = !reverseCorrespondence.has(pointB);
-
-            if (aFree && bFree) {
-                // Обе точки свободны - добавляем
-                pointCorrespondence.set(pointA, pointB);
-                reverseCorrespondence.set(pointB, pointA);
-                added++;
-
-                if (this.debug && added <= 10) { // покажем первые 10
-                    console.log(`   ✅ Добавлено: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} (уверенность: ${(match.confidence*100).toFixed(1)}%)`);
-                }
-            } else {
-                skipped++;
-                if (this.debug && skipped <= 5) { // покажем первые 5 пропущенных
-                    console.log(`   ⚠️ Пропущено: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} (уверенность: ${(match.confidence*100).toFixed(1)}%)`);
-                    if (!aFree) console.log(`      • pointA уже соответствует ${pointCorrespondence.get(pointA).substring(0,12)}`);
-                    if (!bFree) console.log(`      • pointB уже соответствует ${reverseCorrespondence.get(pointB).substring(0,12)}`);
-                }
-            }
-        }
-
-        if (this.debug) {
-            console.log(`\n📊 ИТОГ ПОСТРОЕНИЯ:`);
-            console.log(`   • Добавлено уникальных соответствий: ${added}`);
-            console.log(`   • Пропущено (конфликты): ${skipped}`);
-            console.log(`   • Всего обработано matches: ${sortedMatches.length}`);
-        }
-
-        // ===== ШАГ 3: Назначаем номера парам =====
-        if (this.debug) console.log(`\n📋 ШАГ 3: Назначение номеров парам`);
-
-        const matchMap = new Map();
-        const modelMatchMap = new Map();
-        let pairNumber = 1;
-
-        // Для назначения номеров используем тот же порядок, что и при добавлении
-        for (const [pointA, pointB] of pointCorrespondence) {
-            // 🔥 ИЩЕМ СТАТУС ТОЧКИ В ИСХОДНЫХ ДАННЫХ
-            const match = result.matches.find(m => m.pointA === pointA && m.pointB === pointB);
-            const status = match?.status || 'anchor'; // по умолчанию anchor
-
-            matchMap.set(pointA, {
-                modelId: pointB,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: 1.0,
-                status: status
-            });
-
-            modelMatchMap.set(pointB, {
-                photoId: pointA,
-                pairNumber: pairNumber,
-                type: 'anchor',
-                confidence: 1.0,
-                status: status
-            });
-
-            if (this.debug) console.log(`   Пара ${pairNumber}: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)} [${status}]`);
-            pairNumber++;
-        }
-
-        // ===== ШАГ 4: Проверка целостности =====
-        if (this.debug) {
-            console.log(`\n📊 ИТОГ buildTriangleMatchMap:`);
-            console.log(`   • matchMap size: ${matchMap.size}`);
-            console.log(`   • modelMatchMap size: ${modelMatchMap.size}`);
-            console.log(`   • Уникальных photo точек: ${pointCorrespondence.size}`);
-            console.log(`   • Уникальных model точек: ${reverseCorrespondence.size}`);
-        }
-
-        // Проверяем, сколько уникальных точек должно быть
-        const uniquePhotoPoints = new Set(result.matches.map(m => m.pointA));
-        const uniqueModelPoints = new Set(result.matches.map(m => m.pointB));
-
-        if (this.debug) {
-            console.log(`\n📊 СТАТИСТИКА ИСХОДНЫХ ДАННЫХ:`);
-            console.log(`   • Уникальных photo точек в matches: ${uniquePhotoPoints.size}`);
-            console.log(`   • Уникальных model точек в matches: ${uniqueModelPoints.size}`);
-            console.log(`   • Покрытие photo точек: ${((pointCorrespondence.size / uniquePhotoPoints.size) * 100).toFixed(1)}%`);
-            console.log(`   • Покрытие model точек: ${((reverseCorrespondence.size / uniqueModelPoints.size) * 100).toFixed(1)}%`);
-        }
-
-        // ===== ШАГ 5: Сохраняем в модель =====
-        const modelIdToUse = targetModelId || this.currentModelId;
-        if (this.debug) console.log(`\n💾 Сохранение в модель ${modelIdToUse?.substring(0,12)}:`);
-
-        if (modelIdToUse && this.models.has(modelIdToUse)) {
-            const model = this.models.get(modelIdToUse);
-
-            model.lastTriangleResult = {
-                ...(model.lastTriangleResult || {}),
-                modelMatchMap: modelMatchMap,
-                matchMap: matchMap,
-                pointCorrespondence: pointCorrespondence,
-                stats: {
-                    totalMatches: result.matches.length,
-                    uniquePhotoPoints: uniquePhotoPoints.size,
-                    uniqueModelPoints: uniqueModelPoints.size,
-                    coverage: (pointCorrespondence.size / uniquePhotoPoints.size) * 100,
-                    conflicts: skipped,
-                    anchors: matchMap.size
-                },
-                timestamp: new Date().toISOString()
-            };
-
-            if (this.debug) {
-                console.log(`   ✅ modelMatchMap сохранён (${modelMatchMap.size} записей)`);
-                console.log(`   ✅ matchMap сохранён (${matchMap.size} записей)`);
-                console.log(`   📊 Статистика сохранена в модели`);
-            }
-
-        } else {
-            if (this.debug) console.log(`   ❌ Модель ${modelIdToUse?.substring(0,12)} не найдена!`);
-        }
-
-        return { matchMap, modelMatchMap };
-    }
-
-    /**
-     * Конвертирует matches в Map
-     */
-    convertMatchesToMap(matches) {
-        const map = new Map();
-        for (const match of matches) {
-            map.set(match.pointA, {
-                modelId: match.pointB,
-                confidence: match.confidence
-            });
-        }
-        return map;
-    }
-
-    /**
-     * Упрощенное определение роли
-     */
-    getNodeRoleSimple(nodeId, graph) {
-        const node = graph.nodes.get(nodeId);
-        if (!node) return 'R';
-        const degree = node.degree || 0;
-        if (degree >= 6) return 'H';
-        if (degree === 1) return 'L';
-        return 'R';
-    }
-
-    /**
-     * Получить роли соседей
-     */
-    getNeighborRolesForPoint(nodeId, graph) {
-        const neighbors = this.findNodeNeighbors(nodeId, graph);
-        const roles = [];
-        for (const neighbor of neighbors) {
-            roles.push(this.getNodeRoleSimple(neighbor.id, graph));
-        }
-        return roles.sort().join('');
-    }
-
-    /** 
-     * Поиск соседей в графе
-     */
-    findNodeNeighbors(nodeId, graph) {
-        const neighbors = [];
-        // 🔥 Преобразуем Set в массив для итерации
-        const edges = Array.isArray(graph.edges) ? graph.edges : Array.from(graph.edges);
-
-        for (const edge of edges) {
-            const [a, b] = edge.split('--');
-            if (a === nodeId) neighbors.push({id: b});
-            if (b === nodeId) neighbors.push({id: a});
-        }
-        return neighbors;
-    }
-
-    // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
-
-    updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-        const model = this.models.get(modelId);
-        let confirmedExisting = 0;
-        let newNodesAdded = 0;
-
-        const matchedPhotoIds = new Set();
-        const matchedModelIds = new Set();
-
-        // 1. Обновляем существующие точки с усреднением
-        for (const match of matches) {
-            const modelNode = model.graph.nodes.get(match.pointB);
-            const photoNode = newGraph.nodes.get(match.pointA);
-           
-            if (modelNode && photoNode) {
-                const oldCount = modelNode.confirmationCount || 1;
-                const newCount = oldCount + 1;
-               
-                // 🔥 Усредняем координаты
-                modelNode.x = (modelNode.x * oldCount + photoNode.x) / newCount;
-                modelNode.y = (modelNode.y * oldCount + photoNode.y) / newCount;
-               
-                // 🔥 Усредняем морфологию
-                const photoMorph = newMorphology?.get(match.pointA);
-                if (photoMorph && modelNode.morphology) {
-                    for (const key of ['compactness', 'eccentricity', 'asymmetry', 'normalizedArea']) {
-                        if (photoMorph[key] !== undefined && modelNode.morphology[key] !== undefined) {
-                            modelNode.morphology[key] = (modelNode.morphology[key] * oldCount + photoMorph[key]) / newCount;
-                        }
-                    }
-                    if (photoMorph.radialProfile && modelNode.morphology.radialProfile) {
-                        for (let i = 0; i < 8; i++) {
-                            modelNode.morphology.radialProfile[i] =
-                                (modelNode.morphology.radialProfile[i] * oldCount + photoMorph.radialProfile[i]) / newCount;
-                        }
-                    }
-                }
-               
-                modelNode.confirmationCount = newCount;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
-                matchedPhotoIds.add(match.pointA);
-                matchedModelIds.add(match.pointB);
-               
-                if (this.debug && oldCount === 1 && newCount === 2) {
-                    console.log(`   🟡 Точка ${match.pointB.substring(0,12)} подтверждена 2 раза (теперь жёлтая)`);
-                }
-            }
-        }
-
-        // 2. Добавляем новые точки из фото (которые не совпали)
-        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-            if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
-
-            for (const photoPoint of this.lastUniqueInPhoto) {
-                // Проверяем, нет ли уже такой точки рядом
-                let isDuplicate = false;
-                for (const [modelId, modelNode] of model.graph.nodes) {
-                    const dx = modelNode.x - photoPoint.x;
-                    const dy = modelNode.y - photoPoint.y;
-                    const dist = Math.sqrt(dx*dx + dy*dy);
-                    if (dist < 5) {
-                        isDuplicate = true;
-                        break;
-                    }
-                }
-
-                if (!isDuplicate) {
-                    const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-
-                    model.graph.nodes.set(newNodeId, {
-                        id: newNodeId,
-                        x: photoPoint.x,
-                        y: photoPoint.y,
-                        degree: 0,
-                        morphology: newMorphology?.get(photoPoint.id),
-                        confirmationCount: 1,
-                        addedFrom: 'new_photo_point',
-                        addedAt: new Date(),
-                        originalPhotoId: photoPoint.id
-                    });
-
-                    newNodesAdded++;
-                    if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
-                }
-            }
-        }
-
-        if (this.debug) {
-            console.log(`\n📊 Результат обновления модели:`);
-            console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
-            console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
-            console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
-        }
-
-        return { confirmedExisting, newNodesAdded };
-    }
-
-    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-        const model = this.models.get(modelId);
-        if (!model) return { error: 'Модель не найдена' };
-
-        if (this.debug) {
-            console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
-            console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
-        }
-
-        const centerMatches = this.centerMatcher.findCenterMatches(
-            newExactGraph,
-            model.graph,
-            newMorphology,
-            model.morphologyMap
-        );
-
-        if (this.debug) console.log(`\n🔴 CenterMatcher нашёл ${centerMatches.size} якорей`);
-
-        let allMatches = new Map();
-        let stabilizedMatches = new Map();
-        let finalMatches = new Map([...centerMatches]);
-        let newNodesAdded = 0;
-
-        if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
-            if (this.debug) console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
-
-            allMatches = this.relativePositioning.positionPoints(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap,
-                { confidenceThreshold: 0.5 }
-            );
-
-            stabilizedMatches = this.relativePositioning.iterativeStabilization(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap
-            );
-
-            finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
-
-            const updateResult = this.updateModelWithMatches(
-                modelId,
-                newExactGraph,
-                finalMatches,
-                centerMatches,
-                newMorphology
-            );
-            newNodesAdded = updateResult.newNodesAdded;
-        } else {
-            if (this.debug) console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
-        }
-
-        model.knnGraph = newKNNGraph;
-        model.knnFingerprints = new Map([...model.knnFingerprints, ...newKnnFingerprints]);
-        model.metadata.photoCount = (model.metadata.photoCount || 0) + 1;
-        model.metadata.lastEnhanced = new Date();
-
-        model.history.push({
-            action: 'enhanced',
-            timestamp: new Date(),
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodes: newNodesAdded,
-            totalNodes: model.graph.nodes.size
-        });
-
-        this.stats.totalEnhancements++;
-        this.stats.lastUpdated = new Date();
-
-        const matchMap = this.buildMatchMap(centerMatches, allMatches, stabilizedMatches);
-
-        const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
-        this.stats.totalNodesRemoved += cleanResult.removed;
-
-        return {
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodesAdded,
-            nodesRemoved: cleanResult.removed,
-            matchMap
-        };
-    }
-
-    buildMatchMap(centerMatches, allMatches, stabilizedMatches) {
-        const matchMap = new Map();
-        let pairNumber = 1;
-
-        if (this.debug) console.log(`\n📋 ФОРМИРОВАНИЕ MATCHMAP:`);
-
-        for (const [photoId, match] of centerMatches) {
-            if (match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    pairNumber: pairNumber++,
-                    type: 'anchor'
-                });
-                if (this.debug) console.log(`   🔴 Якорь ${pairNumber-1}: ${photoId.slice(0,12)}... ↔ ${match.modelId.slice(0,12)}...`);
-            }
-        }
-
-        for (const [photoId, match] of allMatches) {
-            if (!centerMatches.has(photoId) && match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    type: 'regular'
-                });
-            }
-        }
-
-        for (const [photoId, match] of stabilizedMatches) {
-            if (!centerMatches.has(photoId) && !allMatches.has(photoId) && match && match.confidence >= 0.7) {
-                matchMap.set(photoId, {
-                    modelId: match.modelId,
-                    type: 'regular'
-                });
-            }
-        }
-
-        if (this.debug) console.log(`\n📊 ИТОГО: ${centerMatches.size} якорей, ${matchMap.size - centerMatches.size} дополнительных точек`);
-        return matchMap;
-    }
-
-    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
-        const model = this.models.get(modelId);
-        let confirmedExisting = 0;
-        let newNodesAdded = 0;
-        let duplicatesSkipped = 0;
-
-        const matchedPhotoIds = new Set();
-        const matchedModelIds = new Set();
-
-        for (const [photoId, match] of matches) {
-            const modelNode = model.graph.nodes.get(match.modelId);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
-                matchedPhotoIds.add(photoId);
-                matchedModelIds.add(match.modelId);
-            }
-        }
-
-        for (const [photoId, photoNode] of newGraph.nodes) {
-            if (matchedPhotoIds.has(photoId)) continue;
-
-            const match = matches.get(photoId);
-            if (!match || match.confidence < 0.7) continue;
-
-            if (this.isDuplicate(photoNode, model.graph, model.morphologyMap)) {
-                duplicatesSkipped++;
-                continue;
-            }
-
-            const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: photoNode.x,
-                y: photoNode.y,
-                degree: photoNode.degree,
-                morphology: newMorphology.get(photoId),
-                confirmationCount: 1,
-                addedFrom: 'new_point',
-                addedAt: new Date(),
-                originalPhotoId: photoId
-            });
-            newNodesAdded++;
-        }
-
-        this.updateEdges(model.graph, newGraph, matches);
-
-        return { confirmedExisting, newNodesAdded, duplicatesSkipped };
-    }
-
-    switchToModel(modelId) {
-        if (!this.models.has(modelId)) {
-            if (this.debug) console.log(`❌ Модель ${modelId} не найдена`);
-            return false;
-        }
-        this.currentModelId = modelId;
-        if (this.debug) console.log(`🔄 Переключился на модель ${modelId.slice(0, 12)}...`);
-        return true;
-    }
-
-    getAllModels() {
-        const models = [];
-        for (const [modelId, model] of this.models) {
-            models.push({
-                id: modelId,
-                name: model.metadata.name,
-                nodes: model.graph.nodes.size,
-                edges: model.graph.edges.size,
-                photos: model.metadata.photoCount || 0,
-                createdAt: model.metadata.createdAt,
-                lastUpdated: model.metadata.lastEnhanced || model.metadata.createdAt,
-                isCurrent: modelId === this.currentModelId
-            });
-        }
-        return models;
-    }
-
-    getModel(modelId) {
-        return this.models.get(modelId) || null;
-    }
-
-    getCurrentModel() {
-        return this.currentModelId ? this.models.get(this.currentModelId) : null;
-    }
-
-    getCurrentModelId() {
-        return this.currentModelId;
-    }
-
-    getModelsStats() {
-        const stats = {
-            total: this.models.size,
-            current: this.currentModelId,
-            differentFootprints: this.stats.differentFootprintsDetected,
-            models: []
-        };
-
-        for (const [modelId, model] of this.models) {
-            stats.models.push({
-                id: modelId,
-                name: model.metadata.name,
-                nodes: model.graph.nodes.size,
-                edges: model.graph.edges.size,
-                photos: model.metadata.photoCount || 0,
-                isCurrent: modelId === this.currentModelId,
-                createdAt: model.metadata.createdAt
-            });
-        }
-
-        return stats;
-    }
-
-    getModelRelations() {
-        const relations = [];
-        for (const [modelId, rel] of this.modelRelations) {
-            relations.push({
-                modelId,
-                relatedTo: rel.related,
-                type: rel.type,
-                similarity: rel.similarity
-            });
-        }
-        return relations;
-    }
-
-    getModelForPhoto(photoId) {
-        return this.photoToModel.get(photoId) || null;
-    }
-
-    getPhotosForModel(modelId) {
-        const photos = [];
-        for (const [photoId, mid] of this.photoToModel) {
-            if (mid === modelId) {
-                photos.push(photoId);
-            }
-        }
-        return photos;
-    }
-
-    createNewModel(exactGraph, knnFingerprints, morphologyMap, originalPoints, options = {}) {
-        const modelId = `model_${Date.now()}_${Math.random().toString(36).substr(2, 6)}`;
-
-        const points = Array.from(exactGraph.nodes.values());
-        const features = new Map();
-
-        for (const point of points) {
-            const morph = morphologyMap.get(point.id) || {};
-            features.set(point.id, {
-                id: point.id,
-                role: this.getNodeRoleSimple(point.id, exactGraph),
-                degree: point.degree || 0,
-                triangles: point.triangles || 0,
-                morphology: morph,
-                neighborRoles: this.getNeighborRolesForPoint(point.id, exactGraph),
-                patternType: point.patternType || 'R',
-                patternFrequency: point.patternFrequency || 1,
-                compactness: morph.compactness,
-                eccentricity: morph.eccentricity,
-                normalizedArea: morph.normalizedArea,
-                radialProfile: morph.radialProfile,
-                logArea: morph.logArea,
-                asymmetry: morph.asymmetry || 0
-            });
-        }
-
-        const tempModel = { graph: exactGraph, morphologyMap };
-        const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
-        const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
-
-        for (const [nodeId, node] of exactGraph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-            const cluster = clusterData.enhancedFeatures.get(nodeId);
-
-            node.morphology = morph;
-            node.hasContour = morph.hasContour || false;
-            node.compactness = morph.compactness;
-            node.eccentricity = morph.eccentricity;
-            node.orientation = morph.orientation;
-            node.normalizedArea = morph.normalizedArea;
-            node.radialProfile = morph.radialProfile;
-            node.asymmetry = morph.asymmetry || 0;
-            node.logArea = morph.logArea;
-
-            if (cluster) {
-                node.clusterId = cluster.clusterId || 'R0';
-                node.clusterSize = cluster.clusterSize || 1;
-                node.isUnique = cluster.isUnique || false;
-                node.clusterSignature = cluster.clusterSignature || 'unknown';
-
-                if (clusterData.relations) {
-                    const rel = clusterData.relations.get(node.clusterId);
-                    node.neighborClusters = rel ? rel.neighborCount : 0;
-                }
-            } else {
-                node.clusterId = 'R0';
-                node.clusterSize = 1;
-                node.isUnique = false;
-                node.clusterSignature = 'unknown';
-                node.neighborClusters = 0;
-            }
-
-            node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
-            node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
-            node.gapPattern = patternData.gaps?.[nodeId] || '0';
-
-            node.confirmationCount = 1;
-            node.addedFrom = 'original';
-            node.addedAt = new Date();
-        }
-
-        const model = {
-    id: modelId,
-    graph: exactGraph,
-    knnGraph: null,
-    knnFingerprints: knnFingerprints,
-    morphologyMap: morphologyMap,
-    originalPoints: originalPoints,
-    patternData: patternData,
-    clusterData: clusterData,
-    metadata: {
-        name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-        createdAt: new Date(),
-        pointsCount: originalPoints.length,
-        nodesCount: exactGraph.nodes.size,
-        edgesCount: exactGraph.edges.size,
-        photoCount: 1,
-        source: options.source || 'unknown'
-    },
-    history: [{
-        action: 'created',
-        timestamp: new Date(),
-        points: originalPoints.length,
-        nodes: exactGraph.nodes.size
-    }]
-};
- // 🔥 СОХРАНЯЕМ КОНТУР В МОДЕЛЬ (если передан)
-    if (options.outlineContour) {
-        model.metadata.outlineContour = options.outlineContour;
-        console.log(`💾 Контур следа сохранён в новую модель ${modelId.substring(0,12)}`);
-        console.log(`   точек в контуре: ${options.outlineContour.points.length}`);
-    }
-        this.models.set(modelId, model);
-        this.currentModelId = modelId;
-        this.stats.totalModels++;
-        this.stats.lastUpdated = new Date();
-
-        console.log(`🏗 СОЗДАНА НОВАЯ МОДЕЛЬ ${modelId.slice(0, 12)}...:`);
-        console.log(`   Узлов: ${exactGraph.nodes.size}`);
-        console.log(`   Точек с морфологией: ${morphologyMap.size}`);
-        console.log(`   Паттернов найдено: ${Object.keys(patternData.patterns || {}).length}`);
-        console.log(`   Кластеров: ${Object.keys(clusterData.clusters || {}).length}`);
-
-        const clusterSizes = Object.values(clusterData.clusters || {}).map(c => c.size);
-        const avgClusterSize = clusterSizes.length > 0
-            ? (clusterSizes.reduce((a, b) => a + b, 0) / clusterSizes.length).toFixed(1)
-            : 0;
-        console.log(`   • Средний размер кластера: ${avgClusterSize}`);
-        console.log(`   • Уникальных кластеров: ${clusterData.stats?.uniqueClusters || 0}`);
-
-        return {
-            status: 'created',
-            modelId: modelId,
-            nodes: exactGraph.nodes.size,
-            edges: exactGraph.edges.size,
-            morphologyCount: morphologyMap.size,
-            patternCount: Object.keys(patternData.patterns || {}).length,
-            clusterCount: Object.keys(clusterData.clusters || {}).length,
-            message: `Создана новая топологическая модель`
-        };
-    }
-
-    isDuplicate(newNode, modelGraph, morphologyMap) {
-        if (modelGraph.nodes.size === 0) return false;
-
-        const newMorph = morphologyMap.get(newNode.id);
-        if (!newMorph || !newMorph.hasContour) return false;
-
-        for (const [existingId, existingNode] of modelGraph.nodes) {
-            const existingMorph = morphologyMap.get(existingId);
-            if (!existingMorph || !existingMorph.hasContour) continue;
-
-            const compactnessDiff = Math.abs(newMorph.compactness - existingMorph.compactness);
-            const areaDiff = Math.abs(newMorph.normalizedArea - existingMorph.normalizedArea);
-
-            if (compactnessDiff < this.duplicateCompactnessThreshold &&
-                areaDiff < this.duplicateAreaThreshold) {
-
-                const graphDist = this.graphDistance(newNode.id, existingId, modelGraph);
-
-                if (graphDist <= this.duplicateGraphDistance) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-
-    graphDistance(nodeA, nodeB, graph) {
-        if (nodeA === nodeB) return 0;
-
-        const queue = [{id: nodeA, dist: 0}];
-        const visited = new Set([nodeA]);
-
-        while (queue.length > 0) {
-            const {id, dist} = queue.shift();
-
-            const neighbors = this.findNodeNeighbors(id, graph);
-            for (const neighbor of neighbors) {
-                if (neighbor.id === nodeB) return dist + 1;
-                if (!visited.has(neighbor.id)) {
-                    visited.add(neighbor.id);
-                    queue.push({id: neighbor.id, dist: dist + 1});
-                }
-            }
-        }
-        return Infinity;
-    }
-
-    cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
-        const model = this.models.get(modelId);
-        if (!model) return { removed: 0, remaining: 0 };
-
-        const graph = model.graph;
-        const toRemove = [];
-        const now = Date.now();
-
-        const corePoints = new Set();
-        if (model.lastTriangleResult && model.lastTriangleResult.zones) {
-            model.lastTriangleResult.zones.core.forEach(p => corePoints.add(p.pointA));
-        }
-
-        for (const [nodeId, node] of graph.nodes) {
-            if (corePoints.has(nodeId)) continue;
-            if (node.addedFrom === 'original') continue;
-
-            const confirmations = node.confirmationCount || 1;
-            const addedAt = node.addedAt ? node.addedAt.getTime() : now;
-            const age = (now - addedAt) / (1000 * 60 * 60 * 24);
-
-            if (confirmations < minConfirmations && age > 0.1) {
-                toRemove.push(nodeId);
-            }
-        }
-
-        toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
-
-        const newEdges = new Set();
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a) && graph.nodes.has(b)) {
-                newEdges.add(edge);
-            }
-        }
-        graph.edges = newEdges;
-
-        for (const node of graph.nodes.values()) node.degree = 0;
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
-
-        if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
-        return { removed: toRemove.length, remaining: graph.nodes.size };
-    }
-
-    setTriangleResult(modelId, result) {
-        const model = this.models.get(modelId);
-        if (model) {
-            model.lastTriangleResult = result;
-        }
-    }
-
-    updateEdges(modelGraph, newGraph, matches) {
-        // 🔥 Преобразуем Set в массив для итерации
-        const newEdges = Array.isArray(newGraph.edges) ? newGraph.edges : Array.from(newGraph.edges);
-
-        for (const edge of newEdges) {
-            const [photoA, photoB] = edge.split('--');
-            const modelA = matches.get(photoA)?.modelId;
-            const modelB = matches.get(photoB)?.modelId;
-
-            if (modelA && modelB && modelGraph.nodes.has(modelA) && modelGraph.nodes.has(modelB)) {
-                modelGraph.edges.add([modelA, modelB].sort().join('--'));
-            }
-        }
-
-        for (const node of modelGraph.nodes.values()) node.degree = 0;
-
-        // 🔥 Преобразуем Set в массив для итерации
-        const modelEdges = Array.isArray(modelGraph.edges) ? modelGraph.edges : Array.from(modelGraph.edges);
-
-        for (const edge of modelEdges) {
-            const [a, b] = edge.split('--');
-            if (modelGraph.nodes.has(a)) modelGraph.nodes.get(a).degree++;
-            if (modelGraph.nodes.has(b)) modelGraph.nodes.get(b).degree++;
-        }
-    }
-
-    computeTriangles(graph) {
-    if (!graph || !graph.nodes || !graph.edges) return [];
-
-    const triangles = [];
-    const nodeIds = Array.from(graph.nodes.keys());
-    const edges = graph.edges;
-
-    for (let i = 0; i < nodeIds.length; i++) {
-        for (let j = i + 1; j < nodeIds.length; j++) {
-            for (let k = j + 1; k < nodeIds.length; k++) {
-                const a = nodeIds[i];
-                const b = nodeIds[j];
-                const c = nodeIds[k];
-
-                if (edges.has([a, b].sort().join('--')) &&
-                    edges.has([b, c].sort().join('--')) &&
-                    edges.has([c, a].sort().join('--'))) {
-
-                    const p1 = graph.nodes.get(a);
-                    const p2 = graph.nodes.get(b);
-                    const p3 = graph.nodes.get(c);
-
-                    if (p1 && p2 && p3) {
-                        triangles.push({ p1, p2, p3 });
-                    }
-                }
-            }
-        }
-    }
-
-    return triangles;
-}
-
-getVisualizationData(modelId = null, reliablePhotoIds = []) {
-    const targetId = modelId || this.currentModelId;
-    if (!targetId || !this.models.has(targetId)) return null;
-
-    const model = this.models.get(targetId);
-    const graph = model.graph;
-
-    // 🔥 ПОЛУЧАЕМ КОНТУР (ОДИН РАЗ)
-    const outlineContour = model.metadata?.outlineContour || null;
-
-    if (this.debug) {
-        console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
-        console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
-        if (outlineContour) {
-            console.log(`   points: ${outlineContour.points?.length || 0}`);
-        }
-    }
-
-    const rawStructures = model.structures || [];
-    const pointToStructure = model.pointToStructure || new Map();
-    const structureColors = this.generateStructureColors(rawStructures);
-
-    const structures = rawStructures.filter(s => s && s.id).map(s => ({
-        id: s.id,
-        pointCount: s.pointIds ? s.pointIds.length : 0,
-        pointIds: s.pointIds || [],
-        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-        transform: s.transform || null,
-        confidence: s.confidence || 0,
-        color: structureColors.get(s.id) || '#CCCCCC',
-        rays: s.rays || [],
-        triangles: s.triangles || []
-    }));
-
-    const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
-        ...node,
-        structureId: pointToStructure.get(node.id) || null,
-        structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null
-    }));
-
-    const pointsByConfirmation = {
-        confirmed3: pointsWithStructure.filter(p => p.confirmationCount >= 3),
-        confirmed2: pointsWithStructure.filter(p => p.confirmationCount === 2),
-        confirmed1: pointsWithStructure.filter(p => p.confirmationCount === 1),
-        confirmed0: pointsWithStructure.filter(p => !p.confirmationCount)
-    };
-
-    const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
-
-    let reliableNodeIds = new Set(reliablePhotoIds);
-    if (reliableNodeIds.size === 0) {
-        for (const [nodeId, node] of graph.nodes) {
-            if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
-        }
-    }
-
-    const modelTriangles = this.extractTrianglesFromGraph(graph);
-
-    return {
-        modelId: targetId,
-        modelName: model.metadata.name,
-        points: pointsWithStructure,
-        edges: Array.from(graph.edges),
-        structures: structures,
-        triangles: modelTriangles,
-        pointToStructure: pointToStructure,
-        outlineContour: outlineContour,
-        stats: {
-            totalNodes: graph.nodes.size,
-            totalEdges: graph.edges.size,
-            confirmed3: pointsByConfirmation.confirmed3.length,
-            confirmed2: pointsByConfirmation.confirmed2.length,
-            confirmed1: pointsByConfirmation.confirmed1.length,
-            confirmed0: pointsByConfirmation.confirmed0.length,
-            structureCount: structures.length,
-            reliableNodes: reliableNodeIds.size
-        },
-        pointsByConfirmation: pointsByConfirmation,
-        metadata: model.metadata,
-        allModels: this.getAllModels(),
-        currentModelId: this.currentModelId,
-        modelMatchMap: modelMatchMapFromModel,
-        transform: model.transform,
-        uniquePoints: model.uniquePoints
-    };
-}
-
-generateStructureColors(structures) {
-    const colors = new Map();
-    const palette = [
-        '#FF6B6B', '#4ECDC4', '#45B7D1', '#96CEB4', '#FFEAA7',
-        '#DDA0DD', '#98D8C8', '#F7B787', '#B5EAD7', '#C7CEE6',
-        '#FFB7B2', '#B5F2E8', '#FFDAC1', '#E2F0CB', '#B5E3FF',
-        '#FF9AA2', '#FFDAC1', '#B5EAD7', '#C7CEE6', '#F5C6A0'
-    ];
-
-    structures.forEach((structure, idx) => {
-        colors.set(structure.id, palette[idx % palette.length]);
-    });
-
-    return colors;
-}
-
-    getModelInfo(modelId = null) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
-
-        const model = this.models.get(targetId);
-        const graph = model.graph;
-
-        const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 4) confirmations['4+']++;
-            else confirmations[count] = (confirmations[count] || 0) + 1;
-        }
-
-        return {
-            id: model.id,
-            name: model.metadata.name,
-            stats: {
-                nodes: graph.nodes.size,
-                edges: graph.edges.size,
-                confirmed1: confirmations[1] || 0,
-                confirmed2: confirmations[2] || 0,
-                confirmed3: confirmations[3] || 0,
-                confirmed4plus: confirmations['4+'] || 0,
-                photosCount: model.metadata.photoCount || 0
-            },
-            metadata: model.metadata,
-            createdAt: model.metadata.createdAt,
-            lastUpdated: this.stats.lastUpdated
-        };
-    }
-
-    getStats() {
-        return {
-            system: this.stats,
-            models: this.getModelsStats(),
-            relations: this.getModelRelations()
-        };
-    }
-
-    exportModel(modelId) {
-        const model = this.models.get(modelId);
-        if (!model) return null;
-
-        return {
-            id: model.id,
-            metadata: model.metadata,
-            graph: {
-                nodes: Array.from(model.graph.nodes.entries()),
-                edges: Array.from(model.graph.edges),
-                avgDegree: model.graph.avgDegree
-            },
-            knnFingerprints: Array.from(model.knnFingerprints.entries()),
-            morphologyMap: Array.from(model.morphologyMap.entries()),
-            history: model.history
-        };
-    }
-
-    importModel(modelData) {
-        try {
-            const modelId = modelData.id;
-            const nodes = new Map(modelData.graph.nodes);
-            const edges = new Set(modelData.graph.edges);
-            const knnFingerprints = new Map(modelData.knnFingerprints);
-            const morphologyMap = new Map(modelData.morphologyMap);
-
-            const model = {
-                id: modelId,
-                graph: { nodes, edges, avgDegree: modelData.graph.avgDegree },
-                knnGraph: null,
-                knnFingerprints,
-                morphologyMap,
-                originalPoints: [],
-                metadata: modelData.metadata,
-                history: modelData.history || []
-            };
-
-            this.models.set(modelId, model);
-            this.stats.totalModels++;
-            console.log(`📥 Импортирована модель ${modelId.slice(0, 12)}...`);
-            return true;
-        } catch (error) {
-            console.log(`❌ Ошибка импорта: ${error.message}`);
-            return false;
-        }
-    }
-
-    /**
-    * Проверяет глобальную согласованность всех найденных якорей
-    * @param {Array} anchors - массив якорей (треугольников)
-    * @param {Array} trianglesA - все треугольники из первого следа
-    * @param {Array} trianglesB - все треугольники из второго следа
-    * @param {Object} graphA - граф первого следа
-    * @param {Object} graphB - граф второго следа
-    * @returns {Object} - согласованные якоря и статистика
-    */
-    checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
-        if (this.debug) {
-            console.log(`\n🔍 ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ`);
-            console.log(`   • Всего кандидатов: ${anchors.length} треугольников (${anchors.length * 3} точек)`);
-        }
-
-        // ===== ШАГ 1: Собираем все уникальные соответствия точек =====
-        const pointPairs = new Map(); // pointA -> { pointB, confidence }
-        const reversePairs = new Map(); // pointB -> pointA
-        let skippedAnchors = 0;
-
-        for (const anchor of anchors) {
-            // Для временных якорей (aIndex = -1) используем points
-            if (anchor.aIndex === -1 || anchor.bIndex === -1) {
-                // Восстанавливаем из points
-                for (const point of anchor.points) {
-                    const pA = point.pointA;
-                    const pB = point.pointB;
-
-                    // Проверяем конфликты
-                    if (pointPairs.has(pA)) {
-                        if (pointPairs.get(pA).pointB !== pB) {
-                            if (this.debug) console.log(`   ⚠️ Конфликт точки ${pA.substring(0,12)}: соответствует и ${pointPairs.get(pA).pointB.substring(0,12)} и ${pB.substring(0,12)}`);
-                        }
-                        continue;
-                    }
-
-                    if (reversePairs.has(pB)) {
-                        if (this.debug) console.log(`   ⚠️ Конфликт точки ${pB.substring(0,12)}: уже соответствует ${reversePairs.get(pB).substring(0,12)}`);
-                        continue;
-                    }
-
-                    pointPairs.set(pA, {
-                        pointB: pB,
-                        confidence: point.confidence || anchor.geometryScore
-                    });
-                    reversePairs.set(pB, pA);
-                }
-            } else {
-                // Для обычных якорей с индексами
-                if (anchor.aIndex >= trianglesA.length || anchor.bIndex >= trianglesB.length) {
-                    if (this.debug) console.log(`   ⚠️ Пропущен якорь с неверными индексами: aIndex=${anchor.aIndex}, bIndex=${anchor.bIndex}`);
-                    skippedAnchors++;
-                    continue;
-                }
-
-                const tA = trianglesA[anchor.aIndex];
-                const tB = trianglesB[anchor.bIndex];
-
-                if (!tA || !tB) {
-                    if (this.debug) console.log(`   ⚠️ Пропущен якорь: треугольник не найден`);
-                    skippedAnchors++;
-                    continue;
-                }
-
-                const pointsA = [tA.p1.id, tA.p2.id, tA.p3.id];
-                const pointsB = [tB.p1.id, tB.p2.id, tB.p3.id];
-
-                for (let i = 0; i < 3; i++) {
-                    const pA = pointsA[i];
-                    const pB = pointsB[i];
-
-                    // Проверяем конфликты
-                    if (pointPairs.has(pA)) {
-                        if (pointPairs.get(pA).pointB !== pB) {
-                            if (this.debug) console.log(`   ⚠️ Конфликт точки ${pA.substring(0,12)}: соответствует и ${pointPairs.get(pA).pointB.substring(0,12)} и ${pB.substring(0,12)}`);
-                        }
-                        continue;
-                    }
-
-                    if (reversePairs.has(pB)) {
-                        if (this.debug) console.log(`   ⚠️ Конфликт точки ${pB.substring(0,12)}: уже соответствует ${reversePairs.get(pB).substring(0,12)}`);
-                        continue;
-                    }
-
-                    pointPairs.set(pA, {
-                        pointB: pB,
-                        confidence: anchor.geometryScore
-                    });
-                    reversePairs.set(pB, pA);
-                }
-            }
-        }
-
-        if (this.debug) {
-            console.log(`\n📊 УНИКАЛЬНЫХ СООТВЕТСТВИЙ ТОЧЕК: ${pointPairs.size}`);
-            if (skippedAnchors > 0) {
-                console.log(`   • Пропущено якорей: ${skippedAnchors}`);
-            }
-        }
-
-        // ===== ШАГ 2: Анализируем распределение уверенностей =====
-        const confidences = Array.from(pointPairs.values()).map(p => p.confidence);
-        if (confidences.length === 0) {
-            if (this.debug) console.log(`\n⚠️ Нет соответствий для анализа`);
-            return {
-                anchors: [],
-                points: [],
-                stats: {
-                    original: anchors.length,
-                    final: 0,
-                    originalPoints: 0,
-                    finalPoints: 0,
-                    inconsistent: 0,
-                    lowConfidence: 0
-                }
-            };
-        }
-
-        confidences.sort((a, b) => b - a);
-
-        if (this.debug) {
-            console.log(`\n📈 РАСПРЕДЕЛЕНИЕ УВЕРЕННОСТЕЙ:`);
-            console.log(`   • Максимальная: ${(confidences[0]*100).toFixed(1)}%`);
-            console.log(`   • Минимальная: ${(confidences[confidences.length-1]*100).toFixed(1)}%`);
-            console.log(`   • Медианная: ${(confidences[Math.floor(confidences.length/2)]*100).toFixed(1)}%`);
-        }
-
-        // Находим естественный разрыв в уверенностях
-        let threshold = 0.90; // по умолчанию
-        for (let i = 1; i < confidences.length; i++) {
-            if (confidences[i-1] - confidences[i] > 0.05) {
-                threshold = confidences[i-1] - 0.01;
-                if (this.debug) console.log(`   • Естественный разрыв на ${(threshold*100).toFixed(1)}% (${i} точек выше, ${confidences.length-i} ниже)`);
-                break;
-            }
-        }
-
-        // ===== ШАГ 3: ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА =====
-        if (this.debug) console.log(`\n🔍 ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА:`);
-
-        const consistentPoints = new Set();
-        const inconsistentPoints = new Set();
-
-        // Строим карту соответствий для быстрого доступа
-        const pointMap = new Map();
-        for (const [pA, data] of pointPairs) {
-            pointMap.set(pA, data.pointB);
-        }
-
-        // Для каждой точки проверяем её соседей
-        for (const [pA, data] of pointPairs) {
-            const pB = data.pointB;
-
-            // Находим соседей точки A в графе
-            const neighborsA = this.findNodeNeighbors(pA, graphA);
-            const neighborAnchorsA = neighborsA.filter(n => pointMap.has(n.id)).map(n => n.id);
-
-            // Находим соседей точки B в графе
-            const neighborsB = this.findNodeNeighbors(pB, graphB);
-            const neighborAnchorsB = neighborsB.filter(n => reversePairs.has(n.id)).map(n => n.id);
-
-            // Проверяем, что количество якорей-соседей совпадает
-            if (neighborAnchorsA.length !== neighborAnchorsB.length) {
-                if (this.debug) console.log(`   ⚠️ Точка ${pA.substring(0,12)}: соседей-якорей ${neighborAnchorsA.length} vs ${neighborAnchorsB.length}`);
-                inconsistentPoints.add(pA);
-                continue;
-            }
-
-            // Проверяем, что соседи соответствуют друг другу
-            let allMatch = true;
-            for (const nA of neighborAnchorsA) {
-                const nB = pointMap.get(nA);
-                if (!neighborsB.some(n => n.id === nB)) {
-                    allMatch = false;
-                    break;
-                }
-            }
-
-            if (allMatch) {
-                consistentPoints.add(pA);
-                if (this.debug && consistentPoints.size <= 5) { // покажем первые 5
-                    console.log(`   ✅ Точка ${pA.substring(0,12)}: топология согласована`);
-                }
-            } else {
-                if (this.debug) console.log(`   ⚠️ Точка ${pA.substring(0,12)}: несоответствие соседей`);
-                inconsistentPoints.add(pA);
-            }
-        }
-
-        // ===== ШАГ 4: ФИЛЬТРАЦИЯ ПО УВЕРЕННОСТИ =====
-        if (this.debug) console.log(`\n🔍 ФИЛЬТРАЦИЯ ПО УВЕРЕННОСТИ (порог ${(threshold*100).toFixed(1)}%):`);
-
-        const highConfidencePoints = [];
-        const lowConfidencePoints = [];
-
-        for (const [pA, data] of pointPairs) {
-            if (data.confidence >= threshold) {
-                highConfidencePoints.push(pA);
-            } else {
-                lowConfidencePoints.push(pA);
-            }
-        }
-
-        if (this.debug) {
-            console.log(`   • Высокая уверенность: ${highConfidencePoints.length} точек`);
-            console.log(`   • Низкая уверенность: ${lowConfidencePoints.length} точек`);
-        }
-
-        // ===== ШАГ 5: ФИНАЛЬНЫЙ ОТБОР =====
-        if (this.debug) console.log(`\n🎯 ФИНАЛЬНЫЙ ОТБОР СОГЛАСОВАННЫХ ТОЧЕК:`);
-
-        const finalPoints = [];
-        for (const pA of consistentPoints) {
-            if (pointPairs.get(pA).confidence >= threshold) {
-                finalPoints.push({
-                    pointA: pA,
-                    pointB: pointPairs.get(pA).pointB,
-                    confidence: pointPairs.get(pA).confidence
-                });
-            }
-        }
-
-        if (this.debug) {
-            console.log(`   • Прошли все проверки: ${finalPoints.length} точек`);
-            console.log(`   • Отсеяно топологией: ${inconsistentPoints.size} точек`);
-            console.log(`   • Отсеяно по уверенности: ${lowConfidencePoints.length} точек`);
-        }
-
-        // ===== ШАГ 6: ВОССТАНОВЛЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ТОЧЕК (ОПЦИОНАЛЬНО) =====
-        // Для временных якорей мы не можем восстановить треугольники,
-        // поэтому возвращаем только точки
-        if (this.debug) {
-            console.log(`\n📊 ИТОГ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
-            console.log(`   • Исходных якорей (треугольников): ${anchors.length}`);
-            console.log(`   • Согласованных точек: ${finalPoints.length}`);
-        }
-
-        return {
-            anchors: [], // временно не восстанавливаем треугольники
-            points: finalPoints,
-            stats: {
-                original: anchors.length,
-                final: 0,
-                originalPoints: pointPairs.size,
-                finalPoints: finalPoints.length,
-                inconsistent: inconsistentPoints.size,
-                lowConfidence: lowConfidencePoints.length
-            }
-        };
-    }
-
-    /**
-    * Двухэтапная достройка точек на основе согласованных якорей
-    * @param {Array} anchors - согласованные якоря (точки)
-    * @param {Array} allMatches - все найденные matches (45 точек)
-    * @param {Object} graphA - граф первого следа
-    * @param {Object} graphB - граф второго следа
-    * @param {Map} morphologyMap - морфология точек первого следа
-    * @param {Map} modelMorphology - морфология точек модели
-    * @returns {Object} - достроенные соответствия
-    */
-    twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology) {
-        if (this.debug) console.log(`\n🔧 ДВУХЭТАПНАЯ ДОСТРОЙКА ТОЧЕК`);
-
-        // ===== ШАГ 1: Разделяем точки на категории =====
-        if (this.debug) console.log(`\n📊 РАЗДЕЛЕНИЕ ТОЧЕК ПО КАТЕГОРИЯМ:`);
-
-        const anchorSet = new Set(anchors.map(a => a.pointA));
-        const allPointsA = new Set(allMatches.map(m => m.pointA));
-
-        const confusedPoints = []; // точки, которые есть в matches, но не в anchors
-        for (const match of allMatches) {
-            if (!anchorSet.has(match.pointA)) {
-                confusedPoints.push(match);
-            }
-        }
-
-        if (this.debug) {
-            console.log(`   • Якорей: ${anchors.length} точек`);
-            console.log(`   • Путающихся кандидатов: ${confusedPoints.length} точек`);
-        }
-
-        // ===== ШАГ 2: Строим карту якорей для быстрого доступа =====
-        const anchorMap = new Map(); // pointA -> { pointB, confidence }
-        for (const anchor of anchors) {
-            anchorMap.set(anchor.pointA, {
-                pointB: anchor.pointB,
-                confidence: anchor.confidence
-            });
-        }
-
-        // ===== ШАГ 3: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК =====
-        if (this.debug) console.log(`\n🔍 ЭТАП 1: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК`);
-
-        const confirmedFromConfused = [];
-        const stillConfused = [];
-
-        for (const match of confusedPoints) {
-            const pointA = match.pointA;
-            const pointB = match.pointB;
-
-            // Находим всех соседей-якорей для точки A
-            const neighborsA = this.findNodeNeighbors(pointA, graphA);
-            const anchorNeighborsA = neighborsA.filter(n => anchorMap.has(n.id));
-
-            // Находим всех соседей-якорей для точки B
-            const neighborsB = this.findNodeNeighbors(pointB, graphB);
-            const anchorNeighborsB = neighborsB.filter(n =>
-                Array.from(anchorMap.values()).some(a => a.pointB === n.id)
-            );
-
-            if (anchorNeighborsA.length === 0 || anchorNeighborsB.length === 0) {
-                stillConfused.push(match);
-                continue;
-            }
-
-            // Проверяем расстояния до якорей в графе
-            let consistent = true;
-            const minNeighbors = Math.min(anchorNeighborsA.length, anchorNeighborsB.length);
-
-            for (let i = 0; i < minNeighbors; i++) {
-                const nA = anchorNeighborsA[i];
-                const nB = anchorNeighborsB[i];
-
-                const distA = this.graphDistance(pointA, nA.id, graphA);
-                const distB = this.graphDistance(pointB, nB.id, graphB);
-
-                if (Math.abs(distA - distB) > 1) {
-                    consistent = false;
-                    break;
-                }
-            }
-
-            if (consistent) {
-                confirmedFromConfused.push({
-                    pointA: pointA,
-                    pointB: pointB,
-                    confidence: match.confidence * 0.9 // чуть снижаем уверенность
-                });
-                if (this.debug) console.log(`   ✅ Уточнена: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
-            } else {
-                stillConfused.push(match);
-            }
-        }
-
-        if (this.debug) {
-            console.log(`\n📊 ИТОГ ЭТАПА 1:`);
-            console.log(`   • Уточнено: ${confirmedFromConfused.length} точек`);
-            console.log(`   • Осталось путающихся: ${stillConfused.length} точек`);
-        }
-
-        // ===== ШАГ 4: ПОДГОТОВКА ЯКОРЕЙ ДЛЯ ДОСТРОЙКИ =====
-        const allConfirmed = [...anchors, ...confirmedFromConfused];
-        if (this.debug) console.log(`\n🔧 Всего подтвержденных точек для достройки: ${allConfirmed.length}`);
-
-        // Создаем карту подтвержденных соответствий
-        const confirmedMap = new Map();
-        for (const point of allConfirmed) {
-            confirmedMap.set(point.pointA, point.pointB);
-        }
-
-        // ===== ШАГ 5: ДОСТРОЙКА НОВЫХ ТОЧЕК =====
-        if (this.debug) console.log(`\n🔍 ЭТАП 2: ДОСТРОЙКА НОВЫХ ТОЧЕК`);
-
-        // Находим все точки, которые есть только в первом следе
-        const allPointsInA = Array.from(graphA.nodes.keys());
-        const pointsToPosition = allPointsInA.filter(p => !confirmedMap.has(p));
-
-        if (this.debug) console.log(`   • Точек для достройки: ${pointsToPosition.length}`);
-
-        // Создаем карту якорей для RelativePositioning
-        const anchorMatches = new Map();
-        for (const point of allConfirmed) {
-            anchorMatches.set(point.pointA, {
-                modelId: point.pointB,
-                confidence: point.confidence
-            });
-        }
-
-        // Запускаем RelativePositioning
-        const positionedMatches = this.relativePositioning.positionPoints(
-            graphA,
-            graphB,
-            anchorMatches,
-            morphologyMap,
-            modelMorphology,
-            { confidenceThreshold: 0.5 }
-        );
-
-        if (this.debug) console.log(`\n📊 ИТОГ ЭТАПА 2:`);
-        if (this.debug) console.log(`   • Достроено: ${positionedMatches.size} точек`);
-
-        // ===== ШАГ 6: ФОРМИРУЕМ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ =====
-        const finalMatches = [];
-
-        // Добавляем все подтвержденные точки
-        for (const point of allConfirmed) {
-            finalMatches.push({
-                pointA: point.pointA,
-                pointB: point.pointB,
-                confidence: point.confidence
-            });
-        }
-
-        // Добавляем достроенные точки
-        for (const [pointA, match] of positionedMatches) {
-            // Проверяем, что точка ещё не добавлена
-            if (!confirmedMap.has(pointA)) {
-                finalMatches.push({
-                    pointA: pointA,
-                    pointB: match.modelId,
-                    confidence: match.confidence
-                });
-            }
-        }
-
-        if (this.debug) {
-            console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
-            console.log(`   • Всего соответствий: ${finalMatches.length} точек`);
-            console.log(`   • Из них якорей: ${anchors.length}`);
-            console.log(`   • Уточнено путающихся: ${confirmedFromConfused.length}`);
-            console.log(`   • Достроено новых: ${finalMatches.length - allConfirmed.length}`);
-        }
-
-        return finalMatches;
-    }
-
-    /**
-    * Конвертирует согласованные якоря обратно в matches для визуализации
-    * @param {Array} consistentAnchors - массив согласованных якорей из checkGlobalConsistency
-    * @returns {Array} - массив matches для визуализации
-    */
-    convertConsistentToMatches(consistentAnchors) {
-        const matches = [];
-        for (const anchor of consistentAnchors) {
-            // Для каждой точки в треугольнике
-            for (const point of anchor.points) {
-                matches.push({
-                    pointA: point.pointA,
-                    pointB: point.pointB,
-                    confidence: point.confidence
-                });
-            }
-        }
-        return matches;
-    }
-
-    /**
-    * Извлекает все треугольники из графа
-    * @param {Object} graph - граф с nodes и edges
-    * @returns {Array} - массив треугольников {p1, p2, p3}
-    */
-    extractTrianglesFromGraph(graph) {
-    const triangles = [];
-    const nodeIds = Array.from(graph.nodes.keys());
-    const edges = graph.edges;
-
-    for (let i = 0; i < nodeIds.length; i++) {
-        for (let j = i + 1; j < nodeIds.length; j++) {
-            for (let k = j + 1; k < nodeIds.length; k++) {
-                const a = nodeIds[i];
-                const b = nodeIds[j];
-                const c = nodeIds[k];
-
-                if (edges.has([a, b].sort().join('--')) &&
-                    edges.has([b, c].sort().join('--')) &&
-                    edges.has([c, a].sort().join('--'))) {
-
-                    const p1 = graph.nodes.get(a);
-                    const p2 = graph.nodes.get(b);
-                    const p3 = graph.nodes.get(c);
-
-                    // 🔥 ДИАГНОСТИКА
-                    if (!p1 || !p2 || !p3) {
-                        if (this.debug) console.log(`⚠️ Треугольник ${a},${b},${c}: одна из точек не найдена`);
-                        continue;
-                    }
-                   
-                    if (typeof p1.x !== 'number' || typeof p2.x !== 'number' || typeof p3.x !== 'number') {
-                        if (this.debug) {
-                            console.log(`⚠️ Треугольник ${a},${b},${c}: координаты не числа`);
-                            console.log(`   p1: ${p1?.x},${p1?.y}`);
-                            console.log(`   p2: ${p2?.x},${p2?.y}`);
-                            console.log(`   p3: ${p3?.x},${p3?.y}`);
-                        }
-                        continue;
-                    }
-
-                    const triangleEdges = [
-                        { v1: p1, v2: p2, externalPoint: null, neighborTriangles: [] },
-                        { v1: p2, v2: p3, externalPoint: null, neighborTriangles: [] },
-                        { v1: p3, v2: p1, externalPoint: null, neighborTriangles: [] }
-                    ];
-
-                    triangles.push({
-                        p1, p2, p3,
-                        edges: triangleEdges,
-                        id: `tri_${a}_${b}_${c}`,
-                        confidence: 0.5
-                    });
-                }
-            }
-        }
-    }
-   
-    if (this.debug) {
-        console.log(`📊 extractTrianglesFromGraph: найдено ${triangles.length} треугольников`);
-    }
-   
-    return triangles;
-}
-
-/**
-* Получает граничные рёбра структуры
-*/
-getBoundaryEdgesFromStructure(structure) {
-    const edges = [];
-    for (const [edgeKey, edgeData] of structure.boundaryEdges) {
-        edges.push({
-            key: edgeKey,
-            v1: edgeData.v1,
-            v2: edgeData.v2
-        });
-    }
-    return edges;
-}
-
-/**
-* Находит соседний треугольник в графе по ребру
-*/
-findNeighborTriangleInGraph(edge, allTriangles, structure) {
-    const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
-
-    for (const triangle of allTriangles) {
-        if (structure.triangleIds.has(triangle.id)) continue;
-        if (!triangle.edges) continue;
-
-        for (const triEdge of triangle.edges) {
-            if (!triEdge.v1 || !triEdge.v2) continue;
-            const triEdgeKey = [triEdge.v1.id, triEdge.v2.id].sort().join('--');
-            if (triEdgeKey === edgeKey) {
-                // 🔥 ВОЗВРАЩАЕМ ТРЕУГОЛЬНИК С ГАРАНТИРОВАННЫМИ ПОЛЯМИ
-                return {
-                    id: triangle.id,
-                    p1: triangle.p1,
-                    p2: triangle.p2,
-                    p3: triangle.p3,
-                    edges: triangle.edges,
-                    confidence: triangle.confidence || 0.5
-                };
-            }
-        }
-    }
-    return null;
-}
-
-/**
-* Пытается добавить треугольник по геометрии (без якорей)
-*/
-tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
-    if (!triangle || !triangle.edges) return false;
-
-    const commonEdge = this.findCommonEdgeInTriangle(triangle, structure);
-    if (!commonEdge) return false;
-
-    const newPoint = [triangle.p1, triangle.p2, triangle.p3].find(p =>
-        p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
-    );
-    if (!newPoint) return false;
-
-    const photoA = graphA.nodes.get(commonEdge.v1.id);
-    const photoB = graphA.nodes.get(commonEdge.v2.id);
-    const photoC = graphA.nodes.get(newPoint.id);
-    if (!photoA || !photoB || !photoC) return false;
-
-    let modelA = this.getModelPointFromStructure(photoA.id, structure);
-    let modelB = this.getModelPointFromStructure(photoB.id, structure);
-    if (!modelA || !modelB) return false;
-
-    if (typeof modelA === 'string') {
-        const found = graphB.nodes.get(modelA);
-        if (!found) return false;
-        modelA = found;
-    }
-    if (typeof modelB === 'string') {
-        const found = graphB.nodes.get(modelB);
-        if (!found) return false;
-        modelB = found;
-    }
-
-    let modelC;
-    if (structure.transform) {
-        const projected = this.applyTransform(photoC, structure.transform);
-        modelC = { x: projected.x, y: projected.y };
-    } else {
-        return false;
-    }
-
-    // ========== ПРОВЕРКИ ==========
-    const anglePhoto = this.calcAngleInTriangle(photoA, photoC, photoB);
-    const angleModel = this.calcAngleInTriangle(modelA, modelC, modelB);
-    const angleDiff = Math.abs(anglePhoto - angleModel);
-    const angleTolerance = Math.min(25, 12 + Math.floor(structure.triangleIds.size / 3));
-
-    if (angleDiff > angleTolerance) {
-        if (this.debug) console.log(`      ❌ Угол: ${angleDiff.toFixed(0)}° > ${angleTolerance}°`);
-        return false;
-    }
-
-    const sidePhoto1 = this.calcDistance(photoA, photoC);
-    const sidePhoto2 = this.calcDistance(photoB, photoC);
-    const sidePhoto3 = this.calcDistance(photoA, photoB);
-    const sideModel1 = this.calcDistance(modelA, modelC);
-    const sideModel2 = this.calcDistance(modelB, modelC);
-    const sideModel3 = this.calcDistance(modelA, modelB);
-
-    const ratioPhoto = sidePhoto1 / sidePhoto2;
-    const ratioModel = sideModel1 / sideModel2;
-    const ratioDiff = Math.abs(ratioPhoto - ratioModel) / Math.max(ratioModel, 0.001);
-
-    if (ratioDiff > 0.25) {
-        if (this.debug) console.log(`      ❌ Пропорции: ${(ratioDiff*100).toFixed(0)}% > 25%`);
-        return false;
-    }
-
-    const sumPhoto = sidePhoto1 + sidePhoto2 + sidePhoto3;
-    const sumModel = sideModel1 + sideModel2 + sideModel3;
-    const scaleEstimate = sumModel / sumPhoto;
-    const scaleDiff = Math.abs(scaleEstimate - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
-
-    if (scaleDiff > 0.2) {
-        if (this.debug) console.log(`      ❌ Масштаб: ${(scaleDiff*100).toFixed(0)}% > 20%`);
-        return false;
-    }
-
-    // Морфология (опционально)
-    const photoMorph = morphologyMap?.get(photoC.id);
-    const modelIdForMorph = modelC.id || (modelC.pointB || modelC);
-    const modelMorph = modelMorphology?.get(modelIdForMorph);
-
-    let morphScore = 0.5;
-    if (photoMorph && modelMorph) {
-        let score = 0, checks = 0;
-        if (photoMorph.eccentricity && modelMorph.eccentricity) {
-            score += Math.min(photoMorph.eccentricity, modelMorph.eccentricity) / Math.max(photoMorph.eccentricity, modelMorph.eccentricity);
-            checks++;
-        }
-        if (photoMorph.asymmetry && modelMorph.asymmetry) {
-            score += Math.min(photoMorph.asymmetry, modelMorph.asymmetry) / Math.max(photoMorph.asymmetry, modelMorph.asymmetry);
-            checks++;
-        }
-        if (photoMorph.compactness && modelMorph.compactness) {
-            score += Math.min(photoMorph.compactness, modelMorph.compactness) / Math.max(photoMorph.compactness, modelMorph.compactness);
-            checks++;
-        }
-        morphScore = checks > 0 ? score / checks : 0.5;
-        if (morphScore < 0.6) {
-            if (this.debug) console.log(`      ❌ Морфология: ${(morphScore*100).toFixed(0)}% < 60%`);
-            return false;
-        }
-    }
-
-    // ========== УСПЕХ ==========
-    structure.addTriangle(triangle);
-
-    const anchors = structure.getAnchors();
-    if (anchors.length >= 3) {
-        const newTransform = this.validator.calculateTransform(anchors, graphA, graphB);
-        if (newTransform) structure.transform = newTransform;
-    }
-
-    // 🔥 ТОЛЬКО УСПЕХ (компактно)
-    if (this.debug) {
-        console.log(`      ✅ +1 (угол ${angleDiff.toFixed(0)}°, проп ${(ratioDiff*100).toFixed(0)}%, масшт ${(scaleDiff*100).toFixed(0)}%)`);
-    }
-
-    return true;
-}
-
-/**
-* Вычисляет угол между тремя точками (вершина в точке b)
-*/
-calcAngleInTriangle(a, b, c) {
-    if (!a || !b || !c) return 0;
-    if (typeof a.x !== 'number' || typeof b.x !== 'number' || typeof c.x !== 'number') return 0;
-   
-    const v1x = a.x - b.x;
-    const v1y = a.y - b.y;
-    const v2x = c.x - b.x;
-    const v2y = c.y - b.y;
-   
-    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
-    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
-   
-    if (mag1 === 0 || mag2 === 0) return 0;
-   
-    const dot = v1x * v2x + v1y * v2y;
-    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
-    return Math.acos(cos) * 180 / Math.PI;
-}
-
-/**
-* Находит модель точки по ID фото (из структуры)
-*/
-findModelPointForPhoto(photoPointId, structure) {
-    const anchors = structure.getAnchors();
-    const anchor = anchors.find(a => a.pointA === photoPointId);
-    return anchor ? anchor.pointB : null;
-}
-
-/**
-* Вычисляет расстояние между двумя точками
-*/
-calcDistance(p1, p2) {
-    if (!p1 || !p2) {
-        if (this.debug) console.log(`      ⚠️ calcDistance: undefined точки`);
-        return 0;
-    }
-    if (typeof p1.x !== 'number' || typeof p1.y !== 'number' ||
-        typeof p2.x !== 'number' || typeof p2.y !== 'number') {
-        if (this.debug) console.log(`      ⚠️ calcDistance: координаты не числа`);
-        return 0;
-    }
-    const dx = p1.x - p2.x;
-    const dy = p1.y - p2.y;
-    return Math.sqrt(dx * dx + dy * dy);
-}
-  
-/**
-* Находит общее ребро между треугольником и структурой
-*/
-findCommonEdgeInTriangle(triangle, structure) {
-    for (const edge of triangle.edges) {
-        if (structure.pointIds.has(edge.v1.id) && structure.pointIds.has(edge.v2.id)) {
-            // 🔥 ДИАГНОСТИКА
-            if (this.debug) {
-                console.log(`      🔍 Найдено общее ребро:`);
-                console.log(`         v1: ${edge.v1.id.substring(0,12)} (${edge.v1?.x},${edge.v1?.y})`);
-                console.log(`         v2: ${edge.v2.id.substring(0,12)} (${edge.v2?.x},${edge.v2?.y})`);
-            }
-            return edge;
-        }
-    }
-    return null;
-}
-
-/**
-* Получает модель точки из структуры
-*/
-getModelPointFromStructure(pointId, structure) {
-    const anchors = structure.getAnchors();
-    for (const anchor of anchors) {
-        if (anchor.pointA === pointId) {
-            return anchor.pointB;
-        }
-    }
-    return null;
-}
-
-/**
-* Применяет трансформацию к точке
-*/
-applyTransform(point, transform) {
-    const { scale, rotation, translation } = transform;
-    const xRot = point.x * Math.cos(rotation) - point.y * Math.sin(rotation);
-    const yRot = point.x * Math.sin(rotation) + point.y * Math.cos(rotation);
-    return {
-        x: xRot * scale + translation.x,
-        y: yRot * scale + translation.y
-    };
-}
-
-
-    /**
-    * Проверяет равенство массивов (для сравнения треугольников)
-    */
-    arraysEqual(a, b) {
-        if (a.length !== b.length) return false;
-        for (let i = 0; i < a.length; i++) {
-            if (a[i] !== b[i]) return false;
-        }
-        return true;
-    }
-
-/**
-* Геометрическое расширение структуры через поиск новых точек
-* @param {Object} structure - текущая структура
-* @param {Object} graphA - граф фото
-* @param {Object} graphB - граф модели
-* @param {Map} morphologyMap - морфология фото
-* @param {Map} modelMorphology - морфология модели
-* @returns {number} - количество добавленных точек
-*/
-expandStructureGeometrically(structure, graphA, graphB, morphologyMap, modelMorphology) {
-    if (!structure || !structure.transform) {
-        if (this.debug) console.log(`   ⚠️ Нет transform у структуры`);
-        return 0;
-    }
-
-    let totalAdded = 0;
-    let iteration = 0;
-    const maxIterations = 10;
-    let expanded = true;
-
-    while (expanded && iteration < maxIterations) {
-        expanded = false;
-        iteration++;
-
-        const boundaryEdges = this.getBoundaryEdgesFromStructure(structure);
-        const pointsInStructure = new Set(structure.pointIds);
-        let addedThisIter = 0;
-
-        for (const edge of boundaryEdges) {
-            const photoA = edge.v1;
-            const photoB = edge.v2;
-
-            const neighborsA = this.findNodeNeighbors(photoA.id, graphA);
-            const neighborsB = this.findNodeNeighbors(photoB.id, graphA);
-
-            const candidates = [];
-            for (const nA of neighborsA) {
-                if (pointsInStructure.has(nA.id)) continue;
-                if (neighborsB.some(nB => nB.id === nA.id)) {
-                    candidates.push(nA);
-                }
-            }
-            if (candidates.length === 0) continue;
-
-            const modelA = this.getModelPointFromStructure(photoA.id, structure);
-            const modelB = this.getModelPointFromStructure(photoB.id, structure);
-            if (!modelA || !modelB) continue;
-
-            for (const candidate of candidates) {
-                if (pointsInStructure.has(candidate.id)) continue;
-
-                const photoTriangle = { p1: photoA, p2: photoB, p3: candidate };
-                const projectedC = this.applyTransform(candidate, structure.transform);
-                const modelC = { x: projectedC.x, y: projectedC.y };
-
-                const isValid = this.compareTrianglesGeometrically(
-                    photoTriangle, { p1: modelA, p2: modelB, p3: modelC }, structure
-                );
-
-                if (isValid) {
-                    const modelPoint = this.findNearestModelPoint(modelC, graphB);
-                    if (modelPoint) {
-                        if (structure.addPoint) structure.addPoint(candidate, modelPoint);
-                        if (structure.addAnchor) {
-                            structure.addAnchor({ pointA: candidate.id, pointB: modelPoint.id, confidence: 0.85 });
-                        }
-                        pointsInStructure.add(candidate.id);
-                        totalAdded++;
-                        addedThisIter++;
-                        expanded = true;
-                        break;
-                    }
-                }
-            }
-        }
-
-        // 🔥 ВЫВОД ПО ИТЕРАЦИИ (только если что-то добавили)
-        if (this.debug && addedThisIter > 0) {
-            console.log(`   • Итерация ${iteration}: +${addedThisIter} тр. (всего ${structure.triangleIds.size})`);
-        } else if (this.debug && iteration === 1 && addedThisIter === 0) {
-            console.log(`   • Итерация ${iteration}: +0 тр. (нет кандидатов)`);
-        }
-
-        if (expanded) {
-            const anchors = structure.getAnchors();
-            if (anchors.length >= 3) {
-                const newTransform = this.validator.calculateTransform(anchors, graphA, graphB);
-                if (newTransform) structure.transform = newTransform;
-            }
-        }
-    }
-
-    // 🔥 ИТОГОВЫЙ ВЫВОД
-    if (this.debug) {
-        console.log(`   ✅ Расширение завершено: +${totalAdded} тр. (всего ${structure.triangleIds.size})`);
-    }
-
-    return totalAdded;
-}
-
-/**
-* Сравнивает два треугольника геометрически
-*/
-compareTrianglesGeometrically(tPhoto, tModel, structure) {
-    // ========== 1. УГЛЫ ==========
-    const anglePhoto1 = this.calcAngleInTriangle(tPhoto.p1, tPhoto.p2, tPhoto.p3);
-    const anglePhoto2 = this.calcAngleInTriangle(tPhoto.p2, tPhoto.p3, tPhoto.p1);
-    const anglePhoto3 = this.calcAngleInTriangle(tPhoto.p3, tPhoto.p1, tPhoto.p2);
-   
-    const angleModel1 = this.calcAngleInTriangle(tModel.p1, tModel.p2, tModel.p3);
-    const angleModel2 = this.calcAngleInTriangle(tModel.p2, tModel.p3, tModel.p1);
-    const angleModel3 = this.calcAngleInTriangle(tModel.p3, tModel.p1, tModel.p2);
-   
-    // Среднее отклонение углов
-    const angleDiff = (Math.abs(anglePhoto1 - angleModel1) +
-                       Math.abs(anglePhoto2 - angleModel2) +
-                       Math.abs(anglePhoto3 - angleModel3)) / 3;
-   
-    const angleTolerance = Math.min(20, 10 + Math.floor(structure.triangleIds.size / 5));
-    if (angleDiff > angleTolerance) {
-        if (this.debug) {
-            console.log(`         ❌ Углы: среднее отклонение ${angleDiff.toFixed(1)}° > ${angleTolerance}°`);
-        }
-        return false;
-    }
-   
-    // ========== 2. ПРОПОРЦИИ СТОРОН ==========
-    const sidesPhoto = [
-        this.calcDistance(tPhoto.p1, tPhoto.p2),
-        this.calcDistance(tPhoto.p2, tPhoto.p3),
-        this.calcDistance(tPhoto.p3, tPhoto.p1)
-    ].sort((a, b) => a - b);
-   
-    const sidesModel = [
-        this.calcDistance(tModel.p1, tModel.p2),
-        this.calcDistance(tModel.p2, tModel.p3),
-        this.calcDistance(tModel.p3, tModel.p1)
-    ].sort((a, b) => a - b);
-   
-    // Отношения сторон (нормированные)
-    const ratiosPhoto = [sidesPhoto[0] / sidesPhoto[2], sidesPhoto[1] / sidesPhoto[2]];
-    const ratiosModel = [sidesModel[0] / sidesModel[2], sidesModel[1] / sidesModel[2]];
-   
-    const ratioDiff = (Math.abs(ratiosPhoto[0] - ratiosModel[0]) +
-                       Math.abs(ratiosPhoto[1] - ratiosModel[1])) / 2;
-   
-    const ratioTolerance = 0.2; // 20%
-    if (ratioDiff > ratioTolerance) {
-        if (this.debug) {
-            console.log(`         ❌ Пропорции: отклонение ${(ratioDiff*100).toFixed(1)}% > ${ratioTolerance*100}%`);
-        }
-        return false;
-    }
-   
-    // ========== 3. МАСШТАБ ==========
-    const scalePhoto = (sidesPhoto[0] + sidesPhoto[1] + sidesPhoto[2]) / 3;
-    const scaleModel = (sidesModel[0] + sidesModel[1] + sidesModel[2]) / 3;
-    const scaleEstimate = scaleModel / scalePhoto;
-    const scaleDiff = Math.abs(scaleEstimate - structure.transform.scale) / structure.transform.scale;
-   
-    const scaleTolerance = 0.2; // 20%
-    if (scaleDiff > scaleTolerance) {
-        if (this.debug) {
-            console.log(`         ❌ Масштаб: отклонение ${(scaleDiff*100).toFixed(1)}% > ${scaleTolerance*100}%`);
-        }
-        return false;
-    }
-   
-    if (this.debug) {
-        console.log(`         ✅ Углы: ${angleDiff.toFixed(1)}° | Пропорции: ${(ratioDiff*100).toFixed(1)}% | Масштаб: ${(scaleDiff*100).toFixed(1)}%`);
-    }
-   
-    return true;
-}
-
-/**
-* Находит ближайшую точку в модели по координатам
-*/
-findNearestModelPoint(point, graphB) {
-    let bestPoint = null;
-    let bestDist = Infinity;
-   
-    for (const [id, modelPoint] of graphB.nodes) {
-        const dx = modelPoint.x - point.x;
-        const dy = modelPoint.y - point.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-       
-        if (dist < bestDist && dist < 15) { // порог 15px
-            bestDist = dist;
-            bestPoint = modelPoint;
-        }
-    }
-   
-    return bestPoint;
-}
-
-/**
-* Сливает дублирующиеся точки в модели
-* @param {Object} graph - граф модели
-* @param {number} threshold - порог расстояния для слияния (px)
-* @returns {number} - количество слитых точек
-*/
-mergeDuplicatePoints(graph, threshold = 3) {
-    const points = Array.from(graph.nodes.values());
-    const merged = new Set();
-    let mergedCount = 0;
-    let edgesToUpdate = new Map(); // старый id -> новый id
-   
-    for (let i = 0; i < points.length; i++) {
-        if (merged.has(points[i].id)) continue;
-       
-        for (let j = i + 1; j < points.length; j++) {
-            if (merged.has(points[j].id)) continue;
-           
-            const dx = points[i].x - points[j].x;
-            const dy = points[i].y - points[j].y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-           
-            if (dist < threshold) {
-                // Усредняем координаты
-                const avgX = (points[i].x + points[j].x) / 2;
-                const avgY = (points[i].y + points[j].y) / 2;
-                points[i].x = avgX;
-                points[i].y = avgY;
-                points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
-               
-                // Запоминаем для обновления рёбер
-                edgesToUpdate.set(points[j].id, points[i].id);
-               
-                // Удаляем дубликат
-                graph.nodes.delete(points[j].id);
-                merged.add(points[j].id);
-                mergedCount++;
-               
-                if (this.debug) {
-                    console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → ${points[i].id.substring(0,12)} (расст ${dist.toFixed(1)}px)`);
-                }
-            }
-        }
-    }
-   
-    // Обновляем рёбра: заменяем старые ID на новые
-    if (edgesToUpdate.size > 0) {
-        const newEdges = new Set();
-        for (const edge of graph.edges) {
-            let [a, b] = edge.split('--');
-            if (edgesToUpdate.has(a)) a = edgesToUpdate.get(a);
-            if (edgesToUpdate.has(b)) b = edgesToUpdate.get(b);
-            if (a !== b) {
-                newEdges.add([a, b].sort().join('--'));
-            }
-        }
-        graph.edges = newEdges;
-       
-        // Пересчитываем степени
-        for (const node of graph.nodes.values()) node.degree = 0;
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
-    }
-   
-    return mergedCount;
-}
- 
-    clear() {
-        this.models.clear();
-        this.currentModelId = null;
-        this.modelRelations.clear();
-        this.photoToModel.clear();
-        this.fingerprinter.clearCache();
-        this.localGroupSignature.clearCache();
-        this.morphologyEncoder.clearCache();
-        this.centerMatcher.clear();
-        this.relativePositioning.clear();
-
-        this.stats = {
-            totalModels: 0,
-            totalEnhancements: 0,
-            totalCenterMatches: 0,
-            totalRelativeMatches: 0,
-            totalNodesRemoved: 0,
-            totalDuplicatesSkipped: 0,
-            differentFootprintsDetected: 0,
-            triangleMatchesCount: 0,
-            createdAt: new Date(),
-            lastUpdated: new Date()
-        };
-
-        console.log('🧹 Аккумулятор очищен');
-    }
-}
-
-module.exports = TopologicalAccumulator;
+🎯 Результат обработки: similarity=0, decision=unknown
+✅ SimpleFootprintManager успешно обработал фото
+🔍 Анализ добавлен в сессию 699140291_1775122128680
+   - predictions: 81
+   - protectors: 80
+📸 Фото добавлено в сессию 699140291_1775122128680
+📁 Отслеживаем файл: original_1775122157543_bzqpia.jpg
+📤 Отправка файла: temp/original_1775122157543_bzqpia.jpg, размер: 20.5 KB
+📊 Roboflow: 87 объектов
+📊 Roboflow: 87 объектов. Распределение: {"Outline-trail":1,"shoe-protector":85,"Heel":1}
+🔍 PracticalAnalyzer: анализирую 86 предсказаний
+🔍 Классы в предсказаниях: [ 'Outline-trail', 'shoe-protector', 'Heel' ]
+✅ PracticalAnalyzer: анализ завершен успешно
+🔍 AnalysisModule: Запуск анализа для 86 предсказаний
+🔍 Шаг 1: Топография...
+🔍 Начинаю топографический анализ...
+✅ Топографический анализ завершен
+🔍 Шаг 2: Морфология...
+🔍 Шаг 3: Топология...
+🔍 Шаг 4: Генерация отчета...
+✅ AnalysisModule: Анализ завершен
+- Ориентация: 181.6°
+- Морфология: овальная форма, плотный протектор
+- Топология: кластерный распределение, 3 кластера
+📁 Отслеживаем файл: analysis_1775122160564_3mvcd1.png
+🎨 Создаем улучшенную MASK визуализацию...
+   📍 Найдено 0 сопоставленных точек
+✅ Улучшенная mask визуализация создана: temp/analysis_1775122160564_3mvcd1.png
+📁 Отслеживаем файл: topology_science_1775122161456_tq1bme.png
+✅ Топологическая визуализация создана
+👣 ВЫЗЫВАЮ SimpleFootprintManager.addPhotoToSession...
+👣 Достаточно протекторов: 86
+⚠️ УСТАРЕЛО: используйте getActiveSandboxSession
+📸 ФОТО-ОРИЕНТИРОВАННАЯ обработка фото для пользователя 699140291
+🔍 Диагностика структуры анализа:
+   analysis есть? true
+   predictions есть? true
+   predictions тип: object
+   predictions длина: 86
+   Пример первого предсказания:
+     class: Outline-trail
+     confidence: 0.9640084505081177
+     points есть? true
+     points длина: 467
+🔍 Извлечение точек и контуров из анализа...
+📊 Найден массив predictions: 86 элементов
+📐 Найден контур следа (467 точек), уверенность: 96.4%
+✅ Контур следа добавлен в contours (467 точек)
+✅ Извлечено точек: 85, контуров: 86
+   Протекторы: 84, другие: 1
+   Контур следа: есть (467 точек)
+📊 Извлечено 85 точек и 86 контуров из анализа
+🔄 Использую существующий TopologyManager для сессии
+🎯 ТОПОЛОГИЧЕСКАЯ ОБРАБОТКА фото AgACAgIAAxkBAAJcnWnN_UWSL3w9sxb6_Y-2QkLyZjVcAAKpFWsbB7RwSsJ23d8D6BzVAQADAgADeAADOgQ...
+📦 Получены точки (85) и контуры (86)
+📊 Извлечено 85 точек ИЗ ТЕКУЩЕГО ФОТО
+🔄 Использую существующую модель model_1775122137954_74slik
+🎯 ОБРАБОТКА 85 ТОЧЕК...
+📐 Найден контур следа (467 точек) для сохранения в модель
+🔍 ОТЛАДКА processPoints:
+   • photoId: AgACAgIAAxkBAAJcnWnN_UWSL3w9sxb6_Y-2QkLyZjVcAAKpFWsbB7RwSsJ23d8D6BzVAQADAgADeAADOgQ
+   • modelIdHint: model_1775122137954_74slik
+   • models.has: true
+🔷 Строю граф Делоне "photo_AgACAgIAAxkBAAJcnWnN_UWSL3w9sxb6_Y-2QkLyZjVcAAKpFWsbB7RwSsJ23d8D6BzVAQADAgADeAADOgQ" из 85 точек...
+✅ Граф Делоне построен: 85 узлов, 233 рёбер
+   📐 Треугольников: среднее 5.6, макс 34
+🔷 Строю KNN-граф "photo_AgACAgIAAxkBAAJcnWnN_UWSL3w9sxb6_Y-2QkLyZjVcAAKpFWsbB7RwSsJ23d8D6BzVAQADAgADeAADOgQ" из 85 точек...
+✅ KNN-граф построен: 85 узлов, 406 рёбер
+📐 Кодирую морфологию для 85 точек...
+   Найдено 85 контуров с привязкой к точкам
+   📐 Среднее геометрическое площади: 593.94
+✅ Закодировано 85 точек
+🔷 Вычисляю WL-подписи (85 узлов)...
+   📊 Максимальная степень в графе: 17
+✅ WL-подписи вычислены:
+   Узлов: 85
+   Уникальных подписей: 74 (87.1%)
+   Роли: L(лист), B(мост), H(хаб), C(клика), R(обычный)
+✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...
+🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью model_177512...
+🔍 Треугольное сопоставление...
+📊 Извлечено 85 точек из модели с морфологией
+📊 Извлечено 79 точек из модели с морфологией
+📊 Точек: 85 ↔️ 79
+🔺 TriangleMatcher (6 признаков треугольника) создан
+   • Грубый порог: 50%
+   • Геометрия пороги: 100%, 95%, 90%, 85%, 80%
+🔍 Запуск TriangleMatcher.findMatches...
+📊 Точек в А: 85, в Б: 79
+📊 РЕЗУЛЬТАТ ПО ПОРОГАМ:
+   • 100%: якорей 0 (0 точек), вариативных 0
+   • 95%: якорей 2 (6 точек), вариативных 0
+   • 90%: якорей 2 (6 точек), вариативных 0
+   • 85%: якорей 8 (24 точек), вариативных 15
+   • 80%: якорей 6 (18 точек), вариативных 39
+🎯 ИТОГ:
+   • Якорей (треугольников): 18
+   • Точек в якорях: 54
+   • Вариативных треугольников: 54
+   • Без кандидатов: 77
+✅ Найдено соответствий точек: 25
+====================================================================================================
+📊 ИТОГОВАЯ СТАТИСТИКА
+====================================================================================================
+📈 ТРЕУГОЛЬНИКИ:
+   • Всего в А: 149
+   • Всего в Б: 135
+🔗 КАНДИДАТЫ:
+   • Всего кандидатов: 20115
+🎯 РЕЗУЛЬТАТ ПОСЛЕ ГЕОМЕТРИИ:
+   • Якорей (треугольников): 18
+   • Точек в якорях: 54
+   • Вариативных треугольников: 54
+   • Без кандидатов: 77
+📊 ПО ПОРОГАМ:
+   • 100%: якорей 0 (0 точек), вариативных 0
+   • 95%: якорей 2 (6 точек), вариативных 0
+   • 90%: якорей 2 (6 точек), вариативных 0
+   • 85%: якорей 8 (24 точек), вариативных 15
+   • 80%: якорей 6 (18 точек), вариативных 39
+✅ triangleMatcher.findMatches выполнен, matches: 25
+📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:
+   • Найдено соответствий: 25
+   • Новых в А: 60
+   • Новых в Б: 54
+   • Достаточно для якорей: ✅
+   • Время: 894ms
+✅ Найдено 25 треугольных соответствий!
+🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ
+   • Создано временных якорей: 8
+🔍 ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ГРАФОВ
+📊 extractTrianglesFromGraph: найдено 159 треугольников
+📊 extractTrianglesFromGraph: найдено 131 треугольников
+   • Треугольников в A: 159
+   • Треугольников в B: 131
+🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ
+🔍 ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ
+   • Всего кандидатов: 8 треугольников (24 точек)
+📊 УНИКАЛЬНЫХ СООТВЕТСТВИЙ ТОЧЕК: 24
+📈 РАСПРЕДЕЛЕНИЕ УВЕРЕННОСТЕЙ:
+   • Максимальная: 99.3%
+   • Минимальная: 80.5%
+   • Медианная: 86.0%
+🔍 ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА:
+   ✅ Точка pt_177512216: топология согласована
+   ✅ Точка pt_177512216: топология согласована
+   ✅ Точка pt_177512216: топология согласована
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 3
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 3
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 5
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 5
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 5
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 7
+   ⚠️ Точка pt_177512216: соседей-якорей 0 vs 5
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 7
+   ⚠️ Точка pt_177512216: несоответствие соседей
+   ⚠️ Точка pt_177512216: несоответствие соседей
+   ⚠️ Точка pt_177512216: соседей-якорей 1 vs 4
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 1
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 1
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 0
+   ⚠️ Точка pt_177512216: соседей-якорей 1 vs 3
+   ⚠️ Точка pt_177512216: соседей-якорей 1 vs 4
+   ⚠️ Точка pt_177512216: соседей-якорей 1 vs 2
+   ⚠️ Точка pt_177512216: соседей-якорей 1 vs 2
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 4
+   ⚠️ Точка pt_177512216: соседей-якорей 2 vs 5
+   ⚠️ Точка pt_177512216: соседей-якорей 1 vs 2
+🔍 ФИЛЬТРАЦИЯ ПО УВЕРЕННОСТИ (порог 90.0%):
+   • Высокая уверенность: 10 точек
+   • Низкая уверенность: 14 точек
+🎯 ФИНАЛЬНЫЙ ОТБОР СОГЛАСОВАННЫХ ТОЧЕК:
+   • Прошли все проверки: 3 точек
+   • Отсеяно топологией: 21 точек
+   • Отсеяно по уверенности: 14 точек
+📊 ИТОГ ГЛОБАЛЬНОЙ ПРОВЕРКИ:
+   • Исходных якорей (треугольников): 8
+   • Согласованных точек: 3
+🔧 ДВУХЭТАПНАЯ ДОСТРОЙКА ТОЧЕК
+📊 РАЗДЕЛЕНИЕ ТОЧЕК ПО КАТЕГОРИЯМ:
+   • Якорей: 3 точек
+   • Путающихся кандидатов: 22 точек
+🔍 ЭТАП 1: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК
+📊 ИТОГ ЭТАПА 1:
+   • Уточнено: 0 точек
+   • Осталось путающихся: 22 точек
+🔧 Всего подтвержденных точек для достройки: 3
+🔍 ЭТАП 2: ДОСТРОЙКА НОВЫХ ТОЧЕК
+   • Точек для достройки: 82
+🧩 Достраиваю точки относительно 3 опорных...
+   🔧 Порог уверенности: 50%
+   🔧 Проверка по признакам: включена
+   ✅ Сопоставлено: pt_177512216... ↔️ pt_177512213... (97%)
+   ✅ Сопоставлено: pt_177512216... ↔️ pt_177512213... (85%)
+   ✅ Сопоставлено: pt_177512216... ↔️ pt_177512213... (97%)
+   ✅ Сопоставлено: pt_177512216... ↔️ pt_177512213... (89%)
+   ✅ Сопоставлено: pt_177512216... ↔️ pt_177512213... (84%)
+   ✅ Сопоставлено: 44/82 точек (уверенность ≥50%)
+   ⚠️ Низкая уверенность/конфликты: 0 точек (кандидаты на новые)
+   🎯 Всего в фото: 85 точек
+   🎯 Сопоставлено всего: 47/85
+📊 ИТОГ ЭТАПА 2:
+   • Достроено: 47 точек
+🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:
+   • Всего соответствий: 47 точек
+   • Из них якорей: 3
+   • Уточнено путающихся: 0
+   • Достроено новых: 44
+📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:
+   • Было matches: 25
+   • Стало matches: 47
+🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ
+🔍 ValidationModule создан
+   • Порог позиции: 15%
+   • Порог морфологии: 85%
+🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (149 шт)
+   ✅ Создано 54 якорей из 18 треугольников
+🔍 ЭТАП 1: Вычисление базового transform по 54 надёжным якорям
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 54 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.871
+   • Поворот: -0.7°
+   • Сдвиг: (2.2, 126.0)
+📐 БАЗОВЫЙ TRANSFORM (54 якорей):
+   • Масштаб: 0.871
+   • Поворот: -0.7°
+   • Сдвиг: (2.2, 126.0)
+🔍 ЭТАП 2: Построение топологических структур из 54 якорей
+🔨 StructureBuilder создан
+   • Мин. уверенность: 70%
+   • Макс. отклонение масштаба: 10%
+   • Макс. отклонение поворота: 5°
+🗂 StructureManager создан
+📊 extractTrianglesFromGraph: найдено 159 треугольников
+🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ 54 ЯКОРЕЙ
+   • Всего треугольников в графе: 159
+   • triangleResult.triangles: 149 треугольников
+   • В triangleResult: 149/149 треугольников с лучами, 428 рёбер с externalPoint
+   • Найдено уникальных треугольников-якорей: 18
+   • Создано якорных треугольников: 18
+   • Треугольников-кандидатов для расширения: 141
+📊 ПЕРЕДАЮ В STRUCTUREBUILDER: 18 якорных треугольников
+🗂 Начинаю сборку структур из 54 якорей...
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 99.2%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 93.2%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 99.7%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 100.0%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 100.0%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 96.0%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+      🔍 Новые точки в треугольнике: pt_17751
+      ✅ Треугольник добавлен (строгая проверка)
+      ✅ Добавлен треугольник tri_pt_17751
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 6 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.688
+   • Поворот: -133.3°
+   • Сдвиг: (289.6, 590.4)
+📊 Структура построена:
+   • Треугольников: 2
+   • Точек: 4
+   • Успешных лучей: 6
+   • Неудачных лучей: 0
+   • Уверенность: 100.0%
+   • Масштаб: 0.688
+   • Поворот: -133.3°
+   ✅ Структура struct_17751 добавлена (2 треугольников)
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 2
+   • Неудачных лучей: 0
+   • Уверенность: 99.2%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+🔨 Строю структуру от треугольника tri_pt_17751...
+      🔍 Новые точки в треугольнике: pt_17751
+      ✅ Треугольник добавлен (строгая проверка)
+      ✅ Добавлен треугольник tri_pt_17751
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 6 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.685
+   • Поворот: -125.2°
+   • Сдвиг: (250.6, 586.3)
+📊 Структура построена:
+   • Треугольников: 2
+   • Точек: 4
+   • Успешных лучей: 6
+   • Неудачных лучей: 0
+   • Уверенность: 100.0%
+   • Масштаб: 0.685
+   • Поворот: -125.2°
+   ✅ Структура struct_17751 добавлена (2 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 90.5%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 95.6%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 90.9%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 91.9%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 94.0%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 95.0%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 95.6%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔨 Строю структуру от треугольника tri_pt_17751...
+📊 Структура построена:
+   • Треугольников: 1
+   • Точек: 3
+   • Успешных лучей: 3
+   • Неудачных лучей: 0
+   • Уверенность: 100.0%
+   ✅ Структура struct_17751 добавлена (1 треугольников)
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+   ⏭️ Треугольник tri_pt_17751 уже в структуре, пропускаем
+🔄 Объединяю структуры по сходству трансформации...
+   🔗 Объединяю структуры:
+      struct_17751 (2 тр, масштаб 0.688, поворот -133.3°)
+      struct_17751 (2 тр, масштаб 0.685, поворот -125.2°)
+      → разница: масштаб 0.5%, поворот 8.1°
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 9 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.689
+   • Поворот: -126.5°
+   • Сдвиг: (259.0, 591.5)
+   ✅ После 2 итераций осталось 16 структур
+📊 ИТОГ СБОРКИ:
+   • Всего структур: 16
+   • Крупных структур (>=3 тр): 1
+   • Структура 1: 3 тр., 5 точек, уверенность 100.0%
+        масштаб 0.689, поворот -126.5°
+🔧 ЭТАП 2: Геометрическое расширение структур...
+   • Исходная структура: 3 треугольников
+   • Итерация 1: граничных рёбер 5
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (295,246.5)
+         v2: pt_177512216 (322.5,180)
+      ❌ Угол: 24° > 13°
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (322.5,180)
+         v2: pt_177512216 (290.5,166)
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 9 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.689
+   • Поворот: -126.5°
+   • Сдвиг: (259.0, 591.5)
+      ✅ +1 (угол 8°, проп 10%, масшт 5%)
+      ✅ Добавлен треугольник tri_pt_17751 (осталось кандидатов: 140)
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (295,246.5)
+         v2: pt_177512216 (256,182)
+      ❌ Угол: 14° > 13°
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (256,182)
+         v2: pt_177512216 (286.5,136)
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 9 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.689
+   • Поворот: -126.5°
+   • Сдвиг: (259.0, 591.5)
+      ✅ +1 (угол 5°, проп 13%, масшт 7%)
+      ✅ Добавлен треугольник tri_pt_17751 (осталось кандидатов: 139)
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (286.5,136)
+         v2: pt_177512216 (290.5,166)
+      ❌ Угол: 59° > 13°
+   • Итерация 2: граничных рёбер 7
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (295,246.5)
+         v2: pt_177512216 (322.5,180)
+      ❌ Угол: 24° > 13°
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (295,246.5)
+         v2: pt_177512216 (256,182)
+      ❌ Угол: 14° > 13°
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (286.5,136)
+         v2: pt_177512216 (290.5,166)
+      ❌ Угол: 59° > 13°
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (286.5,136)
+         v2: pt_177512216 (290.5,166)
+      ❌ Угол: 59° > 13°
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (322.5,180)
+         v2: pt_177512216 (296.5,143.5)
+      🔍 Найдено общее ребро:
+         v1: pt_177512216 (286.5,136)
+         v2: pt_177512216 (242.5,128)
+   ✅ Геометрическое расширение завершено, теперь 5 треугольников
+   • Осталось кандидатов: 139
+   💾 Сохранено структур: 1, всего лучей: 15
+   💾 Сохранено треугольников: 5
+📊 ПОСТРОЕНО СТРУКТУР: 1
+🔍 ОБНАРУЖЕНО 16 НЕЗАВИСИМЫХ СТРУКТУР:
+🔍 ЭТАП 3: Финальная валидация структур
+   Валидация структуры struct_1775122172754_v1qcaa (9 якорей)...
+      🔍 Первые 3 якоря структуры:
+         1: A(295.0,246.5) ↔️ B(272.8,323.9) [86%]
+         2: A(322.5,180.0) ↔️ B(250.9,370.5) [86%]
+         3: A(290.5,166.0) ↔️ B(229.3,358.5) [86%]
+🔍 ЗАПУСК ВАЛИДАЦИИ ВСЕХ ТОЧЕК
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 9 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.689
+   • Поворот: -126.5°
+   • Сдвиг: (259.0, 591.5)
+📊 РЕЗУЛЬТАТЫ ВАЛИДАЦИИ:
+   • Якорей: 5
+   • Подтверждено: 14
+   • Кандидатов: 66
+   • Отвергнуто: 0
+   • ВСЕГО: 19 точек
+      📊 Результат валидации: success=true
+         Якорей: 5
+         Подтверждено: 14
+         Кандидатов: 66
+         Отвергнуто: 0
+         Transform: масштаб 0.689, поворот -126.5°
+      ✅ Структура struct_1775122172754_v1qcaa успешно валидирована
+⚠️ Контур уже существует в модели, не перезаписываю
+💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:
+   • Масштаб: 0.689
+   • Поворот: -126.5°
+   • Сдвиг: (259.0, 591.5)
+✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: 9
+🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК
+   🧲 Точки рядом (6.1px): pt_177512216 ↔️ pt_177512213
+   🧲 Точки рядом (5.7px): pt_177512216 ↔️ pt_177512213
+   🧲 Точки рядом (4.8px): pt_177512216 ↔️ pt_177512213
+   🧲 Точки рядом (3.7px): pt_177512216 ↔️ pt_177512213
+   🧲 Топологический магнит: pt_177512216 → pt_177512213 (12.9px, совпадение 100%)
+📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ:
+   • Притянуто точек: 6
+   • Топологически проверено: 1
+   • Отвергнуто топологией: 0
+   • Осталось без изменений: 3
+✅ Притянуто 6 точек!
+📊 АНАЛИЗ ОШИБОК ПО ЗОНАМ (после магнита):
+📊 ОШИБКИ ПО ЗОНАМ (после магнита):
+   • пятка: 6 точек, средняя 0.3px (мин 0.2px, макс 0.3px)
+   • свод: нет точек
+   • носок: 3 точек, средняя 0.7px (мин 0.1px, макс 1.9px)
+🔍 ДИАГНОСТИКА:
+   ✅ ОШИБКИ В НОРМЕ: магнит работает хорошо
+📊 ПОДГОТОВКА УНИКАЛЬНЫХ ТОЧЕК
+   • Всего точек в A: 85
+   • Всего точек в B: 79
+   • Сопоставлено точек в A: 5
+   • Сопоставлено точек в B: 5
+🔍 ПОИСК НОВЫХ ПАР СРЕДИ НЕСОПОСТАВЛЕННЫХ ТОЧЕК
+   • Несопоставленных точек модели: 74
+   • Несопоставленных точек фото: 80
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (371.7, 319.7)
+      Модель pt_177512213 (352.5, 319.5)
+      Расстояние: 19.2px
+      Морфология: 49.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (337.7, 204.7)
+      Модель pt_177512213 (348.7, 202.7)
+      Расстояние: 11.2px
+      Морфология: 56.3%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (283.4, 256.4)
+      Модель pt_177512213 (275.0, 260.8)
+      Расстояние: 9.4px
+      Морфология: 87.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (401.1, 213.9)
+      Модель pt_177512213 (399.3, 211.8)
+      Расстояние: 2.8px
+      Морфология: 56.7%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (305.7, 291.3)
+      Модель pt_177512213 (303.0, 288.5)
+      Расстояние: 3.9px
+      Морфология: 71.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (375.6, 192.1)
+      Модель pt_177512213 (394.2, 197.3)
+      Расстояние: 19.3px
+      Морфология: 53.5%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (212.1, 315.9)
+      Модель pt_177512213 (217.0, 329.0)
+      Расстояние: 14.0px
+      Морфология: 91.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (305.9, 224.8)
+      Модель pt_177512213 (302.8, 235.0)
+      Расстояние: 10.7px
+      Морфология: 70.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (230.6, 404.7)
+      Модель pt_177512213 (233.5, 401.5)
+      Расстояние: 4.3px
+      Морфология: 67.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (205.4, 424.5)
+      Модель pt_177512213 (201.8, 432.5)
+      Расстояние: 8.8px
+      Морфология: 61.0%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (354.7, 220.8)
+      Модель pt_177512213 (355.9, 224.8)
+      Расстояние: 4.1px
+      Морфология: 92.2%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (451.2, 198.3)
+      Модель pt_177512213 (449.5, 197.5)
+      Расстояние: 1.9px
+      Морфология: 70.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (358.0, 256.5)
+      Модель pt_177512213 (344.3, 246.0)
+      Расстояние: 17.3px
+      Морфология: 74.8%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (373.5, 236.9)
+      Модель node_1775122 (376.5, 225.9)
+      Расстояние: 11.4px
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (196.9, 353.3)
+      Модель pt_177512213 (195.3, 349.5)
+      Расстояние: 4.1px
+      Морфология: 51.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (174.9, 416.3)
+      Модель pt_177512213 (170.8, 431.8)
+      Расстояние: 16.0px
+      Морфология: 67.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (332.7, 249.5)
+      Модель pt_177512213 (344.3, 246.0)
+      Расстояние: 12.1px
+      Морфология: 98.2%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (188.6, 390.2)
+      Модель pt_177512213 (196.0, 395.0)
+      Расстояние: 8.8px
+      Морфология: 44.0%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (335.8, 325.6)
+      Модель pt_177512213 (335.5, 315.3)
+      Расстояние: 10.4px
+      Морфология: 68.0%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (312.0, 267.3)
+      Модель pt_177512213 (304.5, 264.8)
+      Расстояние: 8.0px
+      Морфология: 70.7%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (163.0, 415.2)
+      Модель pt_177512213 (156.5, 410.3)
+      Расстояние: 8.1px
+      Морфология: 49.0%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (318.0, 237.2)
+      Модель node_1775122 (323.7, 233.5)
+      Расстояние: 6.7px
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (207.6, 368.9)
+      Модель pt_177512213 (220.3, 381.8)
+      Расстояние: 18.0px
+      Морфология: 52.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (150.0, 411.1)
+      Модель pt_177512213 (156.5, 410.3)
+      Расстояние: 6.5px
+      Морфология: 61.2%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (199.1, 407.8)
+      Модель pt_177512213 (208.3, 405.3)
+      Расстояние: 9.5px
+      Морфология: 56.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (294.9, 352.0)
+      Модель pt_177512213 (298.8, 352.8)
+      Расстояние: 3.9px
+      Морфология: 50.8%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (472.5, 228.8)
+      Модель pt_177512213 (464.8, 214.0)
+      Расстояние: 16.7px
+      Морфология: 68.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (428.2, 196.1)
+      Модель pt_177512213 (440.3, 209.8)
+      Расстояние: 18.2px
+      Морфология: 84.0%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (136.6, 387.1)
+      Модель pt_177512213 (136.5, 391.2)
+      Расстояние: 4.1px
+      Морфология: 73.5%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (394.7, 248.2)
+      Модель pt_177512213 (393.3, 231.5)
+      Расстояние: 16.8px
+      Морфология: 54.8%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (263.6, 274.9)
+      Модель pt_177512213 (260.8, 288.8)
+      Расстояние: 14.2px
+      Морфология: 39.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (143.6, 380.3)
+      Модель pt_177512213 (136.5, 391.2)
+      Расстояние: 13.0px
+      Морфология: 74.5%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (238.1, 301.8)
+      Модель pt_177512213 (240.3, 307.0)
+      Расстояние: 5.6px
+      Морфология: 70.0%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (233.3, 305.8)
+      Модель pt_177512213 (240.3, 307.0)
+      Расстояние: 7.0px
+      Морфология: 51.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (254.5, 288.0)
+      Модель pt_177512213 (260.8, 288.8)
+      Расстояние: 6.3px
+      Морфология: 28.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (278.5, 365.8)
+      Модель pt_177512213 (290.1, 364.1)
+      Расстояние: 11.7px
+      Морфология: 50.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (291.9, 353.8)
+      Модель pt_177512213 (294.5, 357.8)
+      Расстояние: 4.8px
+      Морфология: 73.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (260.2, 277.8)
+      Модель pt_177512213 (260.8, 288.8)
+      Расстояние: 11.0px
+      Морфология: 26.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (253.6, 288.6)
+      Модель pt_177512213 (260.8, 288.8)
+      Расстояние: 7.1px
+      Морфология: 31.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (231.1, 307.4)
+      Модель pt_177512213 (237.0, 313.0)
+      Расстояние: 8.1px
+      Морфология: 84.0%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (240.1, 299.9)
+      Модель pt_177512213 (245.3, 304.0)
+      Расстояние: 6.6px
+      Морфология: 77.3%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (313.1, 337.2)
+      Модель pt_177512213 (311.8, 335.8)
+      Расстояние: 2.0px
+      Морфология: 89.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (299.7, 348.0)
+      Модель pt_177512213 (298.8, 352.8)
+      Расстояние: 4.8px
+      Морфология: 53.5%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (281.6, 363.5)
+      Модель pt_177512213 (290.1, 364.1)
+      Расстояние: 8.6px
+      Морфология: 64.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (285.3, 360.4)
+      Модель pt_177512213 (290.1, 364.1)
+      Расстояние: 6.1px
+      Морфология: 94.7%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (147.9, 375.8)
+      Модель pt_177512213 (136.5, 391.2)
+      Расстояние: 19.2px
+      Морфология: 68.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (310.9, 338.9)
+      Модель pt_177512213 (311.8, 335.8)
+      Расстояние: 3.2px
+      Морфология: 84.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (245.4, 296.0)
+      Модель pt_177512213 (251.0, 296.0)
+      Расстояние: 5.6px
+      Морфология: 83.7%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (287.9, 357.6)
+      Модель pt_177512213 (294.5, 357.8)
+      Расстояние: 6.6px
+      Морфология: 71.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (308.3, 341.2)
+      Модель pt_177512213 (304.8, 338.3)
+      Расстояние: 4.5px
+      Морфология: 90.9%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (245.7, 295.8)
+      Модель pt_177512213 (251.0, 296.0)
+      Расстояние: 5.3px
+      Морфология: 71.7%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (298.6, 348.8)
+      Модель pt_177512213 (298.8, 352.8)
+      Расстояние: 3.9px
+      Морфология: 96.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (305.4, 344.2)
+      Модель pt_177512213 (304.8, 338.3)
+      Расстояние: 5.9px
+      Морфология: 81.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (249.9, 292.3)
+      Модель pt_177512213 (251.0, 296.0)
+      Расстояние: 3.9px
+      Морфология: 74.2%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (255.7, 286.2)
+      Модель pt_177512213 (260.8, 288.8)
+      Расстояние: 5.6px
+      Морфология: 34.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (258.4, 280.0)
+      Модель pt_177512213 (260.8, 288.8)
+      Расстояние: 9.1px
+      Морфология: 45.6%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (236.7, 303.3)
+      Модель pt_177512213 (240.3, 307.0)
+      Расстояние: 5.1px
+      Морфология: 86.7%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (166.6, 413.8)
+      Модель pt_177512213 (156.5, 410.3)
+      Расстояние: 10.7px
+      Морфология: 48.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (409.1, 231.2)
+      Модель pt_177512213 (393.3, 231.5)
+      Расстояние: 15.9px
+      Морфология: 70.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (143.2, 381.0)
+      Модель pt_177512213 (136.5, 391.2)
+      Расстояние: 12.2px
+      Морфология: 87.4%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (428.4, 196.3)
+      Модель pt_177512213 (440.3, 209.8)
+      Расстояние: 17.9px
+      Морфология: 74.1%
+   🆕 Найдена потенциальная пара:
+      Фото pt_177512216 (217.0, 368.4)
+      Модель pt_177512213 (220.3, 381.8)
+      Расстояние: 13.7px
+      Морфология: 71.5%
+✅ Найдено 54 новых пар среди несопоставленных точек!
+   • Теперь сопоставлено точек в A: 59
+   • Теперь сопоставлено точек в B: 39
+🧲 МЯГКОЕ ПРИТЯГИВАНИЕ БЛИЗКИХ НЕСОПОСТАВЛЕННЫХ ТОЧЕК
+   🧲 Мягкое притягивание: pt_177512216 → node_1775122 (11.4px)
+   🧲 Мягкое притягивание: pt_177512216 → pt_177512213 (8.8px)
+   🧲 Мягкое притягивание: pt_177512216 → node_1775122 (6.7px)
+   🧲 Мягкое притягивание: pt_177512216 → pt_177512213 (12.0px)
+   🧲 Мягкое притягивание: pt_177512216 → pt_177512213 (11.3px)
+   🧲 Мягкое притягивание: pt_177512216 → pt_177512213 (8.2px)
+   🧲 Мягкое притягивание: pt_177512216 → pt_177512213 (2.0px)
+   ✅ Мягко притянуто 7 точек (порог 15px)
+🔄 ИТЕРАТИВНОЕ УТОЧНЕНИЕ TRANSFORM (после мягкого притягивания)
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 63 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.693
+   • Поворот: -127.1°
+   • Сдвиг: (262.7, 595.0)
+   🔄 Итерация 1: масштаб 0.693 (было 0.689), поворот -127.1° (было -126.5°)
+   🧲 Дополнительное мягкое притягивание: 8 точек
+📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО 63 ЯКОРЯМ
+📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:
+   • Масштаб: 0.693
+   • Поворот: -127.1°
+   • Сдвиг: (262.7, 595.0)
+   ✅ Transform стабилизировался (масштаб 0.00%, поворот 0.00°)
+   ✅ Уточнение transform завершено после 2 итераций
+   • Уникальных в модели: 26
+   • Уникальных в фото: 26
+📊 ТОЧКИ В ВИЗУАЛИЗАЦИИ:
+┌──────┬────────────┬──────────────┬──────────────┬──────────────┬──────────┐
+│  #   │    Тип     │    Индекс     │  Координаты  │  Расстояние  │  Статус  │
+├──────┼────────────┼──────────────┼──────────────┼──────────────┼──────────┤
+│ 1    │ Модель 🔵   │ ?            │ (217.0, 421.0) │      —      │ без пары │
+│ 2    │ Модель 🔵   │ ?            │ (223.0, 471.0) │      —      │ без пары │
+│ 3    │ Модель 🔵   │ ?            │ (271.0, 409.5) │      —      │ без пары │
+│ 4    │ Модель 🔵   │ ?            │ (272.5, 364.0) │      —      │ без пары │
+│ 5    │ Модель 🔵   │ ?            │ (366.0, 140.0) │      —      │ без пары │
+│ 6    │ Модель 🔵   │ ?            │ (315.0, 439.5) │      —      │ без пары │
+│ 7    │ Модель 🔵   │ ?            │ (361.0,  99.0) │      —      │ без пары │
+│ 8    │ Модель 🔵   │ ?            │ (309.5, 356.0) │      —      │ без пары │
+│ 9    │ Модель 🔵   │ ?            │ (318.0,  92.0) │      —      │ без пары │
+│ 10   │ Модель 🔵   │ ?            │ (295.5,  91.5) │      —      │ без пары │
+│ 11   │ Модель 🔵   │ ?            │ (280.5, 486.5) │      —      │ без пары │
+│ 12   │ Модель 🔵   │ ?            │ (362.5, 374.5) │      —      │ без пары │
+│ 13   │ Модель 🔵   │ ?            │ (324.0, 525.0) │      —      │ без пары │
+│ 14   │ Модель 🔵   │ ?            │ (347.5,  65.5) │      —      │ без пары │
+│ 15   │ Модель 🔵   │ ?            │ (238.5, 520.0) │      —      │ без пары │
+│ 16   │ Модель 🔵   │ ?            │ (365.5, 278.5) │      —      │ без пары │
+│ 17   │ Модель 🔵   │ ?            │ (269.5, 469.5) │      —      │ без пары │
+│ 18   │ Модель 🔵   │ ?            │ (237.5, 543.5) │      —      │ без пары │
+│ 19   │ Модель 🔵   │ ?            │ (358.0, 256.5) │      —      │ без пары │
+│ 20   │ Модель 🔵   │ ?            │ (365.0, 272.0) │      —      │ без пары │
+│ 21   │ Модель 🔵   │ ?            │ (358.0, 255.0) │      —      │ без пары │
+│ 22   │ Модель 🔵   │ ?            │ (346.5,  71.5) │      —      │ без пары │
+│ 23   │ Модель 🔵   │ ?            │ (238.5, 538.0) │      —      │ без пары │
+│ 24   │ Модель 🔵   │ ?            │ (346.5,  61.0) │      —      │ без пары │
+│ 25   │ Модель 🔵   │ ?            │ (238.0, 525.0) │      —      │ без пары │
+│ 26   │ Модель 🔵   │ ?            │ (359.0, 259.5) │      —      │ без пары │
+│ 27   │ Фото 🔷     │ 2            │ (404.6, 298.8) │      —      │ без пары │
+│ 28   │ Фото 🔷     │ 8            │ (429.7, 274.5) │      —      │ без пары │
+│ 29   │ Фото 🔷     │ 10           │ (375.6, 273.8) │      —      │ без пары │
+│ 30   │ Фото 🔷     │ 16           │ (349.8, 292.0) │      —      │ без пары │
+│ 31   │ Фото 🔷     │ 18           │ (186.9, 334.1) │      —      │ без пары │
+│ 32   │ Фото 🔷     │ 21           │ (373.8, 236.9) │      —      │ без пары │
+│ 33   │ Фото 🔷     │ 22           │ (166.3, 354.0) │      —      │ без пары │
+│ 34   │ Фото 🔷     │ 25           │ (329.9, 274.9) │      —      │ без пары │
+│ 35   │ Фото 🔷     │ 28           │ (180.4, 380.7) │      —      │ без пары │
+│ 36   │ Фото 🔷     │ 29           │ (189.6, 393.3) │      —      │ без пары │
+│ 37   │ Фото 🔷     │ 33           │ (414.2, 236.3) │      —      │ без пары │
+│ 38   │ Фото 🔷     │ 34           │ (318.0, 237.8) │      —      │ без пары │
+│ 39   │ Фото 🔷     │ 35           │ (417.3, 196.1) │      —      │ без пары │
+│ 40   │ Фото 🔷     │ 45           │ (153.4, 375.5) │      —      │ без пары │
+│ 41   │ Фото 🔷     │ 46           │ (450.3, 245.5) │      —      │ без пары │
+│ 42   │ Фото 🔷     │ 48           │ (263.6, 276.4) │      —      │ без пары │
+│ 43   │ Фото 🔷     │ 50           │ (409.4, 249.5) │      —      │ без пары │
+│ 44   │ Фото 🔷     │ 52           │ (463.7, 236.2) │      —      │ без пары │
+│ 45   │ Фото 🔷     │ 54           │ (254.6, 289.7) │      —      │ без пары │
+│ 46   │ Фото 🔷     │ 57           │ (260.3, 279.4) │      —      │ без пары │
+│ 47   │ Фото 🔷     │ 58           │ (253.8, 290.3) │      —      │ без пары │
+│ 48   │ Фото 🔷     │ 62           │ (157.2, 373.5) │      —      │ без пары │
+│ 49   │ Фото 🔷     │ 74           │ (460.3, 237.9) │      —      │ без пары │
+│ 50   │ Фото 🔷     │ 75           │ (151.4, 377.9) │      —      │ без пары │
+│ 51   │ Фото 🔷     │ 76           │ (453.3, 243.7) │      —      │ без пары │
+│ 52   │ Фото 🔷     │ 78           │ (255.9, 287.9) │      —      │ без пары │
+│ 53   │ Пара 🟡 │ фото 14→модель 27 │   2.8px      │ structure │
+│ 54   │ Пара 🟡 │ фото 41→модель 32 │   3.1px      │ structure │
+│ 55   │ Пара 🟡 │ фото 42→модель 33 │   2.8px      │ structure │
+│ 56   │ Пара 🟡 │ фото 1→модель 1 │   1.9px      │ structure │
+│ 57   │ Пара 🟡 │ фото 24→модель 12 │   1.0px      │ undefined │
+│ 58   │ Пара 🟡 │ фото 42→модель 33 │   2.8px      │ structure │
+│ 59   │ Пара 🟡 │ фото 1→модель 1 │   1.9px      │ structure │
+│ 60   │ Пара 🟡 │ фото 14→модель 27 │   2.8px      │ structure │
+│ 61   │ Пара 🟡 │ фото 42→модель 33 │   2.8px      │ structure │
+│ 62   │ Пара 🆕 │ фото 3→модель 64 │  20.4px      │ new_pair │
+│ 63   │ Пара 🆕 │ фото 4→модель 63 │  11.6px      │ new_pair │
+│ 64   │ Пара 🆕 │ фото 5→модель 10 │   8.9px      │ new_pair │
+│ 65   │ Пара 🆕 │ фото 6→модель 11 │   2.6px      │ new_pair │
+│ 66   │ Пара 🆕 │ фото 7→модель 7 │   5.0px      │ new_pair │
+│ 67   │ Пара 🆕 │ фото 9→модель 5 │  19.7px      │ new_pair │
+│ 68   │ Пара 🆕 │ фото 11→модель 2 │  11.7px      │ new_pair │
+│ 69   │ Пара 🆕 │ фото 12→модель 38 │   9.9px      │ new_pair │
+│ 70   │ Пара 🆕 │ фото 13→модель 14 │   6.0px      │ new_pair │
+│ 71   │ Пара 🆕 │ фото 15→модель 30 │   7.1px      │ new_pair │
+│ 72   │ Пара 🆕 │ фото 17→модель 31 │   4.0px      │ new_pair │
+│ 73   │ Пара 🆕 │ фото 19→модель 36 │   2.1px      │ new_pair │
+│ 74   │ Пара 🆕 │ фото 20→модель 22 │  17.8px      │ new_pair │
+│ 75   │ Пара 🆕 │ фото 23→модель 9 │   6.9px      │ new_pair │
+│ 76   │ Пара 🆕 │ фото 26→модель 34 │  13.2px      │ new_pair │
+│ 77   │ Пара 🆕 │ фото 27→модель 22 │  12.1px      │ new_pair │
+│ 78   │ Пара 🆕 │ фото 30→модель 15 │  11.4px      │ new_pair │
+│ 79   │ Пара 🆕 │ фото 31→модель 20 │   8.5px      │ new_pair │
+│ 80   │ Пара 🆕 │ фото 32→модель 26 │  11.4px      │ new_pair │
+│ 81   │ Пара 🆕 │ фото 36→модель 28 │  15.5px      │ new_pair │
+│ 82   │ Пара 🆕 │ фото 37→модель 26 │   7.1px      │ new_pair │
+│ 83   │ Пара 🆕 │ фото 38→модель 18 │   9.8px      │ new_pair │
+│ 84   │ Пара 🆕 │ фото 39→модель 51 │   2.8px      │ new_pair │
+│ 85   │ Пара 🆕 │ фото 40→модель 17 │  16.0px      │ new_pair │
+│ 86   │ Пара 🆕 │ фото 43→модель 73 │  18.9px      │ new_pair │
+│ 87   │ Пара 🆕 │ фото 44→модель 42 │   0.8px      │ new_pair │
+│ 88   │ Пара 🆕 │ фото 47→модель 69 │  16.6px      │ new_pair │
+│ 89   │ Пара 🆕 │ фото 49→модель 42 │  10.6px      │ new_pair │
+│ 90   │ Пара 🆕 │ фото 51→модель 67 │   3.7px      │ new_pair │
+│ 91   │ Пара 🆕 │ фото 53→модель 67 │   6.7px      │ new_pair │
+│ 92   │ Пара 🆕 │ фото 55→модель 44 │  11.0px      │ new_pair │
+│ 93   │ Пара 🆕 │ фото 56→модель 57 │   2.7px      │ new_pair │
+│ 94   │ Пара 🆕 │ фото 59→модель 66 │   6.6px      │ new_pair │
+│ 95   │ Пара 🆕 │ фото 60→модель 65 │   5.4px      │ new_pair │
+│ 96   │ Пара 🆕 │ фото 61→модель 60 │   3.7px      │ new_pair │
+│ 97   │ Пара 🆕 │ фото 63→модель 51 │   3.8px      │ new_pair │
+│ 98   │ Пара 🆕 │ фото 64→модель 44 │   7.5px      │ new_pair │
+│ 99   │ Пара 🆕 │ фото 65→модель 44 │   4.2px      │ new_pair │
+│ 100  │ Пара 🆕 │ фото 66→модель 42 │  16.9px      │ new_pair │
+│ 101  │ Пара 🆕 │ фото 67→модель 60 │   4.5px      │ new_pair │
+│ 102  │ Пара 🆕 │ фото 68→модель 43 │   5.7px      │ new_pair │
+│ 103  │ Пара 🆕 │ фото 69→модель 57 │   5.7px      │ new_pair │
+│ 104  │ Пара 🆕 │ фото 70→модель 59 │   6.3px      │ new_pair │
+│ 105  │ Пара 🆕 │ фото 71→модель 43 │   5.4px      │ new_pair │
+│ 106  │ Пара 🆕 │ фото 72→модель 51 │   2.5px      │ new_pair │
+│ 107  │ Пара 🆕 │ фото 73→модель 59 │   7.5px      │ new_pair │
+│ 108  │ Пара 🆕 │ фото 77→модель 43 │   2.2px      │ new_pair │
+│ 109  │ Пара 🆕 │ фото 79→модель 50 │   7.5px      │ new_pair │
+│ 110  │ Пара 🆕 │ фото 80→модель 67 │   3.8px      │ new_pair │
+│ 111  │ Пара 🆕 │ фото 81→модель 26 │  13.2px      │ new_pair │
+│ 112  │ Пара 🆕 │ фото 82→модель 69 │  16.3px      │ new_pair │
+│ 113  │ Пара 🆕 │ фото 83→модель 42 │   9.8px      │ new_pair │
+│ 114  │ Пара 🆕 │ фото 84→модель 73 │  18.5px      │ new_pair │
+│ 115  │ Пара 🆕 │ фото 85→модель 28 │  11.0px      │ new_pair │
+└──────┴────────────┴──────────────┴──────────────┴──────────────┴──────────┘
+📊 ИТОГО В ВИЗУАЛИЗАЦИИ:
+   • Модель 🔵: 26 точек
+   • Фото 🔷: 26 точек
+   • Пар: 63 точек
+   • ВСЕГО: 115 точек
+🔷 ПОЛНЫЙ ЦИКЛ ДЛЯ СИНИХ ТОЧЕК
+   • Синих точек фото: 26
+   • Синих точек модели: 40
+📊 Найдено 9 точек-кандидатов
+🔍 ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА СИНИХ КАНДИДАТОВ
+   Проверка точки pt_177512216...
+   Проверка точки pt_177512216...
+   Проверка точки pt_177512216...
+   Проверка точки pt_177512216...
+   Проверка точки pt_177512216...
+   Проверка точки pt_177512216...
+      ⚠️ Мало сопоставленных соседей (1) - пропускаем
+   Проверка точки pt_177512216...
+   Проверка точки pt_177512216...
+   Проверка точки pt_177512216...
+📊 Топологически согласовано: 0 точек
+⚠️ Нет топологически согласованных кандидатов
+🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...
+📊 BOUNDING BOX АНАЛИЗ (после трансформации):
+   Трансформированное фото: 335.9 x 232.4
+   Модель: 328.3 x 235.2
+   Текущий масштаб: 0.689
+   Требуемый масштаб X: 0.977 → 0.977
+   Требуемый масштаб Y: 1.012 → 1.012
+   Усреднённый масштаб: 0.995
+✅ КОРРЕКЦИЯ ЗАВЕРШЕНА
+   Новый масштаб: 0.685 (было 0.689)
+   Изменение: -0.5%
+📤 Передаём в updateModelWithOptimalMatches: 63 точек
+   🟡 Точка pt_177512213 подтверждена 2 раза (теперь жёлтая)
+📸 Добавляю 26 новых точек из фото в модель
+      ✅ Добавлена новая точка (429.7, 274.5)
+      ✅ Добавлена новая точка (375.6, 273.8)
+      ✅ Добавлена новая точка (349.8, 292.0)
+      ✅ Добавлена новая точка (186.9, 334.1)
+      ✅ Добавлена новая точка (166.3, 354.0)
+      ✅ Добавлена новая точка (329.9, 274.9)
+      ✅ Добавлена новая точка (180.4, 380.7)
+      ✅ Добавлена новая точка (414.2, 236.3)
+      ✅ Добавлена новая точка (417.3, 196.1)
+      ✅ Добавлена новая точка (153.4, 375.5)
+      ✅ Добавлена новая точка (450.3, 245.5)
+      ✅ Добавлена новая точка (409.4, 249.5)
+      ✅ Добавлена новая точка (463.7, 236.2)
+      ✅ Добавлена новая точка (260.3, 279.4)
+📊 Результат обновления модели:
+   • Подтверждено существующих: 63
+   • Новых точек добавлено: 14
+   • Всего узлов в модели: 93
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 2.3px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 4.5px)
+   🔄 Слияние: pt_177512213 + pt_177512213 → pt_177512213 (расст 2.4px)
+🔗 Слито 3 дублирующихся точек
+✅ Дублирующихся точек в модели нет
+🔍 buildTriangleMatchMap: начало
+   • result.matches.length = 63
+   • Якорей (треугольников): не указано
+📋 ШАГ 1: Сортировка matches по уверенности
+   1. уверенность: 94.9%
+   2. уверенность: 94.9%
+   3. уверенность: 94.9%
+   4. уверенность: 93.6%
+   5. уверенность: 93.3%
+📋 ШАГ 2: Построение максимального непротиворечивого множества
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 94.9%)
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 94.9%)
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 94.9%)
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 93.6%)
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 93.3%)
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 90.5%)
+   ⚠️ Пропущено: pt_177512216 ↔️ pt_177512213 (уверенность: 89.3%)
+      • pointB уже соответствует pt_177512216
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 87.0%)
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 87.0%)
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 86.9%)
+   ⚠️ Пропущено: pt_177512216 ↔️ pt_177512213 (уверенность: 86.9%)
+      • pointB уже соответствует pt_177512216
+   ✅ Добавлено: pt_177512216 ↔️ pt_177512213 (уверенность: 86.5%)
+   ⚠️ Пропущено: pt_177512216 ↔️ pt_177512213 (уверенность: 85.7%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512216
+   ⚠️ Пропущено: pt_177512216 ↔️ pt_177512213 (уверенность: 84.5%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512216
+   ⚠️ Пропущено: pt_177512216 ↔️ pt_177512213 (уверенность: 84.5%)
+      • pointA уже соответствует pt_177512213
+      • pointB уже соответствует pt_177512216
+📊 ИТОГ ПОСТРОЕНИЯ:
+   • Добавлено уникальных соответствий: 39
+   • Пропущено (конфликты): 24
+   • Всего обработано matches: 63
+📋 ШАГ 3: Назначение номеров парам
+   Пара 1: pt_177512216 ↔️ pt_177512213 [structure]
+   Пара 2: pt_177512216 ↔️ pt_177512213 [structure]
+   Пара 3: pt_177512216 ↔️ pt_177512213 [structure]
+   Пара 4: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 5: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 6: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 7: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 8: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 9: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 10: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 11: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 12: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 13: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 14: pt_177512216 ↔️ pt_177512213 [structure]
+   Пара 15: pt_177512216 ↔️ pt_177512213 [anchor]
+   Пара 16: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 17: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 18: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 19: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 20: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 21: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 22: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 23: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 24: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 25: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 26: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 27: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 28: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 29: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 30: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 31: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 32: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 33: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 34: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 35: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 36: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 37: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 38: pt_177512216 ↔️ pt_177512213 [new_pair]
+   Пара 39: pt_177512216 ↔️ pt_177512213 [new_pair]
+📊 ИТОГ buildTriangleMatchMap:
+   • matchMap size: 39
+   • modelMatchMap size: 39
+   • Уникальных photo точек: 39
+   • Уникальных model точек: 39
+📊 СТАТИСТИКА ИСХОДНЫХ ДАННЫХ:
+   • Уникальных photo точек в matches: 59
+   • Уникальных model точек в matches: 39
+   • Покрытие photo точек: 66.1%
+   • Покрытие model точек: 100.0%
+💾 Сохранение в модель model_177512:
+   ✅ modelMatchMap сохранён (39 записей)
+   ✅ matchMap сохранён (39 записей)
+   📊 Статистика сохранена в модели
+🔍 ОТЛАДКА: 63 согласованных точек
+   • matchMap передан в визуализацию: 39 пар
+   • modelMatchMap сохранён в модель: 39 пар
+🧹 Очищено 0 неподтверждённых точек
+📊 СТАТИСТИКА МОДЕЛИ:
+   • 🟠 Подтвержденных (2+ фото): 63
+   • 🔵 Только в модели: 27
+   • 🔵 Только в новом фото: 22
+   • Всего в модели теперь: 90
+💾 Модель model_177512 обновлена в хранилище (90 узлов)
+🔍 matchMap передан в результат: 39 пар
+🎯 ТОПОЛОГИЧЕСКОЕ РЕШЕНИЕ В ПЕСОЧНИЦЕ: different_footprint (31.6%)
+📐 ДИАГНОСТИКА photoContours:
+   photoContours.length: 86
+   ✅ outline в photoContours: ЕСТЬ, точек: 467
+🔍 getVisualizationData: контур из метаданных:
+   outlineContour: ЕСТЬ
+   points: 522
+📊 extractTrianglesFromGraph: найдено 120 треугольников
+🔍 matchMap найден во вложенном объекте: 39 пар
+✅ matchMap добавлен: 39 пар
+✅ photoPoints создано: 39 точек
+🎨 Готовлю топологическую визуализацию...
+🎨 ClusterVisualizer (с уникальными точками) создан
+🔍 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ:
+   visualizationData.outlineContour: ЕСТЬ
+   points: 522
+   class: Outline-trail
+🎨 Визуализация топологической модели...
+📊 Всего точек в модели: 90
+   🔗 Рёбер отрисовано: 184
+🔍 ДИАГНОСТИКА КОНТУРА В drawModel:
+   outlineContour: ЕСТЬ
+   points.length: 522
+   class: Outline-trail
+   type: footprint_outline
+   📋 modelMatchMap содержит 39 записей
+   🎨 Отрисовка 2 структур...
+      Главная структура: 5 треугольников
+   🎨 Нарисовано треугольников: 5
+   🖌 Отрисовка 90 узлов модели...
+   📋 modelMatchMap в drawModelPoints: 39 записей
+   🎯 Модель: уникальных: 26, остальных: 64
+✅ Модель сохранена: data/footprints/visualizations/topology/topology_699140291_1775122173552_model.png
+   🔗 Рёбер отрисовано: 184
+🔍 ДИАГНОСТИКА КОНТУРА В drawPhoto:
+   outlineContour: ЕСТЬ
+   points.length: 522
+   📸 Рисую 39 точек фото
+   📋 matchMap содержит 39 записей
+   🎯 Фото: 🟣 39 сопоставлено, 🔵 0 новых, 🟣 26 только в фото
+✅ Фото сохранено: data/footprints/visualizations/topology/topology_699140291_1775122173552_photo.png
+✅ Модель сохранена: data/footprints/visualizations/topology/topology_699140291_1775122173552_model.png
+✅ Фото сохранено: data/footprints/visualizations/topology/topology_699140291_1775122173552_photo.png
+🤖 Отправляю топологический результат в Telegram...
+✅ Топологические визуализации отправлены в Telegram
+🏗 СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...
+📊 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:
+   • Точек модели: 90
+   • Соответствий: 39
+🏗 ModelVisualization для продакшена создан
+   • triangles из visualizationData: 120
+   • Первый треугольник: p1=pt_1775122137053_1_0
+   🔍 pointToStructure из visualizationData: 7 записей
+   📊 Точек модели: 90
+   📸 Точек фото: 0
+   🔄 Трансформация: есть
+   🔗 Соответствий: 39
+   🔍 pointToStructure содержит 7 записей
+   🔍 pointToStructure ID модели: pt_1775122161855_1_0, pt_1775122161855_24_, pt_1775122161855_42_
+Menu
+   🔍 structures: 2 шт
+   🔍 Первая структура: {
+  "id": "struct_1775122172754_v1qcaa",
+  "pointCount": 7,
+  "pointIds": [
+    "pt_1775122161855_1_0",
