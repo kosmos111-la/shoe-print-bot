@@ -18,7 +18,7 @@ const AffineRefiner = require('./AffineRefiner');
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || true;
+        this.debug = options.debug || false;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
         this.fastMode = options.fastMode || false;
