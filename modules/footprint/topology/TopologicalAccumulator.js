@@ -2095,7 +2095,7 @@ if (this.debug) {
                     this.stats.totalNodesRemoved += cleanResult.removed;
                     this.stats.triangleMatchesCount += finalValidatedMatches?.length || 0;
 
-                    // Статистика
+                     // Статистика
                     const confirmedInModel = finalValidatedMatches?.length || 0;
                     const onlyInModel = (existingModel?.graph?.nodes?.size || 0) - confirmedInModel;
                     const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
@@ -2105,6 +2105,14 @@ if (this.debug) {
                     console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
                     console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
                     console.log(`   • Всего в модели теперь: ${existingModel?.graph?.nodes?.size || 0}`);
+
+                    // 🔥 СОХРАНЯЕМ ОБНОВЛЁННУЮ МОДЕЛЬ
+                    if (existingModel && modelIdHint) {
+                        this.models.set(modelIdHint, existingModel);
+                        if (this.debug) {
+                            console.log(`💾 Модель ${modelIdHint.substring(0,12)} обновлена в хранилище (${existingModel.graph.nodes.size} узлов)`);
+                        }
+                    }
 
                     this.photoToModel.set(photoId, modelIdHint);
 
@@ -2697,96 +2705,101 @@ const finalResult = {
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-    const model = this.models.get(modelId);
-    let confirmedExisting = 0;
-    let newNodesAdded = 0;
+        const model = this.models.get(modelId);
+        let confirmedExisting = 0;
+        let newNodesAdded = 0;
 
-    const matchedPhotoIds = new Set();
-    const matchedModelIds = new Set();
+        const matchedPhotoIds = new Set();
+        const matchedModelIds = new Set();
 
-    // 1. Обновляем существующие точки с усреднением
-    for (const match of matches) {
-        const modelNode = model.graph.nodes.get(match.pointB);
-        const photoNode = newGraph.nodes.get(match.pointA);
-       
-        if (modelNode && photoNode) {
-            const oldCount = modelNode.confirmationCount || 1;
-            const newCount = oldCount + 1;
+        // 1. Обновляем существующие точки с усреднением
+        for (const match of matches) {
+            const modelNode = model.graph.nodes.get(match.pointB);
+            const photoNode = newGraph.nodes.get(match.pointA);
            
-            // 🔥 Усредняем координаты
-            modelNode.x = (modelNode.x * oldCount + photoNode.x) / newCount;
-            modelNode.y = (modelNode.y * oldCount + photoNode.y) / newCount;
-           
-            // 🔥 Усредняем морфологию
-            const photoMorph = newMorphology?.get(match.pointA);
-            if (photoMorph && modelNode.morphology) {
-                for (const key of ['compactness', 'eccentricity', 'asymmetry', 'normalizedArea']) {
-                    if (photoMorph[key] !== undefined && modelNode.morphology[key] !== undefined) {
-                        modelNode.morphology[key] = (modelNode.morphology[key] * oldCount + photoMorph[key]) / newCount;
+            if (modelNode && photoNode) {
+                const oldCount = modelNode.confirmationCount || 1;
+                const newCount = oldCount + 1;
+               
+                // 🔥 Усредняем координаты
+                modelNode.x = (modelNode.x * oldCount + photoNode.x) / newCount;
+                modelNode.y = (modelNode.y * oldCount + photoNode.y) / newCount;
+               
+                // 🔥 Усредняем морфологию
+                const photoMorph = newMorphology?.get(match.pointA);
+                if (photoMorph && modelNode.morphology) {
+                    for (const key of ['compactness', 'eccentricity', 'asymmetry', 'normalizedArea']) {
+                        if (photoMorph[key] !== undefined && modelNode.morphology[key] !== undefined) {
+                            modelNode.morphology[key] = (modelNode.morphology[key] * oldCount + photoMorph[key]) / newCount;
+                        }
+                    }
+                    if (photoMorph.radialProfile && modelNode.morphology.radialProfile) {
+                        for (let i = 0; i < 8; i++) {
+                            modelNode.morphology.radialProfile[i] =
+                                (modelNode.morphology.radialProfile[i] * oldCount + photoMorph.radialProfile[i]) / newCount;
+                        }
                     }
                 }
-                if (photoMorph.radialProfile && modelNode.morphology.radialProfile) {
-                    for (let i = 0; i < 8; i++) {
-                        modelNode.morphology.radialProfile[i] =
-                            (modelNode.morphology.radialProfile[i] * oldCount + photoMorph.radialProfile[i]) / newCount;
+               
+                modelNode.confirmationCount = newCount;
+                modelNode.lastConfirmed = new Date();
+                confirmedExisting++;
+                matchedPhotoIds.add(match.pointA);
+                matchedModelIds.add(match.pointB);
+               
+                if (this.debug && oldCount === 1 && newCount === 2) {
+                    console.log(`   🟡 Точка ${match.pointB.substring(0,12)} подтверждена 2 раза (теперь жёлтая)`);
+                }
+            }
+        }
+
+        // 2. Добавляем новые точки из фото (которые не совпали)
+        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+            if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
+
+            for (const photoPoint of this.lastUniqueInPhoto) {
+                // Проверяем, нет ли уже такой точки рядом
+                let isDuplicate = false;
+                for (const [modelId, modelNode] of model.graph.nodes) {
+                    const dx = modelNode.x - photoPoint.x;
+                    const dy = modelNode.y - photoPoint.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 5) {
+                        isDuplicate = true;
+                        break;
                     }
                 }
-            }
-           
-            modelNode.confirmationCount = newCount;
-            modelNode.lastConfirmed = new Date();
-            confirmedExisting++;
-            matchedPhotoIds.add(match.pointA);
-            matchedModelIds.add(match.pointB);
-        }
-    }
 
-    // 2. Добавляем новые точки из фото (которые не совпали, но мы их сохраняем)
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
+                if (!isDuplicate) {
+                    const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
 
-        for (const photoPoint of this.lastUniqueInPhoto) {
-            // Проверяем, нет ли уже такой точки рядом
-            let isDuplicate = false;
-            for (const [modelId, modelNode] of model.graph.nodes) {
-                const dx = modelNode.x - photoPoint.x;
-                const dy = modelNode.y - photoPoint.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                if (dist < 5) {
-                    isDuplicate = true;
-                    break;
+                    model.graph.nodes.set(newNodeId, {
+                        id: newNodeId,
+                        x: photoPoint.x,
+                        y: photoPoint.y,
+                        degree: 0,
+                        morphology: newMorphology?.get(photoPoint.id),
+                        confirmationCount: 1,
+                        addedFrom: 'new_photo_point',
+                        addedAt: new Date(),
+                        originalPhotoId: photoPoint.id
+                    });
+
+                    newNodesAdded++;
+                    if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
                 }
             }
-
-            if (!isDuplicate) {
-                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-
-                model.graph.nodes.set(newNodeId, {
-                    id: newNodeId,
-                    x: photoPoint.x,
-                    y: photoPoint.y,
-                    degree: 0,
-                    morphology: newMorphology?.get(photoPoint.id),
-                    confirmationCount: 1,
-                    addedFrom: 'new_photo_point',
-                    addedAt: new Date(),
-                    originalPhotoId: photoPoint.id
-                });
-
-                newNodesAdded++;
-                if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
-            }
         }
-    }
 
-    if (this.debug) {
-        console.log(`\n📊 Результат обновления модели:`);
-        console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
-        console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
-    }
+        if (this.debug) {
+            console.log(`\n📊 Результат обновления модели:`);
+            console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
+            console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
+            console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
+        }
 
-    return { confirmedExisting, newNodesAdded };
-}
+        return { confirmedExisting, newNodesAdded };
+    }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
         const model = this.models.get(modelId);
