@@ -2704,48 +2704,19 @@ const finalResult = {
     const matchedPhotoIds = new Set();
     const matchedModelIds = new Set();
 
-    // 1. Обновляем существующие точки с усреднением
+    // 1. Обновляем существующие точки (только счётчик!)
     for (const match of matches) {
         const modelNode = model.graph.nodes.get(match.pointB);
-        const photoNode = newGraph.nodes.get(match.pointA);
-       
-        if (modelNode && photoNode) {
-            const oldCount = modelNode.confirmationCount || 1;
-            const newCount = oldCount + 1;
-           
-            // Усредняем координаты
-            modelNode.x = (modelNode.x * oldCount + photoNode.x) / newCount;
-            modelNode.y = (modelNode.y * oldCount + photoNode.y) / newCount;
-           
-            // Усредняем морфологию
-            const photoMorph = newMorphology?.get(match.pointA);
-            if (photoMorph && modelNode.morphology) {
-                for (const key of ['compactness', 'eccentricity', 'asymmetry', 'normalizedArea']) {
-                    if (photoMorph[key] !== undefined && modelNode.morphology[key] !== undefined) {
-                        modelNode.morphology[key] = (modelNode.morphology[key] * oldCount + photoMorph[key]) / newCount;
-                    }
-                }
-                if (photoMorph.radialProfile && modelNode.morphology.radialProfile) {
-                    for (let i = 0; i < 8; i++) {
-                        modelNode.morphology.radialProfile[i] =
-                            (modelNode.morphology.radialProfile[i] * oldCount + photoMorph.radialProfile[i]) / newCount;
-                    }
-                }
-            }
-           
-            modelNode.confirmationCount = newCount;
+        if (modelNode) {
+            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
             modelNode.lastConfirmed = new Date();
             confirmedExisting++;
             matchedPhotoIds.add(match.pointA);
             matchedModelIds.add(match.pointB);
-           
-            if (this.debug && oldCount === 1 && newCount === 2) {
-                console.log(`   🟡 Точка ${match.pointB.substring(0,12)} подтверждена 2 раза (теперь жёлтая)`);
-            }
         }
     }
 
-    // 2. Добавляем новые точки из фото (которые не совпали)
+    // 2. Добавляем новые точки из фото
     if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
 
