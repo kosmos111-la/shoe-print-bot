@@ -4491,7 +4491,7 @@ function getCorrectionDescription(type) {
 // 🌐 НАСТРОЙКА ВЕБХУКА ДЛЯ RENDER.COM
 // =============================================================================
 
-async function setupWebhook() {async function setupWebhook() {
+async function setupWebhook() {
     try {
         console.log('🔄 Настраиваю вебхук...');
        
