@@ -4674,33 +4674,29 @@ bot.onText(/\/system_info/, async (msg) => {
 });
 
 // =============================================================================
-// 🚀 ЗАПУСК СЕРВЕРА
+// 🚀 ЗАПУСК БОТА В РЕЖИМЕ POLLING (СТАБИЛЬНЫЙ РЕЖИМ)
 // =============================================================================
 
-// Health check эндпоинт
-app.get('/health', (req, res) => {
-    res.json({
-        status: 'OK',
-        webhook_configured: true,
-        timestamp: new Date().toISOString()
-    });
+console.log('🔄 Запускаю бота в режиме polling...');
+
+// Удаляем вебхук, если был
+bot.deleteWebHook().catch(e => console.log('⚠️ Ошибка удаления вебхука:', e.message));
+
+// Запускаем polling
+bot.startPolling({
+    polling: true,
+    timeout: 30,
+    restart: true
+}).then(() => {
+    console.log('✅ Бот успешно запущен в режиме polling!');
+    console.log('🤖 Бот готов к работе и слушает команды');
+}).catch(err => {
+    console.log('❌ Ошибка запуска polling:', err.message);
 });
 
-// Главная страница
-app.get('/', (req, res) => {
-    res.send(`
-        <h1>🤖 Система анализа следов обуви v2.5</h1>
-        <p>✅ Вебхук режим: АКТИВЕН</p>
-        <p>🔗 URL: https://shoe-print-bot.onrender.com</p>
-        <p><a href="/webhook-test">Проверить вебхук</a></p>
-        <p><a href="/health">Health Check</a></p>
-    `);
-});
-
+// Простой сервер для health check
 const PORT = process.env.PORT || 10000;
-app.listen(PORT, () => {
-    console.log(`✅ Сервер запущен на порту ${PORT}`);
-    console.log(`🤖 Telegram бот готов к работе`);
-    console.log(`🌐 Вебхук будет настроен через 3 секунды...`);
-    console.log(`🔗 Ожидайте сообщения в Telegram!`);
-});
+app.get('/health', (req, res) => res.json({ status: 'OK', mode: 'polling' }));
+app.listen(PORT, () => console.log(`✅ Health check сервер на порту ${PORT}`));
+
+console.log('✅ Бот полностью запущен и работает!');
