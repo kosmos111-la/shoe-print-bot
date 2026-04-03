@@ -4516,13 +4516,13 @@ async function setupWebhook() {
         console.log('⚠️ Если вебхук не работает, запускаю polling как запасной вариант...');
 
         // Fallback на polling если вебхук не работает
-        setTimeout(() => {
-            bot.startPolling().then(() => {
-                console.log('✅ Polling запущен как запасной вариант');
-            }).catch(pollErr => {
-                console.log('❌ Не удалось запустить polling:', pollErr.message);
-            });
-        }, 5000);
+      //  setTimeout(() => {
+     //       bot.startPolling().then(() => {
+     //           console.log('✅ Polling запущен как запасной вариант');
+     //       }).catch(pollErr => {
+     //           console.log('❌ Не удалось запустить polling:', pollErr.message);
+     //       });
+     //   }, 5000);
     }
 }
 
