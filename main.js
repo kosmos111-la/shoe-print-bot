@@ -4156,6 +4156,20 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
+    // Безопасное получение количества merge-визуализаций
+    let mergeVisualizationsCount = 0;
+    if (footprintManager && footprintManager.visualizationManager) {
+        // Если есть метод getMergeVisualizationCount - используем его
+        if (typeof footprintManager.getMergeVisualizationCount === 'function') {
+            mergeVisualizationsCount = footprintManager.getMergeVisualizationCount();
+        }
+        // Или пробуем получить через visualizationManager
+        else if (footprintManager.visualizationManager &&
+                 typeof footprintManager.visualizationManager.getMergeVisualizationCount === 'function') {
+            mergeVisualizationsCount = footprintManager.visualizationManager.getMergeVisualizationCount();
+        }
+    }
+
     res.json({
         status: 'OK',
         timestamp: new Date().toISOString(),
@@ -4174,7 +4188,7 @@ app.get('/health', (req, res) => {
         debug: {
             mode: DEBUG_MODE,
             footprintSessions: footprintManager ? Array.from(footprintManager.userSessions.keys()).length : 0,
-            mergeVisualizations: footprintManager ? footprintManager.getMergeVisualizationCount() : 0
+            mergeVisualizations: mergeVisualizationsCount  // <-- ИСПРАВЛЕНО
         }
     });
 });
