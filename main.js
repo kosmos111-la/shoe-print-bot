@@ -585,11 +585,7 @@ app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
     res.sendStatus(200);
 });
 
-// Webhook для Telegram
-app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
-    bot.processUpdate(req.body);
-    res.sendStatus(200);
-});
+
 
 // Команда /start
 bot.onText(/\/start/, (msg) => {
@@ -4495,86 +4491,124 @@ function getCorrectionDescription(type) {
 // 🌐 НАСТРОЙКА ВЕБХУКА ДЛЯ RENDER.COM
 // =============================================================================
 
-async function setupWebhook() {
+async function setupWebhook() {async function setupWebhook() {
     try {
         console.log('🔄 Настраиваю вебхук...');
-
+       
+        // 🔥 ФИКСИРОВАННЫЙ URL (как у вас на Render)
+        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
+       
+        console.log('🔗 URL вебхука:', webhookUrl);
+       
         // 1. Удаляем старый вебхук
         const deleted = await bot.deleteWebHook({ drop_pending_updates: true });
         console.log('✅ Старый вебхук удален:', deleted);
-
+       
         // 2. Ждем 2 секунды
         await new Promise(resolve => setTimeout(resolve, 2000));
-
+       
         // 3. Устанавливаем новый вебхук
-        // ⚠️ ВАЖНО: Используйте ВАШ URL от Render
-        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
-        console.log('🔗 Устанавливаю вебхук:', webhookUrl);
-
         const result = await bot.setWebHook(webhookUrl, {
             max_connections: 40,
-            allowed_updates: ["message", "callback_query", "polling_answer"]
+            allowed_updates: ["message", "callback_query"]
         });
-
+       
         console.log('✅ Вебхук установлен:', result);
-
+       
         // 4. Проверяем
         const info = await bot.getWebHookInfo();
         console.log('📊 Информация о вебхуке:');
         console.log('- URL:', info.url);
-        console.log('- Ошибок:', info.last_error_message || 'нет');
+        console.log('- Ошибок:', info.last_error_message || '✅ Нет');
         console.log('- Ожидающих обновлений:', info.pending_update_count);
-
+       
+        if (!info.url) {
+            console.log('⚠️ Вебхук не установлен!');
+        } else if (info.last_error_message) {
+            console.log('⚠️ Ошибка вебхука:', info.last_error_message);
+        } else {
+            console.log('✅ Вебхук работает отлично!');
+        }
+       
     } catch (error) {
-        console.log('❌ КРИТИЧЕСКАЯ ошибка вебхука:', error.message);
-        console.log('⚠️ Если вебхук не работает, запускаю polling как запасной вариант...');
-
-        // Fallback на polling если вебхук не работает
-      //  setTimeout(() => {
-     //       bot.startPolling().then(() => {
-     //           console.log('✅ Polling запущен как запасной вариант');
-     //       }).catch(pollErr => {
-     //           console.log('❌ Не удалось запустить polling:', pollErr.message);
-     //       });
-     //   }, 5000);
+        console.log('❌ Ошибка настройки вебхука:', error.message);
+        console.log('⚠️ Запускаю polling как запасной вариант...');
+       
+        // Запасной вариант - polling
+        bot.startPolling({
+            polling: true,
+            timeout: 30,
+            restart: true
+        }).then(() => {
+            console.log('✅ Polling запущен как запасной вариант');
+        }).catch(pollErr => {
+            console.log('❌ Не удалось запустить polling:', pollErr.message);
+        });
     }
 }
 
-// Запускаем настройку вебхука через 3 секунды после старта
-setTimeout(setupWebhook, 3000);
-
-// Периодическая проверка вебхука
-setInterval(async () => {
+// Эндпоинт для вебхука
+app.post(`/bot${config.TELEGRAM_TOKEN}`, (req, res) => {
+    console.log('📨 Получен вебхук запрос');
     try {
-        const info = await bot.getWebHookInfo();
-        if (!info.url || info.pending_update_count > 50) {
-            console.log('⚠️ Вебхук требует внимания, переустанавливаю...');
-            await setupWebhook();
+        if (req.body) {
+            bot.processUpdate(req.body);
+            res.sendStatus(200);
+        } else {
+            res.sendStatus(200);
         }
     } catch (error) {
-        console.log('❌ Ошибка проверки вебхука:', error.message);
+        console.log('❌ Ошибка обработки вебхука:', error.message);
+        res.sendStatus(500);
     }
-}, 30 * 60 * 1000); // Проверка каждые 30 минут
+});
 
 // Тестовый эндпоинт для проверки
 app.get('/webhook-test', async (req, res) => {
     try {
         const info = await bot.getWebHookInfo();
+        const me = await bot.getMe();
         res.json({
             status: 'ok',
+            bot: {
+                username: me.username,
+                id: me.id
+            },
             webhook: {
                 url: info.url,
                 pending_updates: info.pending_update_count,
                 last_error: info.last_error_message,
                 has_custom_certificate: info.has_custom_certificate
             },
-            bot: await bot.getMe(),
+            server_url: `https://shoe-print-bot.onrender.com`,
+            webhook_endpoint: `/bot${config.TELEGRAM_TOKEN.substring(0, 10)}...`,
             timestamp: new Date().toISOString()
         });
     } catch (error) {
-        res.status(500).json({ error: error.message });
+        res.status(500).json({
+            error: error.message,
+            timestamp: new Date().toISOString()
+        });
     }
 });
+
+// Запускаем настройку вебхука через 3 секунды после старта
+setTimeout(setupWebhook, 3000);
+
+// Периодическая проверка вебхука (каждые 30 минут)
+setInterval(async () => {
+    try {
+        const info = await bot.getWebHookInfo();
+        if (!info.url || info.last_error_message) {
+            console.log('⚠️ Вебхук требует внимания, переустанавливаю...');
+            await setupWebhook();
+        } else if (info.pending_update_count > 10) {
+            console.log(`⚠️ Много ожидающих обновлений: ${info.pending_update_count}`);
+        }
+    } catch (error) {
+        console.log('❌ Ошибка проверки вебхука:', error.message);
+    }
+}, 30 * 60 * 1000);
 
 // =============================================================================
 // 🔧 КОМАНДЫ ДЛЯ СИСТЕМНОЙ ДИАГНОСТИКИ
@@ -4639,13 +4673,34 @@ bot.onText(/\/system_info/, async (msg) => {
     await bot.sendMessage(chatId, info);
 });
 
-// Запуск сервера
-app.listen(config.PORT, () => {
-    console.log(`✅ Сервер запущен на порту ${config.PORT}`);
+// =============================================================================
+// 🚀 ЗАПУСК СЕРВЕРА
+// =============================================================================
+
+// Health check эндпоинт
+app.get('/health', (req, res) => {
+    res.json({
+        status: 'OK',
+        webhook_configured: true,
+        timestamp: new Date().toISOString()
+    });
+});
+
+// Главная страница
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>🤖 Система анализа следов обуви v2.5</h1>
+        <p>✅ Вебхук режим: АКТИВЕН</p>
+        <p>🔗 URL: https://shoe-print-bot.onrender.com</p>
+        <p><a href="/webhook-test">Проверить вебхук</a></p>
+        <p><a href="/health">Health Check</a></p>
+    `);
+});
+
+const PORT = process.env.PORT || 10000;
+app.listen(PORT, () => {
+    console.log(`✅ Сервер запущен на порту ${PORT}`);
     console.log(`🤖 Telegram бот готов к работе`);
-    console.log(`🎯 Практический анализ для ПСО активирован`);
-    console.log(`🐕 Фильтрация животных: активна`);
-    console.log(`👣 Графовая система с автосовмещением: АКТИВИРОВАНА`);
-    console.log(`🎨 Визуализация объединения следов: АКТИВИРОВАНА`);
-    console.log(`🔧 DEBUG_MODE: ${DEBUG_MODE ? 'ВКЛЮЧЕН' : 'ВЫКЛЮЧЕН'}`);
+    console.log(`🌐 Вебхук будет настроен через 3 секунды...`);
+    console.log(`🔗 Ожидайте сообщения в Telegram!`);
 });
