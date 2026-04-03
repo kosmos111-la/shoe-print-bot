@@ -193,7 +193,7 @@ async function initializeNewFootprintSystem() {
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
-    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAG2PClbwwTRpzr3ga4KdIlFeIqvHXSLNYE',
+    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
     PORT: process.env.PORT || 10000,
     YANDEX_DISK_TOKEN: process.env.YANDEX_DISK_TOKEN,
     OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY,
@@ -4156,20 +4156,6 @@ app.get('/', (req, res) => {
 });
 
 app.get('/health', (req, res) => {
-    // Безопасное получение количества merge-визуализаций
-    let mergeVisualizationsCount = 0;
-    if (footprintManager && footprintManager.visualizationManager) {
-        // Если есть метод getMergeVisualizationCount - используем его
-        if (typeof footprintManager.getMergeVisualizationCount === 'function') {
-            mergeVisualizationsCount = footprintManager.getMergeVisualizationCount();
-        }
-        // Или пробуем получить через visualizationManager
-        else if (footprintManager.visualizationManager &&
-                 typeof footprintManager.visualizationManager.getMergeVisualizationCount === 'function') {
-            mergeVisualizationsCount = footprintManager.visualizationManager.getMergeVisualizationCount();
-        }
-    }
-
     res.json({
         status: 'OK',
         timestamp: new Date().toISOString(),
@@ -4188,7 +4174,7 @@ app.get('/health', (req, res) => {
         debug: {
             mode: DEBUG_MODE,
             footprintSessions: footprintManager ? Array.from(footprintManager.userSessions.keys()).length : 0,
-            mergeVisualizations: mergeVisualizationsCount  // <-- ИСПРАВЛЕНО
+            mergeVisualizations: footprintManager ? footprintManager.getMergeVisualizationCount() : 0
         }
     });
 });
@@ -4530,13 +4516,13 @@ async function setupWebhook() {
         console.log('⚠️ Если вебхук не работает, запускаю polling как запасной вариант...');
 
         // Fallback на polling если вебхук не работает
-      //  setTimeout(() => {
-     //       bot.startPolling().then(() => {
-     //           console.log('✅ Polling запущен как запасной вариант');
-     //       }).catch(pollErr => {
-     //           console.log('❌ Не удалось запустить polling:', pollErr.message);
-     //       });
-     //   }, 5000);
+        setTimeout(() => {
+            bot.startPolling().then(() => {
+                console.log('✅ Polling запущен как запасной вариант');
+            }).catch(pollErr => {
+                console.log('❌ Не удалось запустить polling:', pollErr.message);
+            });
+        }, 5000);
     }
 }
 
