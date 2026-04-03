@@ -4369,6 +4369,29 @@ console.log('🛡️ Глобальные обработчики ошибки а
 })();
 
 // =============================================================================
+// 📊 ДИАГНОСТИКА ПАМЯТИ (КАЖДЫЕ 5 МИНУТ)
+// =============================================================================
+
+setInterval(() => {
+    const used = process.memoryUsage();
+    console.log('\n📊 MEMORY USAGE:');
+    console.log(`   RSS: ${Math.round(used.rss / 1024 / 1024)} MB`);
+    console.log(`   Heap Total: ${Math.round(used.heapTotal / 1024 / 1024)} MB`);
+    console.log(`   Heap Used: ${Math.round(used.heapUsed / 1024 / 1024)} MB`);
+    console.log(`   External: ${Math.round(used.external / 1024 / 1024)} MB`);
+   
+    if (footprintManager) {
+        const sessions = footprintManager.userSessions?.size || 0;
+        const models = footprintManager.loadedModels?.size || 0;
+        console.log(`   Active Sessions: ${sessions}`);
+        console.log(`   Loaded Models: ${models}`);
+    }
+   
+    const tempFiles = fs.readdirSync('./temp').length;
+    console.log(`   Temp Files: ${tempFiles}`);
+}, 5 * 60 * 1000);
+
+// =============================================================================
 // 🔄 ОБРАБОТЧИК CALLBACK-КНОПОК ДЛЯ ОБРАТНОЙ СВЯЗИ
 // =============================================================================
 
