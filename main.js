@@ -193,7 +193,7 @@ async function initializeNewFootprintSystem() {
 
 // ВСТРОЕННЫЙ CONFIG
 const config = {
-    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAG2PClbwwTRpzr3ga4KdIlFeIqvHXSLNYE',
+    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
     PORT: process.env.PORT || 10000,
     YANDEX_DISK_TOKEN: process.env.YANDEX_DISK_TOKEN,
     OPENWEATHER_API_KEY: process.env.OPENWEATHER_API_KEY,
