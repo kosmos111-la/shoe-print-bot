@@ -6,7 +6,7 @@ const TelegramBot = require('node-telegram-bot-api');
 // =============================================================================
 
 const config = {
-    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
+    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAG2PClbwwTRpzr3ga4KdIlFeIqvHXSLNYE',
     PORT: process.env.PORT || 10000
 };
 
