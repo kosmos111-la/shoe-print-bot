@@ -1,5 +1,5 @@
 module.exports = {
-    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN || '8474413305:AAGUROU5GSKKTso_YtlwsguHzibBcpojLVI',
+    TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
     PORT: process.env.PORT || 10000,
     YANDEX_DISK_TOKEN: process.env.YANDEX_DISK_TOKEN,
    
