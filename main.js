@@ -24,6 +24,27 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
+// =============================================================================
+// 🛡️ ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК (ДОЛЖНЫ БЫТЬ ПЕРВЫМИ)
+// =============================================================================
+
+process.on('uncaughtException', (error) => {
+    console.error('💥 CRITICAL: Uncaught Exception');
+    console.error('Error:', error.message);
+    console.error('Stack:', error.stack);
+    // Не выходим, пусть бот продолжает работу
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('💥 CRITICAL: Unhandled Rejection');
+    console.error('Reason:', reason);
+    console.error('Promise:', promise);
+});
+
+// Выводим версию Node.js для диагностики
+console.log(`🟢 Node.js version: ${process.version}`);
+console.log(`🟢 Platform: ${process.platform}`);
+
 // ИМПОРТ МОДУЛЕЙ
 const visualizationModule = require('./modules/visualization');
 const yandexDiskModule = require('./modules/yandex-disk');
@@ -4646,6 +4667,25 @@ bot.onText(/\/system_info/, async (msg) => {
 `;
 
     await bot.sendMessage(chatId, info);
+});
+
+// =============================================================================
+// 🛡️ ДОПОЛНИТЕЛЬНАЯ ДИАГНОСТИКА ПЕРЕД ЗАПУСКОМ
+// =============================================================================
+
+console.log('🟢 Starting server...');
+console.log(`🟢 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🟢 Memory limit: ${require('v8').getHeapStatistics().heap_size_limit / 1024 / 1024} MB`);
+
+// Перехват сигналов завершения
+process.on('SIGTERM', () => {
+    console.log('🟡 Received SIGTERM, graceful shutdown...');
+    process.exit(0);
+});
+
+process.on('SIGINT', () => {
+    console.log('🟡 Received SIGINT, graceful shutdown...');
+    process.exit(0);
 });
 
 // Запуск сервера
