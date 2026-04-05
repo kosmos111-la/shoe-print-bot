@@ -262,28 +262,11 @@ this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
 
         let stats = { red: 0, orange: 0, yellow: 0, blue: 0, gray: 0, matched: 0 };
 
-        // Группируем близкие точки для усреднения
+// НЕ группируем и НЕ усредняем точки — рисуем каждую точку как есть
 const groupedPoints = new Map();
-const GROUP_THRESHOLD = 5; // пикселей в координатах модели
-
 for (const point of points) {
-    let found = false;
-    for (const [key, existing] of groupedPoints) {
-        const dx = existing.x - point.x;
-        const dy = existing.y - point.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-        if (dist < GROUP_THRESHOLD) {
-            existing.x = (existing.x + point.x) / 2;
-            existing.y = (existing.y + point.y) / 2;
-            existing.confirmationCount = (existing.confirmationCount || 1) + (point.confirmationCount || 1);
-            existing.count++;
-            found = true;
-            break;
-        }
-    }
-    if (!found) {
-        groupedPoints.set(point.id, { ...point, count: 1 });
-    }
+    // Просто добавляем каждую точку без усреднения
+    groupedPoints.set(point.id, point);
 }
 
 // Рисуем усреднённые точки
@@ -335,13 +318,13 @@ if (isMatched) {
             ctx.stroke();
 
             // Для красных точек добавляем номер
-            if (confirmations >= 11 && point.pairNumber) {
-                ctx.fillStyle = '#000000';
-                ctx.font = 'bold 8px Arial';
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText(point.pairNumber.toString(), x, y);
-            }
+           if (confidence >= 0.95 && point.pairNumber) {
+    ctx.fillStyle = '#000000';
+    ctx.font = 'bold 8px Arial';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(point.pairNumber.toString(), x, y);
+}
         }
 
         console.log(`   📊 Модель: красных ${stats.red}, оранж ${stats.orange}, жёлт ${stats.yellow}, син ${stats.blue}, сер ${stats.gray}, сопоставлено ${stats.matched}`);
