@@ -2697,70 +2697,102 @@ const finalResult = {
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-    const model = this.models.get(modelId);
-    let confirmedExisting = 0;
-    let newNodesAdded = 0;
+    const model = this.models.get(modelId);
+    let confirmedExisting = 0;
+    let newNodesAdded = 0;
 
-    const matchedPhotoIds = new Set();
-    const matchedModelIds = new Set();
+    const matchedPhotoIds = new Set();
+    const matchedModelIds = new Set();
 
-    // 1. Обновляем существующие точки (только счётчик!)
-    for (const match of matches) {
-        const modelNode = model.graph.nodes.get(match.pointB);
-        if (modelNode) {
-            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-            modelNode.lastConfirmed = new Date();
-            confirmedExisting++;
-            matchedPhotoIds.add(match.pointA);
-            matchedModelIds.add(match.pointB);
-        }
-    }
+    // 1. Обновляем существующие точки (счётчик + накопление уверенности!)
+    for (const match of matches) {
+        const modelNode = model.graph.nodes.get(match.pointB);
+        if (modelNode) {
+            // Увеличиваем счётчик подтверждений
+            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+            modelNode.lastConfirmed = new Date();
+           
+            // 🔥 НОВОЕ: Накопление уверенности (байесовская комбинация)
+            const newConfidence = match.confidence || 0.7;
+            const oldConfidence = modelNode.confidenceScore || 0.5;
+           
+            // Формула: 1 - (1 - old) * (1 - new)
+            const combinedConfidence = 1 - (1 - oldConfidence) * (1 - newConfidence);
+            modelNode.confidenceScore = combinedConfidence;
+           
+            confirmedExisting++;
+            matchedPhotoIds.add(match.pointA);
+            matchedModelIds.add(match.pointB);
+           
+            if (this.debug) {
+                console.log(`   ✅ Подтверждена точка ${match.pointB.substring(0,12)}: уверенность ${oldConfidence.toFixed(2)} → ${combinedConfidence.toFixed(2)} (кол-во=${modelNode.confirmationCount})`);
+            }
+        }
+    }
 
-    // 2. Добавляем новые точки из фото
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
+    // 2. Добавляем новые точки из фото (координаты НЕ меняем!)
+    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+        if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
 
-        for (const photoPoint of this.lastUniqueInPhoto) {
-            let isDuplicate = false;
-            for (const [modelId, modelNode] of model.graph.nodes) {
-                const dx = modelNode.x - photoPoint.x;
-                const dy = modelNode.y - photoPoint.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                if (dist < 5) {
-                    isDuplicate = true;
-                    break;
-                }
-            }
+        for (const photoPoint of this.lastUniqueInPhoto) {
+            // Проверка на дубликат
+            let isDuplicate = false;
+            for (const [modelId, modelNode] of model.graph.nodes) {
+                const dx = modelNode.x - photoPoint.x;
+                const dy = modelNode.y - photoPoint.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 5) {
+                    isDuplicate = true;
+                    if (this.debug) console.log(`      ⚠️ Точка уже существует (расст ${dist.toFixed(1)}px), пропускаю`);
+                    break;
+                }
+            }
 
-            if (!isDuplicate) {
-                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+            if (!isDuplicate) {
+                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
 
-                model.graph.nodes.set(newNodeId, {
-                    id: newNodeId,
-                    x: photoPoint.x,
-                    y: photoPoint.y,
-                    degree: 0,
-                    morphology: newMorphology?.get(photoPoint.id),
-                    confirmationCount: 1,
-                    addedFrom: 'new_photo_point',
-                    addedAt: new Date(),
-                    originalPhotoId: photoPoint.id
-                });
+                model.graph.nodes.set(newNodeId, {
+                    id: newNodeId,
+                    x: photoPoint.x,        // ← КООРДИНАТЫ НЕ МЕНЯЕМ!
+                    y: photoPoint.y,        // ← КООРДИНАТЫ НЕ МЕНЯЕМ!
+                    degree: 0,
+                    morphology: newMorphology?.get(photoPoint.id),
+                    confirmationCount: 1,
+                    confidenceScore: 0.5,   // 🔥 НАЧАЛЬНАЯ УВЕРЕННОСТЬ
+                    addedFrom: 'new_photo_point',
+                    addedAt: new Date(),
+                    originalPhotoId: photoPoint.id
+                });
 
-                newNodesAdded++;
-                if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
-            }
-        }
-    }
+                newNodesAdded++;
+                if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) с уверенностью 0.5`);
+            }
+        }
+    }
 
-    if (this.debug) {
-        console.log(`\n📊 Результат обновления модели:`);
-        console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
-        console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
-        console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
-    }
+    if (this.debug) {
+        console.log(`\n📊 Результат обновления модели:`);
+        console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
+        console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
+        console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
+       
+        // Диагностика распределения уверенности
+        let low = 0, medium = 0, high = 0, veryHigh = 0;
+        for (const node of model.graph.nodes.values()) {
+            const conf = node.confidenceScore || 0;
+            if (conf >= 0.95) veryHigh++;
+            else if (conf >= 0.8) high++;
+            else if (conf >= 0.6) medium++;
+            else low++;
+        }
+        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ УВЕРЕННОСТИ В МОДЕЛИ:`);
+        console.log(`   🔴 Очень высокая (≥95%): ${veryHigh}`);
+        console.log(`   🟠 Высокая (80-95%): ${high}`);
+        console.log(`   🟡 Средняя (60-80%): ${medium}`);
+        console.log(`   🔵 Низкая (<60%): ${low}`);
+    }
 
-    return { confirmedExisting, newNodesAdded };
+    return { confirmedExisting, newNodesAdded };
 }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
@@ -3210,9 +3242,27 @@ const finalResult = {
     }
 
     cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
-        const model = this.models.get(modelId);
-        if (!model) return { removed: 0, remaining: 0 };
+    const model = this.models.get(modelId);
+    if (!model) return { removed: 0, remaining: 0 };
 
+    // 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ ОЧИСТКУ ДЛЯ ДИАГНОСТИКИ
+    if (this.debug) {
+        console.log(`\n⚠️ [ДИАГНОСТИКА] cleanUnconfirmedNodes временно отключена. Точки НЕ удаляются.`);
+        console.log(`   Было бы удалено точек с confirmations < ${minConfirmations}`);
+       
+        // Просто подсчитаем, сколько бы удалилось
+        const graph = model.graph;
+        let wouldRemove = 0;
+        for (const [nodeId, node] of graph.nodes) {
+            if (node.addedFrom === 'original') continue;
+            const confirmations = node.confirmationCount || 1;
+            if (confirmations < minConfirmations) wouldRemove++;
+        }
+        console.log(`   Потенциально к удалению: ${wouldRemove} точек`);
+    }
+   
+    return { removed: 0, remaining: model.graph.nodes.size };
+/* СТАРЫЙ КОД ЗАКОММЕНТИРОВАН
         const graph = model.graph;
         const toRemove = [];
         const now = Date.now();
@@ -3256,7 +3306,7 @@ const finalResult = {
         if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
         return { removed: toRemove.length, remaining: graph.nodes.size };
     }
-
+*/
     setTriangleResult(modelId, result) {
         const model = this.models.get(modelId);
         if (model) {
@@ -4514,26 +4564,22 @@ mergeDuplicatePoints(graph, threshold = 3) {
             const dy = points[i].y - points[j].y;
             const dist = Math.sqrt(dx*dx + dy*dy);
            
-            if (dist < threshold) {
-                // Усредняем координаты
-                const avgX = (points[i].x + points[j].x) / 2;
-                const avgY = (points[i].y + points[j].y) / 2;
-                points[i].x = avgX;
-                points[i].y = avgY;
-                points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
-               
-                // Запоминаем для обновления рёбер
-                edgesToUpdate.set(points[j].id, points[i].id);
-               
-                // Удаляем дубликат
-                graph.nodes.delete(points[j].id);
-                merged.add(points[j].id);
-                mergedCount++;
-               
-                if (this.debug) {
-                    console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → ${points[i].id.substring(0,12)} (расст ${dist.toFixed(1)}px)`);
-                }
-            }
+if (dist < threshold) {
+    // 🔥 НЕ усредняем координаты! Оставляем координаты первой точки
+    // points[i].x = points[i].x;  // не меняем
+    // points[i].y = points[i].y;  // не меняем
+   
+    // Суммируем счётчики подтверждений
+    points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
+   
+    // 🔥 НОВОЕ: комбинируем уверенность при слиянии
+    const conf1 = points[i].confidenceScore || 0.5;
+    const conf2 = points[j].confidenceScore || 0.5;
+    points[i].confidenceScore = 1 - (1 - conf1) * (1 - conf2);
+   
+    if (this.debug) {
+        console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → координаты первой, уверенность ${conf1.toFixed(2)}→${points[i].confidenceScore.toFixed(2)}`);
+    }
         }
     }
    
