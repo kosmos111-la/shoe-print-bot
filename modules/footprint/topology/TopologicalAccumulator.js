@@ -3241,7 +3241,7 @@ const finalResult = {
         return Infinity;
     }
 
-    cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
+   cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
     const model = this.models.get(modelId);
     if (!model) return { removed: 0, remaining: 0 };
 
@@ -3249,7 +3249,7 @@ const finalResult = {
     if (this.debug) {
         console.log(`\n⚠️ [ДИАГНОСТИКА] cleanUnconfirmedNodes временно отключена. Точки НЕ удаляются.`);
         console.log(`   Было бы удалено точек с confirmations < ${minConfirmations}`);
-       
+
         // Просто подсчитаем, сколько бы удалилось
         const graph = model.graph;
         let wouldRemove = 0;
@@ -3260,53 +3260,56 @@ const finalResult = {
         }
         console.log(`   Потенциально к удалению: ${wouldRemove} точек`);
     }
-   
+
     return { removed: 0, remaining: model.graph.nodes.size };
-/* СТАРЫЙ КОД ЗАКОММЕНТИРОВАН
-        const graph = model.graph;
-        const toRemove = [];
-        const now = Date.now();
+   
+    // СТАРЫЙ КОД ВРЕМЕННО ОТКЛЮЧЁН
+    /*
+    const graph = model.graph;
+    const toRemove = [];
+    const now = Date.now();
 
-        const corePoints = new Set();
-        if (model.lastTriangleResult && model.lastTriangleResult.zones) {
-            model.lastTriangleResult.zones.core.forEach(p => corePoints.add(p.pointA));
-        }
+    const corePoints = new Set();
+    if (model.lastTriangleResult && model.lastTriangleResult.zones) {
+        model.lastTriangleResult.zones.core.forEach(p => corePoints.add(p.pointA));
+    }
 
-        for (const [nodeId, node] of graph.nodes) {
-            if (corePoints.has(nodeId)) continue;
-            if (node.addedFrom === 'original') continue;
+    for (const [nodeId, node] of graph.nodes) {
+        if (corePoints.has(nodeId)) continue;
+        if (node.addedFrom === 'original') continue;
 
-            const confirmations = node.confirmationCount || 1;
-            const addedAt = node.addedAt ? node.addedAt.getTime() : now;
-            const age = (now - addedAt) / (1000 * 60 * 60 * 24);
+        const confirmations = node.confirmationCount || 1;
+        const addedAt = node.addedAt ? node.addedAt.getTime() : now;
+        const age = (now - addedAt) / (1000 * 60 * 60 * 24);
 
-            if (confirmations < minConfirmations && age > 0.1) {
-                toRemove.push(nodeId);
-            }
-        }
+        if (confirmations < minConfirmations && age > 0.1) {
+            toRemove.push(nodeId);
+        }
+    }
 
-        toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
+    toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
 
-        const newEdges = new Set();
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a) && graph.nodes.has(b)) {
-                newEdges.add(edge);
-            }
-        }
-        graph.edges = newEdges;
+    const newEdges = new Set();
+    for (const edge of graph.edges) {
+        const [a, b] = edge.split('--');
+        if (graph.nodes.has(a) && graph.nodes.has(b)) {
+            newEdges.add(edge);
+        }
+    }
+    graph.edges = newEdges;
 
-        for (const node of graph.nodes.values()) node.degree = 0;
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
+    for (const node of graph.nodes.values()) node.degree = 0;
+    for (const edge of graph.edges) {
+        const [a, b] = edge.split('--');
+        if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+        if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+    }
 
-        if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
-        return { removed: toRemove.length, remaining: graph.nodes.size };
-    }
-*/
+    if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
+    return { removed: toRemove.length, remaining: graph.nodes.size };
+    */
+}
+
     setTriangleResult(modelId, result) {
         const model = this.models.get(modelId);
         if (model) {
