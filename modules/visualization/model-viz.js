@@ -291,38 +291,37 @@ for (const point of groupedPoints.values()) {
     const x = this.projectX(point.x, bounds, scale, width);
     const y = this.projectY(point.y, bounds, scale, height);
 
-            const confirmations = point.confirmationCount || 0;
-            const isMatched = matchedModelPoints.has(point.id);
-           
-            // Определяем цвет по количеству подтверждений
-            let color;
-            let size;
-           
-            if (isMatched) {
-                color = '#FFD700'; // Золотой для сопоставленных точек модели
-                size = 8;
-                stats.matched++;
-            } else if (confirmations >= 11) {
-                color = '#FF0000'; // Красный
-                size = 8;
-                stats.red++;
-            } else if (confirmations >= 5) {
-                color = '#FFA500'; // Оранжевый
-                size = 7;
-                stats.orange++;
-            } else if (confirmations >= 2) {
-                color = '#FFD700'; // Жёлтый
-                size = 6;
-                stats.yellow++;
-            } else if (confirmations >= 1) {
-                color = '#4169E1'; // Синий
-                size = 5;
-                stats.blue++;
-            } else {
-                color = '#808080'; // Серый
-                size = 4;
-                stats.gray++;
-            }
+            const confidence = point.confidenceScore || 0;
+const isMatched = matchedModelPoints.has(point.id);
+
+let color;
+let size;
+
+if (isMatched) {
+    color = '#FFD700'; // Золотой для сопоставленных
+    size = 8;
+    stats.matched++;
+} else if (confidence >= 0.95) {
+    color = '#FF0000'; // 🔴 Красный - очень высокая уверенность (3+ фото)
+    size = 8;
+    stats.red++;
+} else if (confidence >= 0.8) {
+    color = '#FFA500'; // 🟠 Оранжевый - высокая уверенность
+    size = 7;
+    stats.orange++;
+} else if (confidence >= 0.6) {
+    color = '#FFD700'; // 🟡 Жёлтый - средняя уверенность
+    size = 6;
+    stats.yellow++;
+} else if (confidence >= 0.3) {
+    color = '#4169E1'; // 🔵 Синий - низкая уверенность (1 фото)
+    size = 5;
+    stats.blue++;
+} else {
+    color = '#808080'; // ⚪ Серый - очень низкая
+    size = 4;
+    stats.gray++;
+}
 
             // Рисуем точку
             ctx.fillStyle = color;
@@ -486,11 +485,11 @@ drawFootprintContour(ctx, points, bounds, scale, width, height, isPhoto = false)
         ctx.fillText('🏗️ МОДЕЛЬ С НАЛОЖЕНИЕМ', legendX, legendY);
 
         // Точки модели
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight, '#FF0000', 'Модель: 11+ подтверждений');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 2, '#FFA500', 'Модель: 5-10 подтверждений');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 3, '#FFD700', 'Модель: 2-4 подтверждения');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 4, '#4169E1', 'Модель: 1 подтверждение');
-        this.drawLegendItem(ctx, legendX, legendY + lineHeight * 5, '#808080', 'Модель: 0 подтверждений');
+        this.drawLegendItem(ctx, legendX, legendY + lineHeight, '#FF0000', 'Модель: очень высокая (>95%)');
+this.drawLegendItem(ctx, legendX, legendY + lineHeight * 2, '#FFA500', 'Модель: высокая (80-95%)');
+this.drawLegendItem(ctx, legendX, legendY + lineHeight * 3, '#FFD700', 'Модель: средняя (60-80%)');
+this.drawLegendItem(ctx, legendX, legendY + lineHeight * 4, '#4169E1', 'Модель: низкая (30-60%)');
+this.drawLegendItem(ctx, legendX, legendY + lineHeight * 5, '#808080', 'Модель: очень низкая (<30%)');
 
         // Точки фото
         ctx.fillStyle = '#AA00FF';
