@@ -4552,63 +4552,72 @@ findNearestModelPoint(point, graphB) {
 * @returns {number} - количество слитых точек
 */
 mergeDuplicatePoints(graph, threshold = 3) {
-    const points = Array.from(graph.nodes.values());
-    const merged = new Set();
-    let mergedCount = 0;
-    let edgesToUpdate = new Map(); // старый id -> новый id
-   
-    for (let i = 0; i < points.length; i++) {
-        if (merged.has(points[i].id)) continue;
-       
-        for (let j = i + 1; j < points.length; j++) {
-            if (merged.has(points[j].id)) continue;
-           
-            const dx = points[i].x - points[j].x;
-            const dy = points[i].y - points[j].y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-           
-if (dist < threshold) {
-    // 🔥 НЕ усредняем координаты! Оставляем координаты первой точки
-    // points[i].x = points[i].x;  // не меняем
-    // points[i].y = points[i].y;  // не меняем
-   
-    // Суммируем счётчики подтверждений
-    points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
-   
-    // 🔥 НОВОЕ: комбинируем уверенность при слиянии
-    const conf1 = points[i].confidenceScore || 0.5;
-    const conf2 = points[j].confidenceScore || 0.5;
-    points[i].confidenceScore = 1 - (1 - conf1) * (1 - conf2);
-   
-    if (this.debug) {
-        console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → координаты первой, уверенность ${conf1.toFixed(2)}→${points[i].confidenceScore.toFixed(2)}`);
+    const points = Array.from(graph.nodes.values());
+    const merged = new Set();
+    let mergedCount = 0;
+    let edgesToUpdate = new Map(); // старый id -> новый id
+
+    for (let i = 0; i < points.length; i++) {
+        if (merged.has(points[i].id)) continue;
+
+        for (let j = i + 1; j < points.length; j++) {
+            if (merged.has(points[j].id)) continue;
+
+            const dx = points[i].x - points[j].x;
+            const dy = points[i].y - points[j].y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+
+            if (dist < threshold) {
+                // 🔥 НЕ усредняем координаты! Оставляем координаты первой точки
+                // points[i].x = points[i].x;  // не меняем
+                // points[i].y = points[i].y;  // не меняем
+
+                // Суммируем счётчики подтверждений
+                points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
+
+                // 🔥 НОВОЕ: комбинируем уверенность при слиянии
+                const conf1 = points[i].confidenceScore || 0.5;
+                const conf2 = points[j].confidenceScore || 0.5;
+                points[i].confidenceScore = 1 - (1 - conf1) * (1 - conf2);
+
+                // Запоминаем для обновления рёбер
+                edgesToUpdate.set(points[j].id, points[i].id);
+
+                // Удаляем дубликат
+                graph.nodes.delete(points[j].id);
+                merged.add(points[j].id);
+                mergedCount++;
+
+                if (this.debug) {
+                    console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → координаты первой, уверенность ${conf1.toFixed(2)}→${points[i].confidenceScore.toFixed(2)}`);
+                }
+            }
+        }
     }
-        }
-    }
-   
-    // Обновляем рёбра: заменяем старые ID на новые
-    if (edgesToUpdate.size > 0) {
-        const newEdges = new Set();
-        for (const edge of graph.edges) {
-            let [a, b] = edge.split('--');
-            if (edgesToUpdate.has(a)) a = edgesToUpdate.get(a);
-            if (edgesToUpdate.has(b)) b = edgesToUpdate.get(b);
-            if (a !== b) {
-                newEdges.add([a, b].sort().join('--'));
-            }
-        }
-        graph.edges = newEdges;
-       
-        // Пересчитываем степени
-        for (const node of graph.nodes.values()) node.degree = 0;
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
-    }
-   
-    return mergedCount;
+
+    // Обновляем рёбра: заменяем старые ID на новые
+    if (edgesToUpdate.size > 0) {
+        const newEdges = new Set();
+        for (const edge of graph.edges) {
+            let [a, b] = edge.split('--');
+            if (edgesToUpdate.has(a)) a = edgesToUpdate.get(a);
+            if (edgesToUpdate.has(b)) b = edgesToUpdate.get(b);
+            if (a !== b) {
+                newEdges.add([a, b].sort().join('--'));
+            }
+        }
+        graph.edges = newEdges;
+
+        // Пересчитываем степени
+        for (const node of graph.nodes.values()) node.degree = 0;
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+        }
+    }
+
+    return mergedCount;
 }
 
     clear() {
