@@ -699,7 +699,12 @@ const result = {
     hasTopology: this.config.enableTopology,
     visualizationPath: modelVizPath || photoVizPath || null,
     telegramSent: telegramSent,
-    mode: 'sandbox'
+    mode: 'sandbox',
+    // 🔥 ДОБАВИТЬ:
+    similarity: similarity,      // для совместимости
+    decision: decision,          // для совместимости
+    mergeMethod: topologicalResult?.status,
+    mergeVisualization: modelVizPath || photoVizPath
 };
 
 
