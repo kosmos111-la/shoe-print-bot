@@ -168,7 +168,6 @@ this.affineRefiner = new AffineRefiner({
 console.log(`   existingModel.id = ${existingModel.id?.substring(0,20)}`);
 console.log(`   existingModel.nodes = ${existingModel.graph?.nodes?.size || 0}`);
 console.log(`   modelIdHint = ${modelIdHint?.substring(0,20)}`);
-console.log(`   this.accumulator.currentModelId = ${this.accumulator.currentModelId?.substring(0,20)}`);
 
 if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
 const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
@@ -2734,7 +2733,13 @@ const finalResult = {
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-    const model = this.models.get(modelId);
+    const model = this.models.get(modelId);
+   
+    // 🔥 ДИАГНОСТИКА
+    console.log(`\n🔍 updateModelWithOptimalMatches:`);
+    console.log(`   modelId = ${modelId?.substring(0,20)}`);
+    console.log(`   model.graph.nodes.size ДО = ${model?.graph?.nodes?.size || 0}`);
+    console.log(`   matches.length = ${matches.length}`);
     let confirmedExisting = 0;
     let newNodesAdded = 0;
 
@@ -2798,6 +2803,7 @@ const finalResult = {
     }
 
     return { confirmedExisting, newNodesAdded };
+   console.log(`   model.graph.nodes.size ПОСЛЕ = ${model.graph.nodes.size}`);
 }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
