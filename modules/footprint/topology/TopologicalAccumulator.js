@@ -2101,6 +2101,34 @@ if (this.debug) {
                     const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
 
                     console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+// Диагностика качества модели
+if (existingModel) {
+    let totalConfidence = 0;
+    let highCount = 0;   // >=80%
+    let mediumCount = 0; // 60-80%
+    let lowCount = 0;    // <60%
+    let pointCount = 0;
+   
+    for (const node of existingModel.graph.nodes.values()) {
+        const conf = node.confidenceScore || 0;
+        totalConfidence += conf;
+        pointCount++;
+        if (conf >= 0.8) highCount++;
+        else if (conf >= 0.6) mediumCount++;
+        else lowCount++;
+    }
+   
+    const avgConfidence = pointCount > 0 ? totalConfidence / pointCount : 0;
+   
+    console.log(`\n📊 КАЧЕСТВО МОДЕЛИ (на основе Roboflow):`);
+    console.log(`   • Средняя уверенность: ${(avgConfidence * 100).toFixed(1)}%`);
+    console.log(`   • 🟢 Высокая (>80%): ${highCount} точек`);
+    console.log(`   • 🟡 Средняя (60-80%): ${mediumCount} точек`);
+    console.log(`   • 🔴 Низкая (<60%): ${lowCount} точек`);
+    console.log(`   • Всего точек: ${pointCount}`);
+    console.log(`   📊 Roboflow baseline: mAP50=62.3%, Precision=71.4%, Recall=59.5%, F1=64.9%`);
+}
+                  
                     console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
                     console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
                     console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
@@ -3142,10 +3170,17 @@ for (const match of matches) {
             node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
-            node.confidenceScore = 1.0;        // ← ДОБАВИТЬ (первое фото = 100% уверенность)
+           // Используем уверенность из Roboflow (хранится в morphology)
+const morph = morphologyMap.get(nodeId) || {};
+const initialConfidence = morph.confidence || 0.65;  // средняя уверенность Roboflow ~65%
+node.confidenceScore = initialConfidence;
 node.confirmationCount = 1;
 node.addedFrom = 'original';
 node.addedAt = new Date();
+
+if (this.debug) {
+    console.log(`   🆕 Новая точка ${nodeId.substring(0,12)}: начальная уверенность=${(initialConfidence*100).toFixed(1)}%`);
+}
         }
 
         const model = {
@@ -3465,6 +3500,22 @@ if (this.debug && pointsWithStructure.length > 0) {
     }
 }
 
+// Подсчёт распределения уверенности
+let veryHighConfidence = 0;  // >=95%
+let highConfidence = 0;      // 80-95%
+let mediumConfidence = 0;    // 60-80%
+let lowConfidence = 0;       // 30-60%
+let veryLowConfidence = 0;   // <30%
+
+for (const node of graph.nodes.values()) {
+    const conf = node.confidenceScore || 0;
+    if (conf >= 0.95) veryHighConfidence++;
+    else if (conf >= 0.8) highConfidence++;
+    else if (conf >= 0.6) mediumConfidence++;
+    else if (conf >= 0.3) lowConfidence++;
+    else veryLowConfidence++;
+}
+
 return {
     modelId: targetId,
     modelName: model.metadata.name,
@@ -3474,16 +3525,22 @@ return {
         triangles: modelTriangles,
         pointToStructure: pointToStructure,
         outlineContour: outlineContour,
-        stats: {
-            totalNodes: graph.nodes.size,
-            totalEdges: graph.edges.size,
-            confirmed3: pointsByConfirmation.confirmed3.length,
-            confirmed2: pointsByConfirmation.confirmed2.length,
-            confirmed1: pointsByConfirmation.confirmed1.length,
-            confirmed0: pointsByConfirmation.confirmed0.length,
-            structureCount: structures.length,
-            reliableNodes: reliableNodeIds.size
-        },
+         stats: {
+        totalNodes: graph.nodes.size,
+        totalEdges: graph.edges.size,
+        confirmed3: pointsByConfirmation.confirmed3.length,
+        confirmed2: pointsByConfirmation.confirmed2.length,
+        confirmed1: pointsByConfirmation.confirmed1.length,
+        confirmed0: pointsByConfirmation.confirmed0.length,
+        structureCount: structures.length,
+        reliableNodes: reliableNodeIds.size,
+        // 🔥 НОВЫЕ ПОЛЯ
+        veryHighConfidence: veryHighConfidence,
+        highConfidence: highConfidence,
+        mediumConfidence: mediumConfidence,
+        lowConfidence: lowConfidence,
+        veryLowConfidence: veryLowConfidence
+    },
         pointsByConfirmation: pointsByConfirmation,
         metadata: model.metadata,
         allModels: this.getAllModels(),
