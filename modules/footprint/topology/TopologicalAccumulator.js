@@ -55,7 +55,7 @@ class TopologicalAccumulator {
         });
 
         this.morphologyEncoder = new MorphologyEncoder({ debug: this.debug });
-
+this.lastUniqueInPhoto = [];
         this.centerMatcher = new CenterMatcher({
             debug: this.debug,
             localGroupSignature: this.localGroupSignature,
@@ -1349,7 +1349,17 @@ if (this.debug && refinementIteration > 1) {
                     }
 
                     // Сохраняем уникальные точки фото для последующего добавления в модель
-                    this.lastUniqueInPhoto = uniqueInPhoto;
+                    // 🔥 НАКАПЛИВАЕМ, а не перезаписываем
+if (!this.lastUniqueInPhoto) {
+    this.lastUniqueInPhoto = [];
+}
+// Добавляем только новые точки (которых ещё нет в накопленных)
+for (const newPoint of uniqueInPhoto) {
+    const exists = this.lastUniqueInPhoto.some(p => p.id === newPoint.id);
+    if (!exists) {
+        this.lastUniqueInPhoto.push(newPoint);
+    }
+}
 
                     if (this.debug) {
                         // ===== ТАБЛИЦА ТОЧЕК ИЗ ВИЗУАЛИЗАЦИИ =====
