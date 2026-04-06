@@ -2112,23 +2112,23 @@ console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
 console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
 console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
 console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-console.log(`   • Всего в модели теперь: ${uniquePoints}`);
+console.log(`   • Всего в модели теперь: ${existingModel?.graph?.nodes?.size || 0}`);
 console.log(`\n🏗 КАЧЕСТВО МОДЕЛИ:`);
 console.log(`   • Уникальных точек: ${uniquePoints}`);
 console.log(`   • Подтверждено (2+ фото): ${confirmedPointsCount}`);
 console.log(`   • Стабильность: ${stability}%`);
 
-                    this.photoToModel.set(photoId, modelIdHint);
-
-                    // 🔥 ИСПРАВЛЕНИЕ: обновляем currentModelId, если модель изменилась
+// 🔥 ИСПРАВЛЕНИЕ: обновляем currentModelId, если модель изменилась
 if (existingModel && existingModel.id !== this.currentModelId) {
     this.currentModelId = existingModel.id;
     if (this.debug) console.log(`🔄 currentModelId обновлён: ${this.currentModelId}`);
 }
 
+this.photoToModel.set(photoId, modelIdHint);
+
 return {
     status: 'consistent_anchors',
-    modelId: this.currentModelId,  // ← использовать currentModelId вместо modelIdHint
+    modelId: this.currentModelId,  // ← используем currentModelId вместо modelIdHint
                         similarity: triangleResult?.similarity || 0,
                         centerMatches: finalMatches?.length || 0,
                         totalMatches: finalMatches?.length || 0,
