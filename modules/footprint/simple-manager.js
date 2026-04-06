@@ -180,6 +180,9 @@ if (analysis.predictions && Array.isArray(analysis.predictions)) {
 const avgConfidence = confidenceCount > 0 ? (totalConfidence / confidenceCount * 100).toFixed(1) : 0;
 console.log(`📸 Roboflow: обнаружено ${points.length} протекторов, средняя уверенность ${avgConfidence}%`);
 
+// 🔥 СОХРАНЯЕМ avgConfidence ДЛЯ ПЕРЕДАЧИ В TELEGRAM
+const avgConfidenceValue = parseFloat(avgConfidence) / 100;
+
 if (points.length < this.config.minPointsForFootprint) {
     return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
 }
@@ -272,8 +275,9 @@ if (this.config.enableTopology) {
 
     // 🔥 ДОБАВЛЯЕМ ДАННЫЕ В РЕЗУЛЬТАТ
     topologicalResult.photoPoints = photoPoints;
-    topologicalResult.photoContours = photoContours;
-    topologicalResult.transform = topologicalResult.topologicalResult?.transform;
+topologicalResult.photoContours = photoContours;
+topologicalResult.transform = topologicalResult.topologicalResult?.transform;
+topologicalResult.avgConfidence = avgConfidenceValue;  // 🔥 ДОБАВИТЬ
 // 🔥 ДИАГНОСТИКА КОНТУРОВ В PHOTOCONTOURS
 console.log(`\n📐 ДИАГНОСТИКА photoContours:`);
 console.log(`   photoContours.length: ${photoContours?.length || 0}`);
@@ -1707,19 +1711,26 @@ getRolesFromGraph(graph) {
         // 🔥 ОТПРАВЛЯЕМ МОДЕЛЬ
         if (modelVizPath && fs.existsSync(modelVizPath)) {
             let modelCaption = `🏗️ **ТОПОЛОГИЧЕСКАЯ МОДЕЛЬ**\n\n`;
-            modelCaption += `📊 Решение: ${decision === 'same_footprint' || decision === 'same_footprint_enhanced' ? '✅ ОДНА ОБУВЬ' : '🆕 РАЗНАЯ ОБУВЬ'}\n`;
-            modelCaption += `📈 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
+modelCaption += `📊 Решение: ${decision === 'same_footprint' || decision === 'same_footprint_enhanced' ? '✅ ОДНА ОБУВЬ' : '🆕 РАЗНАЯ ОБУВЬ'}\n`;
+modelCaption += `📈 Сходство: ${(similarity * 100).toFixed(1)}%\n`;
 
+// 🔥 НОВОЕ: информация о текущем фото (Roboflow)
+if (topologicalResult && topologicalResult.photoPoints) {
+    const photoPointsCount = topologicalResult.photoPoints.length;
+    const avgConfidence = topologicalResult.avgConfidence || 0;
+    modelCaption += `\n📸 **ТЕКУЩЕЕ ФОТО:**\n`;
+    modelCaption += `├─ Протекторов: ${photoPointsCount}\n`;
+    modelCaption += `├─ Средняя уверенность Roboflow: ${(avgConfidence * 100).toFixed(1)}%\n`;
+}
 
-            if (visualizationData && visualizationData.stats) {
-                modelCaption += `\n📊 МОДЕЛЬ:\n`;
-                modelCaption += `├─ Узлов: ${visualizationData.stats.totalNodes}\n`;
-                modelCaption += `├─ Рёбер: ${visualizationData.stats.totalEdges}\n`;
-                modelCaption += `├─ 🔴 3+: ${visualizationData.stats.confirmed3}\n`;
-                modelCaption += `├─ 🟠 2: ${visualizationData.stats.confirmed2}\n`;
-                modelCaption += `├─ 🔵 1: ${visualizationData.stats.confirmed1}\n`;
-                modelCaption += `└─ ⚪ Новые: ${visualizationData.stats.confirmed0}\n`;
-            }
+if (visualizationData && visualizationData.stats) {
+    modelCaption += `\n📊 **МОДЕЛЬ (накопленная):**\n`;
+    modelCaption += `├─ Узлов: ${visualizationData.stats.totalNodes}\n`;
+    modelCaption += `├─ Рёбер: ${visualizationData.stats.totalEdges}\n`;
+    modelCaption += `├─ 🟡 Подтверждено (2+ фото): ${visualizationData.stats.confirmedPoints || 0}\n`;
+    modelCaption += `├─ 📈 Стабильность: ${visualizationData.stats.stability || 0}%\n`;
+    modelCaption += `└─ 🎯 Качество модели: ${Math.round((visualizationData.stats.stability || 0))}%`;
+}
 
 
             await bot.sendPhoto(chatId, modelVizPath, {
