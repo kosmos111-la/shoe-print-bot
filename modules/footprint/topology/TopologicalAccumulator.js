@@ -1346,8 +1346,11 @@ const uniqueInPhoto = points
 
 // 🔥 СРАЗУ ДОБАВЛЯЕМ УНИКАЛЬНЫЕ ТОЧКИ В МОДЕЛЬ
 let uniqueAddedCount = 0;
+console.log(`🔍 НАЧАЛО ДОБАВЛЕНИЯ УНИКАЛЬНЫХ ТОЧЕК:`);
+console.log(`   uniqueInPhoto.length = ${uniqueInPhoto.length}`);
+console.log(`   Текущий размер модели: ${existingModel.graph.nodes.size}`);
+
 for (const photoPoint of uniqueInPhoto) {
-    // Проверяем, нет ли уже такой точки в модели
     let isDuplicate = false;
     for (const [modelId, modelNode] of existingModel.graph.nodes) {
         const dx = modelNode.x - photoPoint.x;
@@ -1355,6 +1358,7 @@ for (const photoPoint of uniqueInPhoto) {
         const dist = Math.sqrt(dx*dx + dy*dy);
         if (dist < 5) {
             isDuplicate = true;
+            if (this.debug) console.log(`   ⚠️ Точка ${photoPoint.id.substring(0,12)} дубликат (расст ${dist.toFixed(1)}px)`);
             break;
         }
     }
@@ -1373,9 +1377,11 @@ for (const photoPoint of uniqueInPhoto) {
             originalPhotoId: photoPoint.id
         });
         uniqueAddedCount++;
-        if (this.debug) console.log(`   ✅ Добавлена уникальная точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+        if (this.debug) console.log(`   ✅ Добавлена уникальная точка ${photoPoint.id.substring(0,12)} (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
     }
 }
+console.log(`📊 Добавлено уникальных точек: ${uniqueAddedCount}`);
+console.log(`   Размер модели ПОСЛЕ добавления: ${existingModel.graph.nodes.size}`);
 if (this.debug && uniqueAddedCount > 0) {
     console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
 }
@@ -2067,10 +2073,12 @@ if (finalValidatedMatches.length >= 3) {
 );
 
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
-const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);  // с 3px до 5px
-if (this.debug && mergedCount > 0) {
-    console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
-}
+// 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ СЛИЯНИЕ ДУБЛИКАТОВ ДЛЯ ДИАГНОСТИКИ
+// const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
+// if (this.debug && mergedCount > 0) {
+//     console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
+// }
+console.log(`⚠️ [ДИАГНОСТИКА] mergeDuplicatePoints временно отключён`);
 
 // После updateModelWithOptimalMatches
 
@@ -3294,6 +3302,10 @@ const finalResult = {
     }
 
     cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
+    // 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ ОЧИСТКУ ДЛЯ ДИАГНОСТИКИ
+    console.log(`\n⚠️ [ДИАГНОСТИКА] cleanUnconfirmedNodes временно отключена`);
+    return { removed: 0, remaining: 0 };      
+    /*      
         const model = this.models.get(modelId);
         if (!model) return { removed: 0, remaining: 0 };
 
@@ -3339,6 +3351,7 @@ const finalResult = {
 
         if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
         return { removed: toRemove.length, remaining: graph.nodes.size };
+      */  
     }
 
     setTriangleResult(modelId, result) {
