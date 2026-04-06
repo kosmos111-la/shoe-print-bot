@@ -2100,11 +2100,23 @@ if (this.debug) {
                     const onlyInModel = (existingModel?.graph?.nodes?.size || 0) - confirmedInModel;
                     const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
 
-                    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-                    console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-                    console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-                    console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-                    console.log(`   • Всего в модели теперь: ${existingModel?.graph?.nodes?.size || 0}`);
+                    // 🔥 НОВОЕ: считаем стабильность модели
+const uniquePoints = existingModel?.graph?.nodes?.size || 0;
+let confirmedPoints = 0;  // точки с confirmationCount >= 2
+for (const node of existingModel.graph.nodes.values()) {
+    if ((node.confirmationCount || 0) >= 2) confirmedPoints++;
+}
+const stability = uniquePoints > 0 ? (confirmedPoints / uniquePoints * 100).toFixed(1) : 0;
+
+console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
+console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
+console.log(`   • Всего в модели теперь: ${uniquePoints}`);
+console.log(`\n🏗 КАЧЕСТВО МОДЕЛИ:`);
+console.log(`   • Уникальных точек: ${uniquePoints}`);
+console.log(`   • Подтверждено (2+ фото): ${confirmedPoints}`);
+console.log(`   • Стабильность: ${stability}%`);
 
                     this.photoToModel.set(photoId, modelIdHint);
 
@@ -3390,16 +3402,27 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
         triangles: modelTriangles,
         pointToStructure: pointToStructure,
         outlineContour: outlineContour,
-        stats: {
-            totalNodes: graph.nodes.size,
-            totalEdges: graph.edges.size,
-            confirmed3: pointsByConfirmation.confirmed3.length,
-            confirmed2: pointsByConfirmation.confirmed2.length,
-            confirmed1: pointsByConfirmation.confirmed1.length,
-            confirmed0: pointsByConfirmation.confirmed0.length,
-            structureCount: structures.length,
-            reliableNodes: reliableNodeIds.size
-        },
+        // 🔥 НОВОЕ: считаем подтверждённые точки для метрики
+let confirmedPoints = 0;
+for (const node of graph.nodes.values()) {
+    if ((node.confirmationCount || 0) >= 2) confirmedPoints++;
+}
+const stability = graph.nodes.size > 0 ? (confirmedPoints / graph.nodes.size * 100).toFixed(1) : 0;
+
+stats: {
+    totalNodes: graph.nodes.size,
+    totalEdges: graph.edges.size,
+    confirmed3: pointsByConfirmation.confirmed3.length,
+    confirmed2: pointsByConfirmation.confirmed2.length,
+    confirmed1: pointsByConfirmation.confirmed1.length,
+    confirmed0: pointsByConfirmation.confirmed0.length,
+    structureCount: structures.length,
+    reliableNodes: reliableNodeIds.size,
+    // 🔥 НОВЫЕ ПОЛЯ
+    uniquePoints: graph.nodes.size,
+    confirmedPoints: confirmedPoints,
+    stability: stability
+}
         pointsByConfirmation: pointsByConfirmation,
         metadata: model.metadata,
         allModels: this.getAllModels(),
