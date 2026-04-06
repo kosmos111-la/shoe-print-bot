@@ -2118,10 +2118,18 @@ console.log(`   • Уникальных точек: ${uniquePoints}`);
 console.log(`   • Подтверждено (2+ фото): ${confirmedPointsCount}`);
 console.log(`   • Стабильность: ${stability}%`);
 
-// 🔥 ИСПРАВЛЕНИЕ: обновляем currentModelId, если модель изменилась
+// 🔥 ДИАГНОСТИКА: какой currentModelId до обновления
+// if (this.debug) {
+    console.log(`🔍 ТЕКУЩИЙ currentModelId ДО ОБНОВЛЕНИЯ: ${this.currentModelId}`);
+    console.log(`🔍 ID ОБНОВЛЁННОЙ МОДЕЛИ (existingModel.id): ${existingModel?.id}`);
+// }
+
+// 🔥 ИСПРАВЛЕНИЕ: обновляем currentModelId
 if (existingModel && existingModel.id !== this.currentModelId) {
     this.currentModelId = existingModel.id;
-    if (this.debug) console.log(`🔄 currentModelId обновлён: ${this.currentModelId}`);
+    console.log(`🔄 currentModelId ОБНОВЛЁН: ${this.currentModelId} (было: ${this.currentModelId})`);
+} else {
+    console.log(`⚠️ currentModelId НЕ ОБНОВЛЁН: existingModel.id=${existingModel?.id}, currentModelId=${this.currentModelId}`);
 }
 
 this.photoToModel.set(photoId, modelIdHint);
