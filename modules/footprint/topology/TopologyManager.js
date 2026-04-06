@@ -115,15 +115,21 @@ class TopologyManager {
     }
 
     // Передаём точки и контуры в аккумулятор
-        const result = await this.accumulator.processPoints(points, {
-            modelId: modelId,
-            source: `photo_${photoInfo.photoId || Date.now()}`,
-            name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
-            footprintId: footprint.id,
-            photoInfo: photoInfo,
-            photoId: photoInfo.photoId,
-            contours: contours
-        });
+        console.log(`\n🔍 TopologyManager: ПЕРЕД ВЫЗОВОМ accumulator.processPoints:`);
+console.log(`   modelId = ${modelId?.substring(0,20)}`);
+console.log(`   accumulator.currentModelId = ${this.accumulator.currentModelId?.substring(0,20)}`);
+console.log(`   accumulator.models.size = ${this.accumulator.models.size}`);
+
+// Передаём точки и контуры в аккумулятор
+const result = await this.accumulator.processPoints(points, {
+    modelId: modelId,
+    source: `photo_${photoInfo.photoId || Date.now()}`,
+    name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
+    footprintId: footprint.id,
+    photoInfo: photoInfo,
+    photoId: photoInfo.photoId,
+    contours: contours
+});
 
         // 🔥 СОХРАНЯЕМ patternData И clusterData
         if (result.modelId && this.accumulator.models.has(result.modelId)) {
