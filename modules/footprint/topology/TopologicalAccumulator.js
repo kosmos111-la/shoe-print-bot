@@ -3426,10 +3426,17 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
     }));
 
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
-        ...node,
-        structureId: pointToStructure.get(node.id) || null,
-        structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null
-    }));
+    id: node.id,
+    x: node.x,
+    y: node.y,
+    degree: node.degree,
+    confirmationCount: node.confirmationCount,
+    confidenceScore: node.confidenceScore,  // ← ЯВНО ДОБАВЛЯЕМ!
+    structureId: pointToStructure.get(node.id) || null,
+    structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null,
+    pairNumber: node.pairNumber,
+    status: node.status
+}));
 
     const pointsByConfirmation = {
         confirmed3: pointsWithStructure.filter(p => p.confirmationCount >= 3),
@@ -3449,10 +3456,19 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
 
     const modelTriangles = this.extractTrianglesFromGraph(graph);
 
-    return {
-        modelId: targetId,
-        modelName: model.metadata.name,
-        points: pointsWithStructure,
+    // Диагностика перед возвратом
+if (this.debug && pointsWithStructure.length > 0) {
+    console.log(`\n🔍 getVisualizationData: первые 3 точки после маппинга:`);
+    for (let i = 0; i < Math.min(3, pointsWithStructure.length); i++) {
+        const p = pointsWithStructure[i];
+        console.log(`   ${i+1}: id=${p.id?.substring(0,20)}, confidenceScore=${p.confidenceScore}, confirmationCount=${p.confirmationCount}`);
+    }
+}
+
+return {
+    modelId: targetId,
+    modelName: model.metadata.name,
+    points: pointsWithStructure,
         edges: Array.from(graph.edges),
         structures: structures,
         triangles: modelTriangles,
