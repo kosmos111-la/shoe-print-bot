@@ -18,7 +18,7 @@ const AffineRefiner = require('./AffineRefiner');
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || true;
+        this.debug = options.debug || false;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
         this.fastMode = options.fastMode || false;
@@ -2101,34 +2101,6 @@ if (this.debug) {
                     const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
 
                     console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-// Диагностика качества модели
-if (existingModel) {
-    let totalConfidence = 0;
-    let highCount = 0;   // >=80%
-    let mediumCount = 0; // 60-80%
-    let lowCount = 0;    // <60%
-    let pointCount = 0;
-   
-    for (const node of existingModel.graph.nodes.values()) {
-        const conf = node.confidenceScore || 0;
-        totalConfidence += conf;
-        pointCount++;
-        if (conf >= 0.8) highCount++;
-        else if (conf >= 0.6) mediumCount++;
-        else lowCount++;
-    }
-   
-    const avgConfidence = pointCount > 0 ? totalConfidence / pointCount : 0;
-   
-    console.log(`\n📊 КАЧЕСТВО МОДЕЛИ (на основе Roboflow):`);
-    console.log(`   • Средняя уверенность: ${(avgConfidence * 100).toFixed(1)}%`);
-    console.log(`   • 🟢 Высокая (>80%): ${highCount} точек`);
-    console.log(`   • 🟡 Средняя (60-80%): ${mediumCount} точек`);
-    console.log(`   • 🔴 Низкая (<60%): ${lowCount} точек`);
-    console.log(`   • Всего точек: ${pointCount}`);
-    console.log(`   📊 Roboflow baseline: mAP50=62.3%, Precision=71.4%, Recall=59.5%, F1=64.9%`);
-}
-                  
                     console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
                     console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
                     console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
@@ -2725,116 +2697,70 @@ const finalResult = {
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
     updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
-    const model = this.models.get(modelId);
-    let confirmedExisting = 0;
-    let newNodesAdded = 0;
-   
-    // 🔥 ДИАГНОСТИКА: что приходит в matches
-    if (this.debug && matches.length > 0) {
-        console.log(`\n🔍 ДИАГНОСТИКА updateModelWithOptimalMatches:`);
-        console.log(`   Получено matches: ${matches.length}`);
-        for (let i = 0; i < Math.min(5, matches.length); i++) {
-            const m = matches[i];
-            console.log(`   match ${i}: pointA=${m.pointA?.substring(0,12)}, pointB=${m.pointB?.substring(0,12)}, confidence=${m.confidence}`);
-        }
-    }
+    const model = this.models.get(modelId);
+    let confirmedExisting = 0;
+    let newNodesAdded = 0;
 
-    const matchedPhotoIds = new Set();
-    const matchedModelIds = new Set();
+    const matchedPhotoIds = new Set();
+    const matchedModelIds = new Set();
 
-    // 1. Обновляем существующие точки (счётчик + накопление уверенности!)
-for (const match of matches) {
-    const modelNode = model.graph.nodes.get(match.pointB);
-    if (modelNode) {
-        // Убедимся, что confidenceScore существует
-        if (modelNode.confidenceScore === undefined) {
-            modelNode.confidenceScore = 0.5;
-            if (this.debug) console.log(`   🔧 Инициализирован confidenceScore для ${match.pointB.substring(0,12)} = 0.5`);
-        }
-       
-        // Увеличиваем счётчик подтверждений
-        modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-        modelNode.lastConfirmed = new Date();
+    // 1. Обновляем существующие точки (только счётчик!)
+    for (const match of matches) {
+        const modelNode = model.graph.nodes.get(match.pointB);
+        if (modelNode) {
+            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+            modelNode.lastConfirmed = new Date();
+            confirmedExisting++;
+            matchedPhotoIds.add(match.pointA);
+            matchedModelIds.add(match.pointB);
+        }
+    }
 
-        // Накопление уверенности (байесовская комбинация)
-        const newConfidence = match.confidence || 0.7;
-        const oldConfidence = modelNode.confidenceScore;
-        const combinedConfidence = 1 - (1 - oldConfidence) * (1 - newConfidence);
-        modelNode.confidenceScore = combinedConfidence;
-           
-            confirmedExisting++;
-            matchedPhotoIds.add(match.pointA);
-            matchedModelIds.add(match.pointB);
-           
-            if (this.debug) {
-                console.log(`   ✅ Подтверждена точка ${match.pointB.substring(0,12)}: уверенность ${oldConfidence.toFixed(2)} → ${combinedConfidence.toFixed(2)} (кол-во=${modelNode.confirmationCount})`);
-            }
-        }
-    }
+    // 2. Добавляем новые точки из фото
+    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+        if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
 
-    // 2. Добавляем новые точки из фото (координаты НЕ меняем!)
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
+        for (const photoPoint of this.lastUniqueInPhoto) {
+            let isDuplicate = false;
+            for (const [modelId, modelNode] of model.graph.nodes) {
+                const dx = modelNode.x - photoPoint.x;
+                const dy = modelNode.y - photoPoint.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                if (dist < 5) {
+                    isDuplicate = true;
+                    break;
+                }
+            }
 
-        for (const photoPoint of this.lastUniqueInPhoto) {
-            // Проверка на дубликат
-            let isDuplicate = false;
-            for (const [modelId, modelNode] of model.graph.nodes) {
-                const dx = modelNode.x - photoPoint.x;
-                const dy = modelNode.y - photoPoint.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                if (dist < 5) {
-                    isDuplicate = true;
-                    if (this.debug) console.log(`      ⚠️ Точка уже существует (расст ${dist.toFixed(1)}px), пропускаю`);
-                    break;
-                }
-            }
+            if (!isDuplicate) {
+                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
 
-            if (!isDuplicate) {
-                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+                model.graph.nodes.set(newNodeId, {
+                    id: newNodeId,
+                    x: photoPoint.x,
+                    y: photoPoint.y,
+                    degree: 0,
+                    morphology: newMorphology?.get(photoPoint.id),
+                    confirmationCount: 1,
+                    addedFrom: 'new_photo_point',
+                    addedAt: new Date(),
+                    originalPhotoId: photoPoint.id
+                });
 
-                model.graph.nodes.set(newNodeId, {
-                    id: newNodeId,
-                    x: photoPoint.x,        // ← КООРДИНАТЫ НЕ МЕНЯЕМ!
-                    y: photoPoint.y,        // ← КООРДИНАТЫ НЕ МЕНЯЕМ!
-                    degree: 0,
-                    morphology: newMorphology?.get(photoPoint.id),
-                    confirmationCount: 1,
-                    confidenceScore: 0.5,   // 🔥 НАЧАЛЬНАЯ УВЕРЕННОСТЬ
-                    addedFrom: 'new_photo_point',
-                    addedAt: new Date(),
-                    originalPhotoId: photoPoint.id
-                });
+                newNodesAdded++;
+                if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+            }
+        }
+    }
 
-                newNodesAdded++;
-                if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) с уверенностью 0.5`);
-            }
-        }
-    }
+    if (this.debug) {
+        console.log(`\n📊 Результат обновления модели:`);
+        console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
+        console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
+        console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
+    }
 
-    if (this.debug) {
-        console.log(`\n📊 Результат обновления модели:`);
-        console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
-        console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
-        console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
-       
-        // Диагностика распределения уверенности
-        let low = 0, medium = 0, high = 0, veryHigh = 0;
-        for (const node of model.graph.nodes.values()) {
-            const conf = node.confidenceScore || 0;
-            if (conf >= 0.95) veryHigh++;
-            else if (conf >= 0.8) high++;
-            else if (conf >= 0.6) medium++;
-            else low++;
-        }
-        console.log(`\n📊 РАСПРЕДЕЛЕНИЕ УВЕРЕННОСТИ В МОДЕЛИ:`);
-        console.log(`   🔴 Очень высокая (≥95%): ${veryHigh}`);
-        console.log(`   🟠 Высокая (80-95%): ${high}`);
-        console.log(`   🟡 Средняя (60-80%): ${medium}`);
-        console.log(`   🔵 Низкая (<60%): ${low}`);
-    }
-
-    return { confirmedExisting, newNodesAdded };
+    return { confirmedExisting, newNodesAdded };
 }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
@@ -3134,53 +3060,46 @@ for (const match of matches) {
         const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
         const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
 
-for (const [nodeId, node] of exactGraph.nodes) {
-    const morph = morphologyMap.get(nodeId) || {};
-    const cluster = clusterData.enhancedFeatures.get(nodeId);
+        for (const [nodeId, node] of exactGraph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
+            const cluster = clusterData.enhancedFeatures.get(nodeId);
 
-    node.morphology = morph;
-    node.hasContour = morph.hasContour || false;
-    node.compactness = morph.compactness;
-    node.eccentricity = morph.eccentricity;
-    node.orientation = morph.orientation;
-    node.normalizedArea = morph.normalizedArea;
-    node.radialProfile = morph.radialProfile;
-    node.asymmetry = morph.asymmetry || 0;
-    node.logArea = morph.logArea;
+            node.morphology = morph;
+            node.hasContour = morph.hasContour || false;
+            node.compactness = morph.compactness;
+            node.eccentricity = morph.eccentricity;
+            node.orientation = morph.orientation;
+            node.normalizedArea = morph.normalizedArea;
+            node.radialProfile = morph.radialProfile;
+            node.asymmetry = morph.asymmetry || 0;
+            node.logArea = morph.logArea;
 
-    if (cluster) {
-        node.clusterId = cluster.clusterId || 'R0';
-        node.clusterSize = cluster.clusterSize || 1;
-        node.isUnique = cluster.isUnique || false;
-        node.clusterSignature = cluster.clusterSignature || 'unknown';
+            if (cluster) {
+                node.clusterId = cluster.clusterId || 'R0';
+                node.clusterSize = cluster.clusterSize || 1;
+                node.isUnique = cluster.isUnique || false;
+                node.clusterSignature = cluster.clusterSignature || 'unknown';
 
-        if (clusterData.relations) {
-            const rel = clusterData.relations.get(node.clusterId);
-            node.neighborClusters = rel ? rel.neighborCount : 0;
-        }
-    } else {
-        node.clusterId = 'R0';
-        node.clusterSize = 1;
-        node.isUnique = false;
-        node.clusterSignature = 'unknown';
-        node.neighborClusters = 0;
-    }
+                if (clusterData.relations) {
+                    const rel = clusterData.relations.get(node.clusterId);
+                    node.neighborClusters = rel ? rel.neighborCount : 0;
+                }
+            } else {
+                node.clusterId = 'R0';
+                node.clusterSize = 1;
+                node.isUnique = false;
+                node.clusterSignature = 'unknown';
+                node.neighborClusters = 0;
+            }
 
-    node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
-    node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
-    node.gapPattern = patternData.gaps?.[nodeId] || '0';
+            node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
+            node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
+            node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
-    // 🔥 ИСПРАВЛЕНО: используем уже существующую переменную morph
-    const initialConfidence = morph.confidence || 0.65;
-    node.confidenceScore = initialConfidence;
-    node.confirmationCount = 1;
-    node.addedFrom = 'original';
-    node.addedAt = new Date();
-
-    if (this.debug) {
-        console.log(`   🆕 Новая точка ${nodeId.substring(0,12)}: начальная уверенность=${(initialConfidence*100).toFixed(1)}%`);
-    }
-}
+            node.confirmationCount = 1;
+            node.addedFrom = 'original';
+            node.addedAt = new Date();
+        }
 
         const model = {
     id: modelId,
@@ -3290,74 +3209,53 @@ for (const [nodeId, node] of exactGraph.nodes) {
         return Infinity;
     }
 
-   cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
-    const model = this.models.get(modelId);
-    if (!model) return { removed: 0, remaining: 0 };
+    cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
+        const model = this.models.get(modelId);
+        if (!model) return { removed: 0, remaining: 0 };
 
-    // 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ ОЧИСТКУ ДЛЯ ДИАГНОСТИКИ
-    if (this.debug) {
-        console.log(`\n⚠️ [ДИАГНОСТИКА] cleanUnconfirmedNodes временно отключена. Точки НЕ удаляются.`);
-        console.log(`   Было бы удалено точек с confirmations < ${minConfirmations}`);
+        const graph = model.graph;
+        const toRemove = [];
+        const now = Date.now();
 
-        // Просто подсчитаем, сколько бы удалилось
-        const graph = model.graph;
-        let wouldRemove = 0;
-        for (const [nodeId, node] of graph.nodes) {
-            if (node.addedFrom === 'original') continue;
-            const confirmations = node.confirmationCount || 1;
-            if (confirmations < minConfirmations) wouldRemove++;
-        }
-        console.log(`   Потенциально к удалению: ${wouldRemove} точек`);
-    }
+        const corePoints = new Set();
+        if (model.lastTriangleResult && model.lastTriangleResult.zones) {
+            model.lastTriangleResult.zones.core.forEach(p => corePoints.add(p.pointA));
+        }
 
-    return { removed: 0, remaining: model.graph.nodes.size };
-   
-    // СТАРЫЙ КОД ВРЕМЕННО ОТКЛЮЧЁН
-    /*
-    const graph = model.graph;
-    const toRemove = [];
-    const now = Date.now();
+        for (const [nodeId, node] of graph.nodes) {
+            if (corePoints.has(nodeId)) continue;
+            if (node.addedFrom === 'original') continue;
 
-    const corePoints = new Set();
-    if (model.lastTriangleResult && model.lastTriangleResult.zones) {
-        model.lastTriangleResult.zones.core.forEach(p => corePoints.add(p.pointA));
-    }
+            const confirmations = node.confirmationCount || 1;
+            const addedAt = node.addedAt ? node.addedAt.getTime() : now;
+            const age = (now - addedAt) / (1000 * 60 * 60 * 24);
 
-    for (const [nodeId, node] of graph.nodes) {
-        if (corePoints.has(nodeId)) continue;
-        if (node.addedFrom === 'original') continue;
+            if (confirmations < minConfirmations && age > 0.1) {
+                toRemove.push(nodeId);
+            }
+        }
 
-        const confirmations = node.confirmationCount || 1;
-        const addedAt = node.addedAt ? node.addedAt.getTime() : now;
-        const age = (now - addedAt) / (1000 * 60 * 60 * 24);
+        toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
 
-        if (confirmations < minConfirmations && age > 0.1) {
-            toRemove.push(nodeId);
-        }
-    }
+        const newEdges = new Set();
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a) && graph.nodes.has(b)) {
+                newEdges.add(edge);
+            }
+        }
+        graph.edges = newEdges;
 
-    toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
+        for (const node of graph.nodes.values()) node.degree = 0;
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+        }
 
-    const newEdges = new Set();
-    for (const edge of graph.edges) {
-        const [a, b] = edge.split('--');
-        if (graph.nodes.has(a) && graph.nodes.has(b)) {
-            newEdges.add(edge);
-        }
-    }
-    graph.edges = newEdges;
-
-    for (const node of graph.nodes.values()) node.degree = 0;
-    for (const edge of graph.edges) {
-        const [a, b] = edge.split('--');
-        if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-        if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-    }
-
-    if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
-    return { removed: toRemove.length, remaining: graph.nodes.size };
-    */
-}
+        if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
+        return { removed: toRemove.length, remaining: graph.nodes.size };
+    }
 
     setTriangleResult(modelId, result) {
         const model = this.models.get(modelId);
@@ -3460,17 +3358,10 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
     }));
 
     const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
-    id: node.id,
-    x: node.x,
-    y: node.y,
-    degree: node.degree,
-    confirmationCount: node.confirmationCount,
-    confidenceScore: node.confidenceScore,  // ← ЯВНО ДОБАВЛЯЕМ!
-    structureId: pointToStructure.get(node.id) || null,
-    structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null,
-    pairNumber: node.pairNumber,
-    status: node.status
-}));
+        ...node,
+        structureId: pointToStructure.get(node.id) || null,
+        structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null
+    }));
 
     const pointsByConfirmation = {
         confirmed3: pointsWithStructure.filter(p => p.confirmationCount >= 3),
@@ -3490,56 +3381,25 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
 
     const modelTriangles = this.extractTrianglesFromGraph(graph);
 
-    // Диагностика перед возвратом
-if (this.debug && pointsWithStructure.length > 0) {
-    console.log(`\n🔍 getVisualizationData: первые 3 точки после маппинга:`);
-    for (let i = 0; i < Math.min(3, pointsWithStructure.length); i++) {
-        const p = pointsWithStructure[i];
-        console.log(`   ${i+1}: id=${p.id?.substring(0,20)}, confidenceScore=${p.confidenceScore}, confirmationCount=${p.confirmationCount}`);
-    }
-}
-
-// Подсчёт распределения уверенности
-let veryHighConfidence = 0;  // >=95%
-let highConfidence = 0;      // 80-95%
-let mediumConfidence = 0;    // 60-80%
-let lowConfidence = 0;       // 30-60%
-let veryLowConfidence = 0;   // <30%
-
-for (const node of graph.nodes.values()) {
-    const conf = node.confidenceScore || 0;
-    if (conf >= 0.95) veryHighConfidence++;
-    else if (conf >= 0.8) highConfidence++;
-    else if (conf >= 0.6) mediumConfidence++;
-    else if (conf >= 0.3) lowConfidence++;
-    else veryLowConfidence++;
-}
-
-return {
-    modelId: targetId,
-    modelName: model.metadata.name,
-    points: pointsWithStructure,
+    return {
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: pointsWithStructure,
         edges: Array.from(graph.edges),
         structures: structures,
         triangles: modelTriangles,
         pointToStructure: pointToStructure,
         outlineContour: outlineContour,
-         stats: {
-        totalNodes: graph.nodes.size,
-        totalEdges: graph.edges.size,
-        confirmed3: pointsByConfirmation.confirmed3.length,
-        confirmed2: pointsByConfirmation.confirmed2.length,
-        confirmed1: pointsByConfirmation.confirmed1.length,
-        confirmed0: pointsByConfirmation.confirmed0.length,
-        structureCount: structures.length,
-        reliableNodes: reliableNodeIds.size,
-        // 🔥 НОВЫЕ ПОЛЯ
-        veryHighConfidence: veryHighConfidence,
-        highConfidence: highConfidence,
-        mediumConfidence: mediumConfidence,
-        lowConfidence: lowConfidence,
-        veryLowConfidence: veryLowConfidence
-    },
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            structureCount: structures.length,
+            reliableNodes: reliableNodeIds.size
+        },
         pointsByConfirmation: pointsByConfirmation,
         metadata: model.metadata,
         allModels: this.getAllModels(),
@@ -4639,72 +4499,67 @@ findNearestModelPoint(point, graphB) {
 * @returns {number} - количество слитых точек
 */
 mergeDuplicatePoints(graph, threshold = 3) {
-    const points = Array.from(graph.nodes.values());
-    const merged = new Set();
-    let mergedCount = 0;
-    let edgesToUpdate = new Map(); // старый id -> новый id
-
-    for (let i = 0; i < points.length; i++) {
-        if (merged.has(points[i].id)) continue;
-
-        for (let j = i + 1; j < points.length; j++) {
-            if (merged.has(points[j].id)) continue;
-
-            const dx = points[i].x - points[j].x;
-            const dy = points[i].y - points[j].y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-
-            if (dist < threshold) {
-                // 🔥 НЕ усредняем координаты! Оставляем координаты первой точки
-                // points[i].x = points[i].x;  // не меняем
-                // points[i].y = points[i].y;  // не меняем
-
-                // Суммируем счётчики подтверждений
-                points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
-
-                // 🔥 НОВОЕ: комбинируем уверенность при слиянии
-                const conf1 = points[i].confidenceScore || 0.5;
-                const conf2 = points[j].confidenceScore || 0.5;
-                points[i].confidenceScore = 1 - (1 - conf1) * (1 - conf2);
-
-                // Запоминаем для обновления рёбер
-                edgesToUpdate.set(points[j].id, points[i].id);
-
-                // Удаляем дубликат
-                graph.nodes.delete(points[j].id);
-                merged.add(points[j].id);
-                mergedCount++;
-
-                if (this.debug) {
-                    console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → координаты первой, уверенность ${conf1.toFixed(2)}→${points[i].confidenceScore.toFixed(2)}`);
-                }
-            }
-        }
-    }
-
-    // Обновляем рёбра: заменяем старые ID на новые
-    if (edgesToUpdate.size > 0) {
-        const newEdges = new Set();
-        for (const edge of graph.edges) {
-            let [a, b] = edge.split('--');
-            if (edgesToUpdate.has(a)) a = edgesToUpdate.get(a);
-            if (edgesToUpdate.has(b)) b = edgesToUpdate.get(b);
-            if (a !== b) {
-                newEdges.add([a, b].sort().join('--'));
-            }
-        }
-        graph.edges = newEdges;
-
-        // Пересчитываем степени
-        for (const node of graph.nodes.values()) node.degree = 0;
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
-    }
-
-    return mergedCount;
+    const points = Array.from(graph.nodes.values());
+    const merged = new Set();
+    let mergedCount = 0;
+    let edgesToUpdate = new Map(); // старый id -> новый id
+   
+    for (let i = 0; i < points.length; i++) {
+        if (merged.has(points[i].id)) continue;
+       
+        for (let j = i + 1; j < points.length; j++) {
+            if (merged.has(points[j].id)) continue;
+           
+            const dx = points[i].x - points[j].x;
+            const dy = points[i].y - points[j].y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+           
+            if (dist < threshold) {
+                // Усредняем координаты
+                const avgX = (points[i].x + points[j].x) / 2;
+                const avgY = (points[i].y + points[j].y) / 2;
+                points[i].x = avgX;
+                points[i].y = avgY;
+                points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
+               
+                // Запоминаем для обновления рёбер
+                edgesToUpdate.set(points[j].id, points[i].id);
+               
+                // Удаляем дубликат
+                graph.nodes.delete(points[j].id);
+                merged.add(points[j].id);
+                mergedCount++;
+               
+                if (this.debug) {
+                    console.log(`   🔄 Слияние: ${points[i].id.substring(0,12)} + ${points[j].id.substring(0,12)} → ${points[i].id.substring(0,12)} (расст ${dist.toFixed(1)}px)`);
+                }
+            }
+        }
+    }
+   
+    // Обновляем рёбра: заменяем старые ID на новые
+    if (edgesToUpdate.size > 0) {
+        const newEdges = new Set();
+        for (const edge of graph.edges) {
+            let [a, b] = edge.split('--');
+            if (edgesToUpdate.has(a)) a = edgesToUpdate.get(a);
+            if (edgesToUpdate.has(b)) b = edgesToUpdate.get(b);
+            if (a !== b) {
+                newEdges.add([a, b].sort().join('--'));
+            }
+        }
+        graph.edges = newEdges;
+       
+        // Пересчитываем степени
+        for (const node of graph.nodes.values()) node.degree = 0;
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+        }
+    }
+   
+    return mergedCount;
 }
 
     clear() {
