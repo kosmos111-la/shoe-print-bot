@@ -142,11 +142,20 @@ const result = await this.accumulator.processPoints(points, {
             }
         }
 
-        // Обновляем связь след-модель (только для продакшна)
-        if (!this.sandboxMode && result.modelId && result.modelId !== modelId) {
-            this.linkedFootprints.set(footprint.id, result.modelId);
-            console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
-        }
+        // 🔥 ВАЖНО: обновляем текущий modelId для следующих вызовов
+if (result.modelId && result.modelId !== modelId) {
+    modelId = result.modelId;
+    if (!this.sandboxMode) {
+        this.linkedFootprints.set(footprint.id, result.modelId);
+        console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
+    }
+}
+
+// Также обновляем в аккумуляторе
+if (result.modelId && this.accumulator.currentModelId !== result.modelId) {
+    this.accumulator.currentModelId = result.modelId;
+    console.log(`🔄 Обновлён currentModelId в аккумуляторе: ${result.modelId}`);
+}
 
         // Получаем обновленную информацию о модели
         const modelInfo = this.accumulator.getModelInfo(result.modelId);
