@@ -115,18 +115,15 @@ class TopologyManager {
     }
 
     // Передаём точки и контуры в аккумулятор
-        // 🔥 ИСПРАВЛЕНИЕ: используем актуальный ID из аккумулятора, если он есть
-const actualModelId = this.accumulator.currentModelId || modelIdHint;
-
-const result = await this.accumulator.processPoints(points, {
-    modelId: actualModelId,  // ← изменено
-    source: `photo_${photoInfo.photoId || Date.now()}`,
-    name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
-    footprintId: footprint.id,
-    photoInfo: photoInfo,
-    photoId: photoInfo.photoId,
-    contours: contours
-});
+        const result = await this.accumulator.processPoints(points, {
+            modelId: modelId,
+            source: `photo_${photoInfo.photoId || Date.now()}`,
+            name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
+            footprintId: footprint.id,
+            photoInfo: photoInfo,
+            photoId: photoInfo.photoId,
+            contours: contours
+        });
 
         // 🔥 СОХРАНЯЕМ patternData И clusterData
         if (result.modelId && this.accumulator.models.has(result.modelId)) {
