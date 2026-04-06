@@ -2100,13 +2100,13 @@ if (this.debug) {
                     const onlyInModel = (existingModel?.graph?.nodes?.size || 0) - confirmedInModel;
                     const onlyInPhoto = (exactGraph?.nodes?.size || 0) - confirmedInModel;
 
-                    // 🔥 НОВОЕ: считаем стабильность модели
+// 🔥 НОВОЕ: считаем стабильность модели
 const uniquePoints = existingModel?.graph?.nodes?.size || 0;
-let confirmedPoints = 0;  // точки с confirmationCount >= 2
+let confirmedPointsCount = 0;  // ← другое имя
 for (const node of existingModel.graph.nodes.values()) {
-    if ((node.confirmationCount || 0) >= 2) confirmedPoints++;
+    if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
 }
-const stability = uniquePoints > 0 ? (confirmedPoints / uniquePoints * 100).toFixed(1) : 0;
+const stability = uniquePoints > 0 ? (confirmedPointsCount / uniquePoints * 100).toFixed(1) : 0;
 
 console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
 console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
@@ -2115,7 +2115,7 @@ console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`)
 console.log(`   • Всего в модели теперь: ${uniquePoints}`);
 console.log(`\n🏗 КАЧЕСТВО МОДЕЛИ:`);
 console.log(`   • Уникальных точек: ${uniquePoints}`);
-console.log(`   • Подтверждено (2+ фото): ${confirmedPoints}`);
+console.log(`   • Подтверждено (2+ фото): ${confirmedPointsCount}`);
 console.log(`   • Стабильность: ${stability}%`);
 
                     this.photoToModel.set(photoId, modelIdHint);
@@ -3403,11 +3403,11 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
         pointToStructure: pointToStructure,
         outlineContour: outlineContour,
         // 🔥 НОВОЕ: считаем подтверждённые точки для метрики
-let confirmedPoints = 0;
+let confirmedPointsCount = 0;
 for (const node of graph.nodes.values()) {
-    if ((node.confirmationCount || 0) >= 2) confirmedPoints++;
+    if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
 }
-const stability = graph.nodes.size > 0 ? (confirmedPoints / graph.nodes.size * 100).toFixed(1) : 0;
+const stability = graph.nodes.size > 0 ? (confirmedPointsCount / graph.nodes.size * 100).toFixed(1) : 0;
 
 stats: {
     totalNodes: graph.nodes.size,
@@ -3419,8 +3419,8 @@ stats: {
     structureCount: structures.length,
     reliableNodes: reliableNodeIds.size,
     // 🔥 НОВЫЕ ПОЛЯ
-    uniquePoints: graph.nodes.size,
-    confirmedPoints: confirmedPoints,
+ uniquePoints: graph.nodes.size,
+    confirmedPoints: confirmedPointsCount,
     stability: stability
 }
         pointsByConfirmation: pointsByConfirmation,
