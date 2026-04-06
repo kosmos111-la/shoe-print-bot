@@ -3134,54 +3134,53 @@ for (const match of matches) {
         const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
         const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
 
-        for (const [nodeId, node] of exactGraph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-            const cluster = clusterData.enhancedFeatures.get(nodeId);
+for (const [nodeId, node] of exactGraph.nodes) {
+    const morph = morphologyMap.get(nodeId) || {};
+    const cluster = clusterData.enhancedFeatures.get(nodeId);
 
-            node.morphology = morph;
-            node.hasContour = morph.hasContour || false;
-            node.compactness = morph.compactness;
-            node.eccentricity = morph.eccentricity;
-            node.orientation = morph.orientation;
-            node.normalizedArea = morph.normalizedArea;
-            node.radialProfile = morph.radialProfile;
-            node.asymmetry = morph.asymmetry || 0;
-            node.logArea = morph.logArea;
+    node.morphology = morph;
+    node.hasContour = morph.hasContour || false;
+    node.compactness = morph.compactness;
+    node.eccentricity = morph.eccentricity;
+    node.orientation = morph.orientation;
+    node.normalizedArea = morph.normalizedArea;
+    node.radialProfile = morph.radialProfile;
+    node.asymmetry = morph.asymmetry || 0;
+    node.logArea = morph.logArea;
 
-            if (cluster) {
-                node.clusterId = cluster.clusterId || 'R0';
-                node.clusterSize = cluster.clusterSize || 1;
-                node.isUnique = cluster.isUnique || false;
-                node.clusterSignature = cluster.clusterSignature || 'unknown';
+    if (cluster) {
+        node.clusterId = cluster.clusterId || 'R0';
+        node.clusterSize = cluster.clusterSize || 1;
+        node.isUnique = cluster.isUnique || false;
+        node.clusterSignature = cluster.clusterSignature || 'unknown';
 
-                if (clusterData.relations) {
-                    const rel = clusterData.relations.get(node.clusterId);
-                    node.neighborClusters = rel ? rel.neighborCount : 0;
-                }
-            } else {
-                node.clusterId = 'R0';
-                node.clusterSize = 1;
-                node.isUnique = false;
-                node.clusterSignature = 'unknown';
-                node.neighborClusters = 0;
-            }
+        if (clusterData.relations) {
+            const rel = clusterData.relations.get(node.clusterId);
+            node.neighborClusters = rel ? rel.neighborCount : 0;
+        }
+    } else {
+        node.clusterId = 'R0';
+        node.clusterSize = 1;
+        node.isUnique = false;
+        node.clusterSignature = 'unknown';
+        node.neighborClusters = 0;
+    }
 
-            node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
-            node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
-            node.gapPattern = patternData.gaps?.[nodeId] || '0';
+    node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
+    node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
+    node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
-           // Используем уверенность из Roboflow (хранится в morphology)
-const morph = morphologyMap.get(nodeId) || {};
-const initialConfidence = morph.confidence || 0.65;  // средняя уверенность Roboflow ~65%
-node.confidenceScore = initialConfidence;
-node.confirmationCount = 1;
-node.addedFrom = 'original';
-node.addedAt = new Date();
+    // 🔥 ИСПРАВЛЕНО: используем уже существующую переменную morph
+    const initialConfidence = morph.confidence || 0.65;
+    node.confidenceScore = initialConfidence;
+    node.confirmationCount = 1;
+    node.addedFrom = 'original';
+    node.addedAt = new Date();
 
-if (this.debug) {
-    console.log(`   🆕 Новая точка ${nodeId.substring(0,12)}: начальная уверенность=${(initialConfidence*100).toFixed(1)}%`);
+    if (this.debug) {
+        console.log(`   🆕 Новая точка ${nodeId.substring(0,12)}: начальная уверенность=${(initialConfidence*100).toFixed(1)}%`);
+    }
 }
-        }
 
         const model = {
     id: modelId,
