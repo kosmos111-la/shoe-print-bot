@@ -164,9 +164,14 @@ this.affineRefiner = new AffineRefiner({
                 metadata: { name: 'temp' }
             };
 
-            if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-            const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+            console.log(`\n🔍 ПЕРЕД ТРЕУГОЛЬНЫМ СРАВНЕНИЕМ В processPoints:`);
+console.log(`   existingModel.id = ${existingModel.id?.substring(0,20)}`);
+console.log(`   existingModel.nodes = ${existingModel.graph?.nodes?.size || 0}`);
+console.log(`   modelIdHint = ${modelIdHint?.substring(0,20)}`);
+console.log(`   this.accumulator.currentModelId = ${this.accumulator.currentModelId?.substring(0,20)}`);
 
+if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
             // 🔥 ВРЕМЕННО: срабатывает даже с 1 точкой
             if (triangleResult.count >= 1) {
                 console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
@@ -2327,14 +2332,20 @@ return {
     // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
 
     async compareByTriangleMatching(model1, model2, options = {}) {
-        const startTime = Date.now();
-        if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
-
-        // Извлекаем точки из моделей
-        const points1 = this.extractPointsFromModel(model1);
-        const points2 = this.extractPointsFromModel(model2);
-
-        if (this.debug) console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
+    const startTime = Date.now();
+   
+    // 🔥 ДИАГНОСТИКА
+    console.log(`\n🔍 СРАВНЕНИЕ МОДЕЛЕЙ В compareByTriangleMatching:`);
+    console.log(`   model1 (новое фото): узлов=${model1.graph?.nodes?.size || 0}`);
+    console.log(`   model2 (модель из базы): узлов=${model2.graph?.nodes?.size || 0}, id=${model2.id?.substring(0,20)}`);
+   
+    if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
+   
+    // Извлекаем точки из моделей
+    const points1 = this.extractPointsFromModel(model1);
+    const points2 = this.extractPointsFromModel(model2);
+   
+    if (this.debug) console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
 
         // Создаем треугольный матчер
         const triangleMatcher = new TriangleMatcher({
