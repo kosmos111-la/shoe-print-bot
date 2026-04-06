@@ -1324,36 +1324,66 @@ if (this.debug && refinementIteration > 1) {
                         }));
 
                     // Точки только во втором следе (фото)
-                    const uniqueInPhoto = points
-                        .filter(p => !matchedPointsA.has(p.id))
-                        .map(p => {
-                            const projected = {
-                                x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                                   p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                   finalTransform.translation.x,
-                                y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                                   p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                                   finalTransform.translation.y
-                            };
-                            return {
-                                id: p.id,
-                                x: projected.x,
-                                y: projected.y,
-                                type: 'unique_in_photo'
-                            };
-                        });
+                    // Точки только во втором следе (фото)
+const uniqueInPhoto = points
+    .filter(p => !matchedPointsA.has(p.id))
+    .map(p => {
+        const projected = {
+            x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+               p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               finalTransform.translation.x,
+            y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+               finalTransform.translation.y
+        };
+        return {
+            id: p.id,
+            x: projected.x,
+            y: projected.y,
+            type: 'unique_in_photo'
+        };
+    });
 
-                    if (this.debug) {
-                        console.log(`   • Уникальных в модели: ${uniqueInModel.length}`);
-                        console.log(`   • Уникальных в фото: ${uniqueInPhoto.length}`);
-                    }
+// 🔥 СРАЗУ ДОБАВЛЯЕМ УНИКАЛЬНЫЕ ТОЧКИ В МОДЕЛЬ
+let uniqueAddedCount = 0;
+for (const photoPoint of uniqueInPhoto) {
+    // Проверяем, нет ли уже такой точки в модели
+    let isDuplicate = false;
+    for (const [modelId, modelNode] of existingModel.graph.nodes) {
+        const dx = modelNode.x - photoPoint.x;
+        const dy = modelNode.y - photoPoint.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        if (dist < 5) {
+            isDuplicate = true;
+            break;
+        }
+    }
+   
+    if (!isDuplicate) {
+        const newNodeId = `node_${Date.now()}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
+        existingModel.graph.nodes.set(newNodeId, {
+            id: newNodeId,
+            x: photoPoint.x,
+            y: photoPoint.y,
+            degree: 0,
+            morphology: morphologyMap.get(photoPoint.id),
+            confirmationCount: 1,
+            addedFrom: 'unique_photo_point',
+            addedAt: new Date(),
+            originalPhotoId: photoPoint.id
+        });
+        uniqueAddedCount++;
+        if (this.debug) console.log(`   ✅ Добавлена уникальная точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+    }
+}
+if (this.debug && uniqueAddedCount > 0) {
+    console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
+}
 
-                    // Сохраняем уникальные точки фото для последующего добавления в модель
-                    // 🔥 НАКАПЛИВАЕМ, а не перезаписываем
+// Сохраняем для диагностики (опционально)
 if (!this.lastUniqueInPhoto) {
     this.lastUniqueInPhoto = [];
 }
-// Добавляем только новые точки (которых ещё нет в накопленных)
 for (const newPoint of uniqueInPhoto) {
     const exists = this.lastUniqueInPhoto.some(p => p.id === newPoint.id);
     if (!exists) {
@@ -2769,7 +2799,8 @@ const finalResult = {
     }
 
     // 2. Добавляем новые точки из фото
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+    /*
+      if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
 
         for (const photoPoint of this.lastUniqueInPhoto) {
@@ -2804,16 +2835,16 @@ const finalResult = {
             }
         }
     }
-
+*/
     if (this.debug) {
         console.log(`\n📊 Результат обновления модели:`);
         console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
         console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
         console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
     }
-
+ console.log(`   model.graph.nodes.size ПОСЛЕ = ${model.graph.nodes.size}`);
     return { confirmedExisting, newNodesAdded };
-   console.log(`   model.graph.nodes.size ПОСЛЕ = ${model.graph.nodes.size}`);
+  
 }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
