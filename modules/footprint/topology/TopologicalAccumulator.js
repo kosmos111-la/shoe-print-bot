@@ -1386,6 +1386,51 @@ if (this.debug && uniqueAddedCount > 0) {
     console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
 }
 
+// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
+if (uniqueAddedCount > 0) {
+    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА после добавления ${uniqueAddedCount} точек...`);
+   
+    // Собираем все точки модели
+    const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        confidence: node.confirmationCount > 0 ? 0.8 : 0.5
+    }));
+   
+    // Перестраиваем граф Делоне
+    const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
+   
+    // Обновляем рёбра
+    existingModel.graph.edges = newGraph.edges;
+    existingModel.graph.triangleList = newGraph.triangleList;
+   
+    // Пересчитываем степени
+    for (const node of existingModel.graph.nodes.values()) {
+        node.degree = 0;
+        node.triangles = 0;
+    }
+   
+    for (const edge of existingModel.graph.edges) {
+        const [a, b] = edge.split('--');
+        if (existingModel.graph.nodes.has(a)) existingModel.graph.nodes.get(a).degree++;
+        if (existingModel.graph.nodes.has(b)) existingModel.graph.nodes.get(b).degree++;
+    }
+   
+    // Подсчёт треугольников для каждой точки
+    const triangleCounts = this.countTriangles(existingModel.graph);
+    for (const [nodeId, count] of triangleCounts) {
+        if (existingModel.graph.nodes.has(nodeId)) {
+            existingModel.graph.nodes.get(nodeId).triangles = count;
+        }
+    }
+   
+    if (this.debug) {
+        console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
+        console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
+    }
+}
+
 // Сохраняем для диагностики (опционально)
 if (!this.lastUniqueInPhoto) {
     this.lastUniqueInPhoto = [];
@@ -4670,7 +4715,42 @@ mergeDuplicatePoints(graph, threshold = 3) {
     return mergedCount;
 }
 
-    clear() {
+     /**
+     * Подсчитывает количество треугольников для каждой точки графа
+     */
+    countTriangles(graph) {
+        const triangles = new Map();
+        const nodes = Array.from(graph.nodes.keys());
+        const edges = new Set(graph.edges);
+       
+        for (const nodeId of nodes) {
+            triangles.set(nodeId, 0);
+        }
+       
+        for (let i = 0; i < nodes.length; i++) {
+            const nodeId = nodes[i];
+            const neighbors = [];
+            for (const edge of edges) {
+                const [a, b] = edge.split('--');
+                if (a === nodeId) neighbors.push(b);
+                if (b === nodeId) neighbors.push(a);
+            }
+           
+            if (neighbors.length < 2) continue;
+           
+            let count = 0;
+            for (let j = 0; j < neighbors.length; j++) {
+                for (let k = j + 1; k < neighbors.length; k++) {
+                    const edgeId = [neighbors[j], neighbors[k]].sort().join('--');
+                    if (edges.has(edgeId)) count++;
+                }
+            }
+            triangles.set(nodeId, count);
+        }
+        return triangles;
+    }
+
+    clear() {
         this.models.clear();
         this.currentModelId = null;
         this.modelRelations.clear();
