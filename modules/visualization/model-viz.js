@@ -273,8 +273,17 @@ for (const point of points) {
 for (const point of groupedPoints.values()) {
     const x = this.projectX(point.x, bounds, scale, width);
     const y = this.projectY(point.y, bounds, scale, height);
-
-            const confidence = point.confidenceScore || 0;
+   
+    const confidence = point.confidenceScore || 0;
+   
+    // 🔥 ДИАГНОСТИКА: первые 5 точек
+    if (stats.debugCount === undefined) {
+        stats.debugCount = 0;
+    }
+    if (stats.debugCount < 5) {
+        console.log(`   🔍 Точка ${point.id.substring(0,20)}: confidenceScore=${point.confidenceScore}, confirmationCount=${point.confirmationCount}, confidence=${confidence}`);
+        stats.debugCount++;
+    }
 const isMatched = matchedModelPoints.has(point.id);
 
 let color;
