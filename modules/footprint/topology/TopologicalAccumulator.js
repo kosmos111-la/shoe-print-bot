@@ -3393,44 +3393,44 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
 
     const modelTriangles = this.extractTrianglesFromGraph(graph);
 
-    return {
-        modelId: targetId,
-        modelName: model.metadata.name,
-        points: pointsWithStructure,
-        edges: Array.from(graph.edges),
-        structures: structures,
-        triangles: modelTriangles,
-        pointToStructure: pointToStructure,
-        outlineContour: outlineContour,
-        // 🔥 НОВОЕ: считаем подтверждённые точки для метрики
+   // 🔥 НОВОЕ: считаем подтверждённые точки для метрики (ДО return)
 let confirmedPointsCount = 0;
 for (const node of graph.nodes.values()) {
     if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
 }
 const stability = graph.nodes.size > 0 ? (confirmedPointsCount / graph.nodes.size * 100).toFixed(1) : 0;
 
-stats: {
-    totalNodes: graph.nodes.size,
-    totalEdges: graph.edges.size,
-    confirmed3: pointsByConfirmation.confirmed3.length,
-    confirmed2: pointsByConfirmation.confirmed2.length,
-    confirmed1: pointsByConfirmation.confirmed1.length,
-    confirmed0: pointsByConfirmation.confirmed0.length,
-    structureCount: structures.length,
-    reliableNodes: reliableNodeIds.size,
-    // 🔥 НОВЫЕ ПОЛЯ
- uniquePoints: graph.nodes.size,
-    confirmedPoints: confirmedPointsCount,
-    stability: stability
-}
-        pointsByConfirmation: pointsByConfirmation,
-        metadata: model.metadata,
-        allModels: this.getAllModels(),
-        currentModelId: this.currentModelId,
-        modelMatchMap: modelMatchMapFromModel,
-        transform: model.transform,
-        uniquePoints: model.uniquePoints
-    };
+return {
+    modelId: targetId,
+    modelName: model.metadata.name,
+    points: pointsWithStructure,
+    edges: Array.from(graph.edges),
+    structures: structures,
+    triangles: modelTriangles,
+    pointToStructure: pointToStructure,
+    outlineContour: outlineContour,
+    stats: {
+        totalNodes: graph.nodes.size,
+        totalEdges: graph.edges.size,
+        confirmed3: pointsByConfirmation.confirmed3.length,
+        confirmed2: pointsByConfirmation.confirmed2.length,
+        confirmed1: pointsByConfirmation.confirmed1.length,
+        confirmed0: pointsByConfirmation.confirmed0.length,
+        structureCount: structures.length,
+        reliableNodes: reliableNodeIds.size,
+        // 🔥 НОВЫЕ ПОЛЯ
+        uniquePoints: graph.nodes.size,
+        confirmedPoints: confirmedPointsCount,
+        stability: stability
+    },
+    pointsByConfirmation: pointsByConfirmation,
+    metadata: model.metadata,
+    allModels: this.getAllModels(),
+    currentModelId: this.currentModelId,
+    modelMatchMap: modelMatchMapFromModel,
+    transform: model.transform,
+    uniquePoints: model.uniquePoints
+};
 }
 
 generateStructureColors(structures) {
