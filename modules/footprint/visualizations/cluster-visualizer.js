@@ -183,7 +183,14 @@ console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} за
 
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
         console.log(`   📋 modelMatchMap в drawModelPoints: ${modelMatchMap.size} записей`);
-
+// Диагностика: первые 5 точек
+if (points.length > 0) {
+    console.log(`   🔍 Первые 5 точек в drawModelPoints:`);
+    for (let i = 0; i < Math.min(5, points.length); i++) {
+        const p = points[i];
+        console.log(`      ${i+1}: confidenceScore=${p.confidenceScore}, confirmationCount=${p.confirmationCount}`);
+    }
+}
         let uniqueInModelPoints = 0;
         for (const point of uniqueInModel) {
             const x = centerX + (point.x - avgX) * scale;
@@ -206,25 +213,31 @@ console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} за
             const x = centerX + (point.x - avgX) * scale;
             const y = centerY + (point.y - avgY) * scale;
            
-            const confirmations = point.confirmationCount || 0;
-            const pairNumber = modelMatchMap.get(point.id)?.pairNumber;
-           
-            let color, size, label = '';
+            const confidence = point.confidenceScore || 0;
+const pairNumber = modelMatchMap.get(point.id)?.pairNumber;
 
-            if (pairNumber) {
-                color = '#FFD700';
-                size = 8;
-                label = pairNumber.toString();
-            } else if (confirmations >= 2) {
-                color = '#FFA500';
-                size = 7;
-            } else if (confirmations >= 1) {
-                color = '#4169E1';
-                size = 5;
-            } else {
-                color = '#808080';
-                size = 4;
-            }
+let color, size, label = '';
+
+if (pairNumber) {
+    color = '#FFD700';
+    size = 8;
+    label = pairNumber.toString();
+} else if (confidence >= 0.95) {
+    color = '#FF0000';   // 🔴 Красный - очень высокая
+    size = 8;
+} else if (confidence >= 0.8) {
+    color = '#FFA500';   // 🟠 Оранжевый - высокая
+    size = 7;
+} else if (confidence >= 0.6) {
+    color = '#FFD700';   // 🟡 Жёлтый - средняя
+    size = 6;
+} else if (confidence >= 0.3) {
+    color = '#4169E1';   // 🔵 Синий - низкая
+    size = 5;
+} else {
+    color = '#808080';   // ⚪ Серый - очень низкая
+    size = 4;
+}
            
             ctx.fillStyle = color;
             ctx.beginPath();
@@ -383,18 +396,25 @@ console.log(`   📸 Рисую ${photoPoints.length} точек фото`);
             const hasMatch = matchMap.has(point.id);
            
             let color, size;
-            let label = '';
+let label = '';
 
-            if (hasMatch) {
-                color = '#AA00FF';
-                size = 8;
-                if (pairNumber) label = pairNumber.toString();
-                matchedPoints++;
-            } else {
-                color = '#2196F3';
-                size = 5;
-                unmatchedPoints++;
-            }
+if (hasMatch) {
+    const confidence = point.confidenceScore || 0;
+    if (confidence >= 0.95) {
+        color = '#FF00AA';  // Розовый для очень высокой уверенности
+    } else if (confidence >= 0.8) {
+        color = '#AA00FF';  // Фиолетовый для высокой
+    } else {
+        color = '#AA00FF';  // Стандартный фиолетовый
+    }
+    size = 8;
+    if (pairNumber) label = pairNumber.toString();
+    matchedPoints++;
+} else {
+    color = '#2196F3';
+    size = 5;
+    unmatchedPoints++;
+}
            
             ctx.fillStyle = color;
             ctx.beginPath();
