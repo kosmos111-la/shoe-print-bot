@@ -2120,9 +2120,15 @@ console.log(`   • Стабильность: ${stability}%`);
 
                     this.photoToModel.set(photoId, modelIdHint);
 
-                    return {
-                        status: 'consistent_anchors',
-                        modelId: modelIdHint,
+                    // 🔥 ИСПРАВЛЕНИЕ: обновляем currentModelId, если модель изменилась
+if (existingModel && existingModel.id !== this.currentModelId) {
+    this.currentModelId = existingModel.id;
+    if (this.debug) console.log(`🔄 currentModelId обновлён: ${this.currentModelId}`);
+}
+
+return {
+    status: 'consistent_anchors',
+    modelId: this.currentModelId,  // ← использовать currentModelId вместо modelIdHint
                         similarity: triangleResult?.similarity || 0,
                         centerMatches: finalMatches?.length || 0,
                         totalMatches: finalMatches?.length || 0,
