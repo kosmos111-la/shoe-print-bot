@@ -18,7 +18,7 @@ const AffineRefiner = require('./AffineRefiner');
 class TopologicalAccumulator {
     constructor(options = {}) {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
-        this.debug = options.debug || false;
+        this.debug = options.debug || true;
 
         // 🔥 РЕЖИМЫ РАБОТЫ
         this.fastMode = options.fastMode || false;
@@ -2700,25 +2700,39 @@ const finalResult = {
     const model = this.models.get(modelId);
     let confirmedExisting = 0;
     let newNodesAdded = 0;
+   
+    // 🔥 ДИАГНОСТИКА: что приходит в matches
+    if (this.debug && matches.length > 0) {
+        console.log(`\n🔍 ДИАГНОСТИКА updateModelWithOptimalMatches:`);
+        console.log(`   Получено matches: ${matches.length}`);
+        for (let i = 0; i < Math.min(5, matches.length); i++) {
+            const m = matches[i];
+            console.log(`   match ${i}: pointA=${m.pointA?.substring(0,12)}, pointB=${m.pointB?.substring(0,12)}, confidence=${m.confidence}`);
+        }
+    }
 
     const matchedPhotoIds = new Set();
     const matchedModelIds = new Set();
 
     // 1. Обновляем существующие точки (счётчик + накопление уверенности!)
-    for (const match of matches) {
-        const modelNode = model.graph.nodes.get(match.pointB);
-        if (modelNode) {
-            // Увеличиваем счётчик подтверждений
-            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-            modelNode.lastConfirmed = new Date();
-           
-            // 🔥 НОВОЕ: Накопление уверенности (байесовская комбинация)
-            const newConfidence = match.confidence || 0.7;
-            const oldConfidence = modelNode.confidenceScore || 0.5;
-           
-            // Формула: 1 - (1 - old) * (1 - new)
-            const combinedConfidence = 1 - (1 - oldConfidence) * (1 - newConfidence);
-            modelNode.confidenceScore = combinedConfidence;
+for (const match of matches) {
+    const modelNode = model.graph.nodes.get(match.pointB);
+    if (modelNode) {
+        // Убедимся, что confidenceScore существует
+        if (modelNode.confidenceScore === undefined) {
+            modelNode.confidenceScore = 0.5;
+            if (this.debug) console.log(`   🔧 Инициализирован confidenceScore для ${match.pointB.substring(0,12)} = 0.5`);
+        }
+       
+        // Увеличиваем счётчик подтверждений
+        modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+        modelNode.lastConfirmed = new Date();
+
+        // Накопление уверенности (байесовская комбинация)
+        const newConfidence = match.confidence || 0.7;
+        const oldConfidence = modelNode.confidenceScore;
+        const combinedConfidence = 1 - (1 - oldConfidence) * (1 - newConfidence);
+        modelNode.confidenceScore = combinedConfidence;
            
             confirmedExisting++;
             matchedPhotoIds.add(match.pointA);
@@ -3128,9 +3142,10 @@ const finalResult = {
             node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
-            node.confirmationCount = 1;
-            node.addedFrom = 'original';
-            node.addedAt = new Date();
+            node.confidenceScore = 1.0;        // ← ДОБАВИТЬ (первое фото = 100% уверенность)
+node.confirmationCount = 1;
+node.addedFrom = 'original';
+node.addedAt = new Date();
         }
 
         const model = {
