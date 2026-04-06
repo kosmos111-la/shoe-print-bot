@@ -163,12 +163,19 @@ class SimpleFootprintManager {
             // 🔥 ИЗВЛЕКАЕМ ТОЧКИ И КОНТУРЫ
             const { points, contours } = this.extractPointsAndContours(analysis);
 
-            if (points.length < this.config.minPointsForFootprint) {
-                return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
-            }
+// 🔥 НОВОЕ: считаем среднюю уверенность Roboflow
+let totalConfidence = 0;
+for (const point of points) {
+    totalConfidence += point.confidence || 0;
+}
+const avgConfidence = points.length > 0 ? (totalConfidence / points.length * 100).toFixed(1) : 0;
+console.log(`📊 Roboflow: обнаружено ${points.length} протекторов, средняя уверенность ${avgConfidence}%`);
 
+if (points.length < this.config.minPointsForFootprint) {
+    return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
+}
 
-            console.log(`📊 Извлечено ${points.length} точек и ${contours.length} контуров из анализа`);
+console.log(`📊 Извлечено ${points.length} точек и ${contours.length} контуров из анализа`);
 
 
             // 🔥 ПОЛУЧАЕМ ИЛИ СОЗДАЁМ ПЕСОЧНИЦУ (СЕССИЮ)
