@@ -163,13 +163,22 @@ class SimpleFootprintManager {
             // 🔥 ИЗВЛЕКАЕМ ТОЧКИ И КОНТУРЫ
             const { points, contours } = this.extractPointsAndContours(analysis);
 
-// 🔥 НОВОЕ: считаем среднюю уверенность Roboflow
+// 🔥 НОВОЕ: считаем среднюю уверенность Roboflow из оригинальных предсказаний
 let totalConfidence = 0;
-for (const point of points) {
-    totalConfidence += point.confidence || 0;
+let confidenceCount = 0;
+
+// У confidence есть в оригинальных predictions из Roboflow
+if (analysis.predictions && Array.isArray(analysis.predictions)) {
+    for (const pred of analysis.predictions) {
+        if (pred.confidence) {
+            totalConfidence += pred.confidence;
+            confidenceCount++;
+        }
+    }
 }
-const avgConfidence = points.length > 0 ? (totalConfidence / points.length * 100).toFixed(1) : 0;
-console.log(`📊 Roboflow: обнаружено ${points.length} протекторов, средняя уверенность ${avgConfidence}%`);
+
+const avgConfidence = confidenceCount > 0 ? (totalConfidence / confidenceCount * 100).toFixed(1) : 0;
+console.log(`📸 Roboflow: обнаружено ${points.length} протекторов, средняя уверенность ${avgConfidence}%`);
 
 if (points.length < this.config.minPointsForFootprint) {
     return { success: false, error: `Слишком мало точек: ${points.length}`, nodesAdded: 0 };
