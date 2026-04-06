@@ -468,23 +468,24 @@ if (hasMatch) {
         console.log(`   🔗 Рёбер отрисовано: ${edgesDrawn}`);
     }
 
-    drawStats(ctx, stats, canvasWidth) {
-        if (!stats) return;
-        ctx.font = '14px Arial';
-        ctx.fillStyle = '#343A40';
-        ctx.textAlign = 'left';
-        const rows = [
-            `Узлов: ${stats.totalNodes || 0}`,
-            `Рёбер: ${stats.totalEdges || 0}`,
-            `🟡 С номерами: ${stats.confirmed3 || 0}`,
-            `🟠 Подтвержденных: ${stats.confirmed2 || 0}`,
-            `🔵 Новых: ${stats.confirmed1 || 0}`,
-            `⚪ Неподтвержденных: ${stats.confirmed0 || 0}`
-        ];
-        rows.forEach((text, i) => {
-            ctx.fillText(text, 50, 120 + i * 25);
-        });
-    }
+drawStats(ctx, stats, canvasWidth) {
+    if (!stats) return;
+    ctx.font = '14px Arial';
+    ctx.fillStyle = '#343A40';
+    ctx.textAlign = 'left';
+    const rows = [
+        `Узлов: ${stats.totalNodes || 0}`,
+        `Рёбер: ${stats.totalEdges || 0}`,
+        `🔴 Очень высокая (>95%): ${stats.veryHighConfidence || 0}`,
+        `🟠 Высокая (80-95%): ${stats.highConfidence || 0}`,
+        `🟡 Средняя (60-80%): ${stats.mediumConfidence || 0}`,
+        `🔵 Низкая (30-60%): ${stats.lowConfidence || 0}`,
+        `⚪ Очень низкая (<30%): ${stats.veryLowConfidence || 0}`
+    ];
+    rows.forEach((text, i) => {
+        ctx.fillText(text, 50, 120 + i * 25);
+    });
+}
 
     drawPhotoStats(ctx, stats, canvasWidth, matchedCount) {
         if (!stats) return;
