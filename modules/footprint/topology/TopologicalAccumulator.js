@@ -207,68 +207,58 @@ if (this.debug && triangleResult && triangleResult.matches) {
             // 🔥 ВРЕМЕННО: срабатывает даже с 1 точкой
             if (triangleResult.count >= 1) {
     console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
-   
+
     // ===== НОВЫЙ БЛОК: FALLBACK ДЛЯ СИНИХ ТОЧЕК =====
     if (triangleResult && triangleResult.count > 0) {
-    // Получаем transform из треугольника
-    let fallbackTransform = null;
-    if (triangleResult.triangles && triangleResult.triangles.length > 0) {
-        const firstTri = triangleResult.triangles.find(t => t.confidence > 0.8);
-        if (firstTri && firstTri.p1 && firstTri.pB1) {
-            const anchors = [
-                { pointA: firstTri.p1.id, pointB: firstTri.pB1.id },
-                { pointA: firstTri.p2.id, pointB: firstTri.pB2.id },
-                { pointA: firstTri.p3.id, pointB: firstTri.pB3.id }
-            ];
-            fallbackTransform = this.validator.calculateTransform(anchors, exactGraph, existingModel.graph);
-            if (this.debug) {
-                console.log(`\n🔧 FALLBACK: transform вычислен по треугольнику`);
-                console.log(`   масштаб: ${fallbackTransform?.scale.toFixed(3)}, поворот: ${(fallbackTransform?.rotation * 180 / Math.PI).toFixed(1)}°`);
+        // Получаем transform из треугольника
+        let fallbackTransform = null;
+        if (triangleResult.triangles && triangleResult.triangles.length > 0) {
+            const firstTri = triangleResult.triangles.find(t => t.confidence > 0.8);
+            if (firstTri && firstTri.p1 && firstTri.pB1) {
+                const anchors = [
+                    { pointA: firstTri.p1.id, pointB: firstTri.pB1.id },
+                    { pointA: firstTri.p2.id, pointB: firstTri.pB2.id },
+                    { pointA: firstTri.p3.id, pointB: firstTri.pB3.id }
+                ];
+                fallbackTransform = this.validator.calculateTransform(anchors, exactGraph, existingModel.graph);
+                if (this.debug) {
+                    console.log(`\n🔧 FALLBACK: transform вычислен по треугольнику`);
+                    console.log(`   масштаб: ${fallbackTransform?.scale.toFixed(3)}, поворот: ${(fallbackTransform?.rotation * 180 / Math.PI).toFixed(1)}°`);
+                }
             }
         }
-    }
 
-    // Создаём временный матчер для fallback
-    const TriangleMatcher = require('../matching/TriangleMatcher');
-    const tempMatcher = new TriangleMatcher({ debug: this.debug });
-   
-    // 🔥 ВАЖНО: передаём синие точки в матчер
-    tempMatcher.bluePointIds = new Set();
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        for (const point of this.lastUniqueInPhoto) {
-            tempMatcher.bluePointIds.add(point.id);
+        // 🔥 СОЗДАЁМ МАТЧЕР ДО УСТАНОВКИ bluePointIds
+        const TriangleMatcher = require('../matching/TriangleMatcher');
+        const tempMatcher = new TriangleMatcher({ debug: this.debug });
+
+        // 🔥 УСТАНАВЛИВАЕМ СИНИЕ ТОЧКИ
+        tempMatcher.bluePointIds = new Set();
+        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+            for (const point of this.lastUniqueInPhoto) {
+                tempMatcher.bluePointIds.add(point.id);
+            }
+       //     if (this.debug) {
+                console.log(`\n🔵 В FALLBACK: ${tempMatcher.bluePointIds.size} синих точек`);
+        //    }
         }
-    }
 
-    // Запускаем fallback для синих точек
-    const fallbackMatches = tempMatcher.findBluePointMatches(
-        points,
-        Array.from(existingModel.graph.nodes.values()),
-        triangleResult.matches || [],
-        fallbackTransform
-    );
+        // Запускаем fallback для синих точек (ОДИН РАЗ!)
+        const fallbackMatches = tempMatcher.findBluePointMatches(
+            points,
+            Array.from(existingModel.graph.nodes.values()),
+            triangleResult.matches || [],
+            fallbackTransform
+        );
 
-    if (fallbackMatches && fallbackMatches.length > 0) {
-        console.log(`\n✅ FALLBACK: добавлено ${fallbackMatches.length} новых соответствий для синих точек!`);
-        triangleResult.matches = [...(triangleResult.matches || []), ...fallbackMatches];
-        triangleResult.count = triangleResult.matches.length;
-    }
-}
-
-// Запускаем fallback для синих точек
-const fallbackMatches = tempMatcher.findBluePointMatches(
-    points,
-    Array.from(existingModel.graph.nodes.values()),
-    triangleResult.matches || [],
-    fallbackTransform
-);
-       
         if (fallbackMatches && fallbackMatches.length > 0) {
             console.log(`\n✅ FALLBACK: добавлено ${fallbackMatches.length} новых соответствий для синих точек!`);
             triangleResult.matches = [...(triangleResult.matches || []), ...fallbackMatches];
             triangleResult.count = triangleResult.matches.length;
         }
     }
+
+
                 // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
                 if (this.debug) console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
 
@@ -2605,14 +2595,16 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
     }
 }
 
-const result = triangleMatcher.findMatches(
-    points1,
-    points2,
-    model1.graph,
-    model2.graph,
-    { bluePointIds: bluePointIds }  // ← ДОБАВИТЬ ЭТУ СТРОКУ!
-);
-        } catch (error) {
+let result;
+try {
+    result = triangleMatcher.findMatches(
+        points1,
+        points2,
+        model1.graph,
+        model2.graph,
+        { bluePointIds: bluePointIds }
+    );
+} catch (error) {
             if (this.debug) {
                 console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
                 console.log(error.stack);
