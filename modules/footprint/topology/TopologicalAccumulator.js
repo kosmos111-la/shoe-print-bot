@@ -156,6 +156,10 @@ this.affineRefiner = new AffineRefiner({
     console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
 
     const existingModel = this.models.get(modelIdHint);
+if (existingModel && existingModel.lastUniqueInPhoto) {
+    this.lastUniqueInPhoto = existingModel.lastUniqueInPhoto;
+    if (this.debug) console.log(`🔵 Восстановлено ${this.lastUniqueInPhoto.length} синих точек из модели`);
+}
    
     // 🔥 ДИАГНОСТИКА МОДЕЛИ ПЕРЕД СРАВНЕНИЕМ
     if (this.debug && existingModel) {
@@ -1471,6 +1475,13 @@ for (const newPoint of uniqueInPhoto) {
     }
 }
 
+// 🔥 СОХРАНЯЕМ lastUniqueInPhoto В МОДЕЛЬ
+if (existingModel) {
+    existingModel.lastUniqueInPhoto = this.lastUniqueInPhoto;
+   // if (this.debug) {
+        console.log(`💾 Сохранено ${this.lastUniqueInPhoto.length} синих точек в модель`);
+  //  }
+}
                     if (this.debug) {
                         // ===== ТАБЛИЦА ТОЧЕК ИЗ ВИЗУАЛИЗАЦИИ =====
                         console.log(`\n📊 ТОЧКИ В ВИЗУАЛИЗАЦИИ:`);
@@ -2890,6 +2901,14 @@ const finalResult = {
 
   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
     const model = this.models.get(modelId);
+   
+    // 🔥 ДИАГНОСТИКА: что в lastUniqueInPhoto
+ //   if (this.debug) {
+        console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
+        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+            console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
+        }
+ //   }
    
     // 🔥 ДЕДУПЛИКАЦИЯ
 const uniqueMatches = [];
