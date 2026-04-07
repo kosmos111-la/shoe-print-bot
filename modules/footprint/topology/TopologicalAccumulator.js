@@ -2608,40 +2608,38 @@ return {
             .map(p => p.id);
 
 const finalResult = {
-    success: true,
-    matches: result.matches,
-    triangles: result.triangles,  // 🔥 ПЕРЕДАЁМ ДАЛЬШЕ
-    count: result.matches.length,
-    sufficient: result.matches.length >= 12,
-    similarity: result.matches.length / Math.min(points1.length, points2.length),
-    time: Date.now() - startTime,
-    ambiguous: [],
-    noMatchA,
-    noMatchB,
-    stats: result.stats
+    success: true,
+    matches: result.matches,
+    triangles: result.triangles,
+    count: result.matches.length,
+    sufficient: result.matches.length >= 12,
+    similarity: result.matches.length / Math.min(points1.length, points2.length),
+    time: Date.now() - startTime,
+    ambiguous: [],
+    noMatchA,
+    noMatchB,
+    stats: result.stats
 };
 
-   //     if (this.debug) {
-    console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
-    console.log(`   • Найдено соответствий: ${finalResult.count}`);
-    console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
-    console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
-    console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
-    console.log(`   • Время: ${finalResult.time}ms`);
-   
-    // 🔥 ДИАГНОСТИКА: покрытие модели
-    if (result && result.matches) {
-        const uniqueModelPoints = new Set(result.matches.map(m => m.pointB));
-        const modelSize = model2.graph?.nodes?.size || 0;
-        const coverage = modelSize > 0 ? (uniqueModelPoints.size / modelSize * 100).toFixed(1) : 0;
-        console.log(`   📊 ПОКРЫТИЕ МОДЕЛИ: ${uniqueModelPoints.size} / ${modelSize} (${coverage}%)`);
-        if (coverage < 80 && modelSize > 10) {
-            console.log(`   ⚠️ НИЗКОЕ ПОКРЫТИЕ! Только ${coverage}% точек модели совпало с фото`);
+// 🔥 ДИАГНОСТИКА: треугольники с синими точками
+if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && result.triangles) {
+    const bluePointIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
+    let blueTrianglesCount = 0;
+    let bluePointsFound = new Set();
+    for (const tri of result.triangles) {
+        if (tri.p1 && bluePointIds.has(tri.p1.id)) bluePointsFound.add(tri.p1.id);
+        if (tri.p2 && bluePointIds.has(tri.p2.id)) bluePointsFound.add(tri.p2.id);
+        if (tri.p3 && bluePointIds.has(tri.p3.id)) bluePointsFound.add(tri.p3.id);
+        if (bluePointIds.has(tri.p1?.id) || bluePointIds.has(tri.p2?.id) || bluePointIds.has(tri.p3?.id)) {
+            blueTrianglesCount++;
         }
     }
-// }
+    console.log(`   🔵 Синих точек в модели: ${bluePointIds.size}`);
+    console.log(`   🔵 Синих точек, попавших в треугольники матчера: ${bluePointsFound.size}`);
+    console.log(`   🔵 Треугольников с синими точками: ${blueTrianglesCount}`);
+}
 
-        return finalResult;
+return finalResult;
     }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
@@ -2947,26 +2945,32 @@ if (this.debug && finalMatches.length > 0) {
         console.log(`   ⚠️ Не подтверждены (первые 10): ${sampleNotConfirmed.map(id => id.substring(0,12)).join(', ')}`);
        
         if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-            const lastUniqueIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
-            const blueNotConfirmed = notConfirmed.filter(id => lastUniqueIds.has(id));
-            if (blueNotConfirmed.length > 0) {
-                console.log(`   🔵 СИНИЕ точки из предыдущего фото НЕ подтверждены: ${blueNotConfirmed.length} шт`);
-                console.log(`      ID: ${blueNotConfirmed.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
-               
-                // 🔥 НОВОЕ: проверяем, есть ли эти точки в текущем фото
-                const photoPointIds = new Set(newGraph.nodes.keys());
-                const missingInPhoto = blueNotConfirmed.filter(id => !photoPointIds.has(id));
-                const presentInPhoto = blueNotConfirmed.filter(id => photoPointIds.has(id));
-               
-                if (missingInPhoto.length > 0) {
-                    console.log(`      ❌ Отсутствуют в текущем фото: ${missingInPhoto.length} шт — не могут подтвердиться`);
-                }
-                if (presentInPhoto.length > 0) {
-                    console.log(`      ✅ Присутствуют в текущем фото, но не сопоставились: ${presentInPhoto.length} шт`);
-                    console.log(`         ID: ${presentInPhoto.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
-                }
-            }
+    const lastUniqueIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
+    const blueNotConfirmed = notConfirmed.filter(id => lastUniqueIds.has(id));
+   
+    // 🔥 ДОПОЛНИТЕЛЬНАЯ ДИАГНОСТИКА: сколько синих точек вообще в модели
+    const blueInModel = Array.from(model.graph.nodes.keys()).filter(id => lastUniqueIds.has(id));
+    const blueConfirmed = blueInModel.filter(id => confirmedModelPoints.has(id));
+   
+    console.log(`   🔵 СИНИЕ точки в модели: ${blueInModel.length}`);
+    console.log(`   🔵 Из них подтверждены: ${blueConfirmed.length}`);
+    console.log(`   🔵 Не подтверждены: ${blueNotConfirmed.length}`);
+   
+    if (blueNotConfirmed.length > 0) {
+        const photoPointIds = new Set(newGraph.nodes.keys());
+        const missingInPhoto = blueNotConfirmed.filter(id => !photoPointIds.has(id));
+        const presentInPhoto = blueNotConfirmed.filter(id => photoPointIds.has(id));
+       
+        if (missingInPhoto.length > 0) {
+            console.log(`      ❌ Отсутствуют в текущем фото: ${missingInPhoto.length} шт`);
         }
+        if (presentInPhoto.length > 0) {
+            console.log(`      ✅ Присутствуют в текущем фото, но не сопоставились: ${presentInPhoto.length} шт`);
+            // Покажем ID первых 5
+            console.log(`         ID: ${presentInPhoto.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+        }
+    }
+}
     }
 }
    
