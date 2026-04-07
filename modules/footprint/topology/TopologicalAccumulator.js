@@ -153,24 +153,37 @@ this.affineRefiner = new AffineRefiner({
 
         // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
         if (modelIdHint && this.models.has(modelIdHint)) {
-            console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
+    console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
 
-            const existingModel = this.models.get(modelIdHint);
-
-            // Создаем временную модель из нового фото
-            const tempModel = {
-                graph: exactGraph,
-                morphologyMap: morphologyMap,
-                metadata: { name: 'temp' }
-            };
-
-            console.log(`\n🔍 ПЕРЕД ТРЕУГОЛЬНЫМ СРАВНЕНИЕМ В processPoints:`);
-console.log(`   existingModel.id = ${existingModel.id?.substring(0,20)}`);
-console.log(`   existingModel.nodes = ${existingModel.graph?.nodes?.size || 0}`);
-console.log(`   modelIdHint = ${modelIdHint?.substring(0,20)}`);
-
-if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+    const existingModel = this.models.get(modelIdHint);
+   
+    // 🔥 ДИАГНОСТИКА МОДЕЛИ ПЕРЕД СРАВНЕНИЕМ
+    if (this.debug && existingModel) {
+        console.log(`\n🔍 ДИАГНОСТИКА МОДЕЛИ ПЕРЕД СРАВНЕНИЕМ:`);
+        console.log(`   Всего точек в модели: ${existingModel.graph.nodes.size}`);
+       
+        // Покажем первые 5 ID точек модели
+        const modelIds = Array.from(existingModel.graph.nodes.keys()).slice(0, 5);
+        console.log(`   Первые 5 ID точек модели: ${modelIds.map(id => id.substring(0,12)).join(', ')}`);
+       
+        // Покажем первые 5 точек из текущего фото
+        const photoIds = points.slice(0, 5).map(p => p.id?.substring(0,12));
+        console.log(`   Первые 5 ID точек фото: ${photoIds.join(', ')}`);
+    }
+   
+    // Создаем временную модель из нового фото
+    const tempModel = {
+        graph: exactGraph,
+        morphologyMap: morphologyMap,
+        metadata: { name: 'temp' }
+    };
+   
+    console.log(`\n🔍 ПЕРЕД ТРЕУГОЛЬНЫМ СРАВНЕНИЕМ В processPoints:`);
+    console.log(`   existingModel.id = ${existingModel.id?.substring(0,20)}`);
+    console.log(`   existingModel.nodes = ${existingModel.graph?.nodes?.size || 0}`);
+    console.log(`   modelIdHint = ${modelIdHint?.substring(0,20)}`);
+   
+    const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
             // 🔥 ВРЕМЕННО: срабатывает даже с 1 точкой
             if (triangleResult.count >= 1) {
                 console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
@@ -2107,14 +2120,37 @@ if (finalValidatedMatches.length >= 3) {
     }
 }
                  
-                    // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
-                    console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
+                   // ===== ШАГ 4: ОБНОВЛЯЕМ МОДЕЛЬ =====
+console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
-                    const updateResult = this.updateModelWithOptimalMatches(
-    modelIdHint,
-    exactGraph,
-    finalValidatedMatches || [],
-    morphologyMap
+// 🔥 АНАЛИЗ MATCHES ПЕРЕД ОБНОВЛЕНИЕМ
+if (this.debug && finalValidatedMatches && finalValidatedMatches.length > 0) {
+    console.log(`\n🔍 АНАЛИЗ MATCHES ОТ ТРЕУГОЛЬНОГО МАТЧЕРА:`);
+    console.log(`   Всего matches: ${finalValidatedMatches.length}`);
+   
+    // Собираем уникальные pointB (модель)
+    const uniqueModelPoints = new Set(finalValidatedMatches.map(m => m.pointB));
+    console.log(`   Уникальных точек модели в matches: ${uniqueModelPoints.size}`);
+   
+    // Сравниваем с размером модели
+    const modelSize = existingModel.graph.nodes.size;
+    console.log(`   Размер модели: ${modelSize}`);
+    console.log(`   Покрытие модели matches: ${((uniqueModelPoints.size / modelSize) * 100).toFixed(1)}%`);
+   
+    // Покажем первые 5 pointB
+    const sampleModelIds = Array.from(uniqueModelPoints).slice(0, 5);
+    console.log(`   Примеры pointB из matches: ${sampleModelIds.map(id => id.substring(0,12)).join(', ')}`);
+   
+    // Покажем первые 5 pointA
+    const samplePhotoIds = finalValidatedMatches.slice(0, 5).map(m => m.pointA?.substring(0,12));
+    console.log(`   Примеры pointA из matches: ${samplePhotoIds.join(', ')}`);
+}
+
+const updateResult = this.updateModelWithOptimalMatches(
+    modelIdHint,
+    exactGraph,
+    finalValidatedMatches || [],
+    morphologyMap
 );
 
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
@@ -2825,7 +2861,7 @@ const finalResult = {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-    updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
+   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
     const model = this.models.get(modelId);
    
     // 🔥 ДИАГНОСТИКА
@@ -2833,24 +2869,50 @@ const finalResult = {
     console.log(`   modelId = ${modelId?.substring(0,20)}`);
     console.log(`   model.graph.nodes.size ДО = ${model?.graph?.nodes?.size || 0}`);
     console.log(`   matches.length = ${matches.length}`);
-    let confirmedExisting = 0;
-    let newNodesAdded = 0;
+   
+    // 🔥 ВЫВОД ПЕРВЫХ 5 matches
+    console.log(`\n🔍 ПЕРВЫЕ 5 matches (что сопоставил матчер):`);
+    for (let i = 0; i < Math.min(5, matches.length); i++) {
+        const m = matches[i];
+        console.log(`   ${i+1}: pointA=${m.pointA?.substring(0,12)}, pointB=${m.pointB?.substring(0,12)}, confidence=${m.confidence}`);
+    }
+   
+    let confirmedExisting = 0;
+    let newNodesAdded = 0;
 
     const matchedPhotoIds = new Set();
     const matchedModelIds = new Set();
 
     // 1. Обновляем существующие точки (только счётчик!)
-    for (const match of matches) {
-        const modelNode = model.graph.nodes.get(match.pointB);
-        if (modelNode) {
-            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-            modelNode.lastConfirmed = new Date();
-            confirmedExisting++;
-            matchedPhotoIds.add(match.pointA);
-            matchedModelIds.add(match.pointB);
-        }
-    }
+let updatedCount = 0;
+let notFoundCount = 0;
 
+for (const match of matches) {
+    const modelNode = model.graph.nodes.get(match.pointB);
+    if (modelNode) {
+        const oldCount = modelNode.confirmationCount || 1;
+        modelNode.confirmationCount = oldCount + 1;
+        modelNode.lastConfirmed = new Date();
+        confirmedExisting++;
+        matchedPhotoIds.add(match.pointA);
+        matchedModelIds.add(match.pointB);
+        updatedCount++;
+       
+        // 🔥 ДИАГНОСТИКА ДЛЯ ПЕРВЫХ 5
+        if (updatedCount <= 5) {
+            console.log(`   ✅ Обновлена точка ${match.pointB.substring(0,12)}: ${oldCount} → ${modelNode.confirmationCount}`);
+        }
+    } else {
+        notFoundCount++;
+        if (notFoundCount <= 5) {
+            console.log(`   ⚠️ Точка ${match.pointB?.substring(0,12)} НЕ НАЙДЕНА в модели!`);
+        }
+    }
+}
+
+if (this.debug) {
+    console.log(`   📊 Обновлено точек: ${updatedCount}, не найдено: ${notFoundCount}`);
+}
     // 2. Добавляем новые точки из фото
     /*
       if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
