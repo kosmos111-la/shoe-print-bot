@@ -143,18 +143,17 @@ const result = await this.accumulator.processPoints(points, {
         }
 
         // 🔥 ВАЖНО: обновляем текущий modelId для следующих вызовов
-if (result.modelId && result.modelId !== modelId) {
+if (result.modelId) {
     modelId = result.modelId;
     if (!this.sandboxMode) {
         this.linkedFootprints.set(footprint.id, result.modelId);
         console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
     }
-}
-
-// Также обновляем в аккумуляторе
-if (result.modelId && this.accumulator.currentModelId !== result.modelId) {
-    this.accumulator.currentModelId = result.modelId;
-    console.log(`🔄 Обновлён currentModelId в аккумуляторе: ${result.modelId}`);
+    // Также обновляем в аккумуляторе, если нужно
+    if (this.accumulator.currentModelId !== result.modelId) {
+        this.accumulator.currentModelId = result.modelId;
+        console.log(`🔄 Обновлён currentModelId в аккумуляторе: ${result.modelId}`);
+    }
 }
 
         // Получаем обновленную информацию о модели
