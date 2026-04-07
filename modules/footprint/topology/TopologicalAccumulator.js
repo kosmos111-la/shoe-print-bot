@@ -1485,7 +1485,6 @@ if (uniqueAddedCount > 0) {
 
     // Обновляем рёбра
     existingModel.graph.edges = newGraph.edges;
-    existingModel.graph.triangleList = newGraph.triangleList;
 
     // Пересчитываем степени
     for (const node of existingModel.graph.nodes.values()) {
@@ -1499,8 +1498,7 @@ if (uniqueAddedCount > 0) {
         if (existingModel.graph.nodes.has(b)) existingModel.graph.nodes.get(b).degree++;
     }
 
-    // ===== НОВОЕ: ЯВНО ПЕРЕСТРАИВАЕМ triangleList ИЗ РЁБЕР =====
-    // Это гарантирует, что triangleList синхронизирован с edges
+    // ЯВНО ПЕРЕСТРАИВАЕМ triangleList ИЗ РЁБЕР
     const nodeIds = Array.from(existingModel.graph.nodes.keys());
     const edgesSet = existingModel.graph.edges;
     const newTriangleList = [];
@@ -1525,7 +1523,7 @@ if (uniqueAddedCount > 0) {
    
     existingModel.graph.triangleList = newTriangleList;
    
-    // Подсчёт треугольников для каждой точки (из нового triangleList)
+    // Подсчёт треугольников для каждой точки
     const triangleCounts = new Map();
     for (const nodeId of nodeIds) {
         triangleCounts.set(nodeId, 0);
@@ -1543,11 +1541,11 @@ if (uniqueAddedCount > 0) {
         }
     }
 
-//    if (this.debug) {
+  //  if (this.debug) {
         console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
         console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
        
-        // Дополнительная проверка: есть ли у новых точек треугольники в triangleList
+        // Проверка: есть ли у новых точек треугольники
         const newPointIds = [];
         for (const [id, node] of existingModel.graph.nodes) {
             if (node.confirmationCount === 1 && node.addedFrom === 'unique_photo_point') {
@@ -1568,13 +1566,8 @@ if (uniqueAddedCount > 0) {
                 if (hasTriangle) pointsWithTriangles++;
             }
             console.log(`   🔵 Новых точек в triangleList: ${pointsWithTriangles}/${newPointIds.length}`);
-           
-            if (pointsWithTriangles === 0 && newPointIds.length > 0) {
-                console.log(`   ⚠️ ВНИМАНИЕ: новые точки НЕ попали в triangleList!`);
-                console.log(`   → Они не будут видны матчеру. Нужно увеличить радиус триангуляции.`);
-            }
         }
-//    }
+ //   }
 }
 
 
