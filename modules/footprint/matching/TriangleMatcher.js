@@ -35,8 +35,12 @@ class TriangleMatcher {
      * Основной метод поиска соответствий
      */
     findMatches(pointsA, pointsB, delaunayA, delaunayB, options = {}) {
-    // Сохраняем синие точки для диагностики
+    // Сохраняем синие точки для диагностики и fallback
     this.bluePointIds = options.bluePointIds || new Set();
+   
+    if (this.debug && this.bluePointIds.size > 0) {
+        console.log(`\n🔵 В МАТЧЕРЕ: ${this.bluePointIds.size} синих точек`);
+    }
    
     // Только самое важное - количество точек
     console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
@@ -773,15 +777,19 @@ buildNeighbors(triangles) {
 * @returns {Array} - новые соответствия
 */
 findBluePointMatches(pointsA, pointsB, existingMatches, transform = null) {
-    if (!this.bluePointIds || this.bluePointIds.size === 0) return [];
+    const blueIds = this.bluePointIds || new Set();
    
-    console.log(`\n🔵 FALLBACK: поиск соответствий для ${this.bluePointIds.size} синих точек...`);
+    if (blueIds.size === 0) {
+        return [];
+    }
+   
+    console.log(`\n🔵 FALLBACK: поиск соответствий для ${blueIds.size} синих точек...`);
    
     const existingModelIds = new Set(existingMatches.map(m => m.pointB));
     const existingPhotoIds = new Set(existingMatches.map(m => m.pointA));
    
-    // Фильтруем только синие точки, которые ещё не сопоставлены
-    const unmatchedBlue = Array.from(this.bluePointIds)
+    // Синие точки без пары
+    const unmatchedBlue = Array.from(blueIds)
         .filter(id => !existingModelIds.has(id))
         .map(id => pointsB.find(p => p.id === id))
         .filter(p => p);
@@ -793,13 +801,15 @@ findBluePointMatches(pointsA, pointsB, existingMatches, transform = null) {
    
     console.log(`   • Несопоставленных синих точек: ${unmatchedBlue.length}`);
    
-    // Фильтруем точки фото, которые ещё не сопоставлены
+    // Точки фото без пары
     const unmatchedPhoto = pointsA.filter(p => !existingPhotoIds.has(p.id));
    
     if (unmatchedPhoto.length === 0) {
-        console.log(`   • Нет свободных точек в фото для сопоставления`);
+        console.log(`   • Нет свободных точек в фото`);
         return [];
     }
+   
+    console.log(`   • Свободных точек в фото: ${unmatchedPhoto.length}`);
    
     const newMatches = [];
     const searchRadius = 25; // пикселей
@@ -812,7 +822,6 @@ findBluePointMatches(pointsA, pointsB, existingMatches, transform = null) {
             let dist;
            
             if (transform) {
-                // Проецируем точку фото в пространство модели
                 const projected = {
                     x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
                        photoPoint.y * transform.scale * Math.sin(transform.rotation) +
@@ -825,7 +834,6 @@ findBluePointMatches(pointsA, pointsB, existingMatches, transform = null) {
                 const dy = projected.y - bluePoint.y;
                 dist = Math.sqrt(dx*dx + dy*dy);
             } else {
-                // Прямое расстояние (если нет transform)
                 const dx = photoPoint.x - bluePoint.x;
                 const dy = photoPoint.y - bluePoint.y;
                 dist = Math.sqrt(dx*dx + dy*dy);
@@ -838,13 +846,11 @@ findBluePointMatches(pointsA, pointsB, existingMatches, transform = null) {
         }
        
         if (bestMatch) {
-            // Проверяем морфологию
             const morphScore = this.compareMorphologySimple(
                 bestMatch.eccentricity, bluePoint.eccentricity,
                 bestMatch.asymmetry, bluePoint.asymmetry
             );
            
-            // Мягкий порог для синих точек (0.45 вместо 0.85)
             if (morphScore >= 0.45) {
                 newMatches.push({
                     pointA: bestMatch.id,
@@ -871,13 +877,13 @@ compareMorphologySimple(ecc1, ecc2, asym1, asym2) {
     let score = 0;
     let checks = 0;
    
-    if (ecc1 !== undefined && ecc2 !== undefined) {
+    if (ecc1 !== undefined && ecc2 !== undefined && ecc1 > 0 && ecc2 > 0) {
         const ratio = Math.min(ecc1, ecc2) / Math.max(ecc1, ecc2);
         score += ratio;
         checks++;
     }
    
-    if (asym1 !== undefined && asym2 !== undefined) {
+    if (asym1 !== undefined && asym2 !== undefined && asym1 > 0 && asym2 > 0) {
         const ratio = Math.min(asym1, asym2) / Math.max(asym1, asym2);
         score += ratio;
         checks++;
