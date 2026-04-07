@@ -1483,33 +1483,99 @@ if (uniqueAddedCount > 0) {
 
     const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
 
+    // Обновляем рёбра
     existingModel.graph.edges = newGraph.edges;
     existingModel.graph.triangleList = newGraph.triangleList;
-   
+
     // Пересчитываем степени
     for (const node of existingModel.graph.nodes.values()) {
         node.degree = 0;
         node.triangles = 0;
     }
-   
+
     for (const edge of existingModel.graph.edges) {
         const [a, b] = edge.split('--');
         if (existingModel.graph.nodes.has(a)) existingModel.graph.nodes.get(a).degree++;
         if (existingModel.graph.nodes.has(b)) existingModel.graph.nodes.get(b).degree++;
     }
+
+    // ===== НОВОЕ: ЯВНО ПЕРЕСТРАИВАЕМ triangleList ИЗ РЁБЕР =====
+    // Это гарантирует, что triangleList синхронизирован с edges
+    const nodeIds = Array.from(existingModel.graph.nodes.keys());
+    const edgesSet = existingModel.graph.edges;
+    const newTriangleList = [];
    
-    // Подсчёт треугольников для каждой точки
-    const triangleCounts = this.countTriangles(existingModel.graph);
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
+               
+                const ab = [a, b].sort().join('--');
+                const bc = [b, c].sort().join('--');
+                const ca = [c, a].sort().join('--');
+               
+                if (edgesSet.has(ab) && edgesSet.has(bc) && edgesSet.has(ca)) {
+                    newTriangleList.push([a, b, c]);
+                }
+            }
+        }
+    }
+   
+    existingModel.graph.triangleList = newTriangleList;
+   
+    // Подсчёт треугольников для каждой точки (из нового triangleList)
+    const triangleCounts = new Map();
+    for (const nodeId of nodeIds) {
+        triangleCounts.set(nodeId, 0);
+    }
+   
+    for (const tri of newTriangleList) {
+        for (const v of tri) {
+            triangleCounts.set(v, (triangleCounts.get(v) || 0) + 1);
+        }
+    }
+   
     for (const [nodeId, count] of triangleCounts) {
         if (existingModel.graph.nodes.has(nodeId)) {
             existingModel.graph.nodes.get(nodeId).triangles = count;
         }
     }
-   
- //   if (this.debug) {
+
+//    if (this.debug) {
         console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
         console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
-  //  }
+       
+        // Дополнительная проверка: есть ли у новых точек треугольники в triangleList
+        const newPointIds = [];
+        for (const [id, node] of existingModel.graph.nodes) {
+            if (node.confirmationCount === 1 && node.addedFrom === 'unique_photo_point') {
+                newPointIds.push(id);
+            }
+        }
+       
+        if (newPointIds.length > 0) {
+            let pointsWithTriangles = 0;
+            for (const pointId of newPointIds) {
+                let hasTriangle = false;
+                for (const tri of newTriangleList) {
+                    if (tri.includes(pointId)) {
+                        hasTriangle = true;
+                        break;
+                    }
+                }
+                if (hasTriangle) pointsWithTriangles++;
+            }
+            console.log(`   🔵 Новых точек в triangleList: ${pointsWithTriangles}/${newPointIds.length}`);
+           
+            if (pointsWithTriangles === 0 && newPointIds.length > 0) {
+                console.log(`   ⚠️ ВНИМАНИЕ: новые точки НЕ попали в triangleList!`);
+                console.log(`   → Они не будут видны матчеру. Нужно увеличить радиус триангуляции.`);
+            }
+        }
+//    }
+}
 
 
  // ===== НОВАЯ ДИАГНОСТИКА =====
