@@ -2539,174 +2539,160 @@ return {
 
     async compareByTriangleMatching(model1, model2, options = {}) {
     const startTime = Date.now();
-   
-    // 🔥 ДИАГНОСТИКА
+
     console.log(`\n🔍 СРАВНЕНИЕ МОДЕЛЕЙ В compareByTriangleMatching:`);
     console.log(`   model1 (новое фото): узлов=${model1.graph?.nodes?.size || 0}`);
     console.log(`   model2 (модель из базы): узлов=${model2.graph?.nodes?.size || 0}, id=${model2.id?.substring(0,20)}`);
-   
+
     if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
-   
-    // Извлекаем точки из моделей
+
     const points1 = this.extractPointsFromModel(model1);
     const points2 = this.extractPointsFromModel(model2);
-   
+
     if (this.debug) console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
 
-        // Создаем треугольный матчер
-        const triangleMatcher = new TriangleMatcher({
-            debug: false,  // ← уже выключено
-            compactnessThreshold: 0.4,
-            eccentricityThreshold: 0.2,
-            areaThreshold: 0.5,
-            ratioThreshold: 0.25
-        });
+    const triangleMatcher = new TriangleMatcher({
+        debug: false,
+        compactnessThreshold: 0.4,
+        eccentricityThreshold: 0.2,
+        areaThreshold: 0.5,
+        ratioThreshold: 0.25
+    });
 
-        // 🔥 ЗАЩИТА: проверяем, что точки не пустые
-        if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
-            if (this.debug) console.log(`❌ Нет точек для сопоставления`);
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1?.map(p => p.id) || [],
-                noMatchB: points2?.map(p => p.id) || [],
-                stats: {}
-            };
-        }
-
-        // Запускаем треугольный поиск
-        if (this.debug) console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
-        let result;
-        try {
-            // 🔥 ПЕРЕДАЁМ СИНИЕ ТОЧКИ В МАТЧЕР
-const bluePointIds = new Set();
-if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-    for (const point of this.lastUniqueInPhoto) {
-        bluePointIds.add(point.id);
+    if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
+        if (this.debug) console.log(`❌ Нет точек для сопоставления`);
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1?.map(p => p.id) || [],
+            noMatchB: points2?.map(p => p.id) || [],
+            stats: {}
+        };
     }
-    console.log(`\n🔵 ПЕРЕДАЮ СИНИЕ ТОЧКИ В МАТЧЕР: ${bluePointIds.size} шт`);
-    if (bluePointIds.size > 0 && this.debug) {
-        console.log(`   Примеры: ${Array.from(bluePointIds).slice(0,3).map(id => id.substring(0,12)).join(', ')}`);
-    }
-}
 
-let result;
-try {
-    result = triangleMatcher.findMatches(
-        points1,
-        points2,
-        model1.graph,
-        model2.graph,
-        { bluePointIds: bluePointIds }
-    );
-} catch (error) {
-            if (this.debug) {
-                console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
-                console.log(error.stack);
-            }
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: {}
-            };
-        }
-
-        if (!result) {
-            if (this.debug) console.log(`❌ triangleMatcher.findMatches вернул null/undefined`);
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: {}
-            };
-        }
-
-        if (!result.matches) {
-            if (this.debug) {
-                console.log(`❌ result.matches = undefined`);
-                console.log(`   result =`, result);
-                console.log(`   keys =`, Object.keys(result));
-            }
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: result.stats || {}
-            };
-        }
-
-        if (this.debug) console.log(`✅ triangleMatcher.findMatches выполнен, matches: ${result.matches.length}`);
-
-        // Находим точки без пары
-        const matchedPointA = new Set(result.matches.map(m => m.pointA));
-        const matchedPointB = new Set(result.matches.map(m => m.pointB));
-
-        const noMatchA = points1
-            .filter(p => !matchedPointA.has(p.id))
-            .map(p => p.id);
-
-        const noMatchB = points2
-            .filter(p => !matchedPointB.has(p.id))
-            .map(p => p.id);
-
-const finalResult = {
-    success: true,
-    matches: result.matches,
-    triangles: result.triangles,
-    count: result.matches.length,
-    sufficient: result.matches.length >= 12,
-    similarity: result.matches.length / Math.min(points1.length, points2.length),
-    time: Date.now() - startTime,
-    ambiguous: [],
-    noMatchA,
-    noMatchB,
-    stats: result.stats
-};
-
-// 🔥 ДИАГНОСТИКА: треугольники с синими точками
-if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && result.triangles) {
-    const bluePointIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
-    let blueTrianglesCount = 0;
-    let bluePointsFound = new Set();
-    for (const tri of result.triangles) {
-        if (tri.p1 && bluePointIds.has(tri.p1.id)) bluePointsFound.add(tri.p1.id);
-        if (tri.p2 && bluePointIds.has(tri.p2.id)) bluePointsFound.add(tri.p2.id);
-        if (tri.p3 && bluePointIds.has(tri.p3.id)) bluePointsFound.add(tri.p3.id);
-        if (bluePointIds.has(tri.p1?.id) || bluePointIds.has(tri.p2?.id) || bluePointIds.has(tri.p3?.id)) {
-            blueTrianglesCount++;
+    if (this.debug) console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
+   
+    let result;
+    try {
+        const bluePointIds = new Set();
+        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+            for (const point of this.lastUniqueInPhoto) {
+                bluePointIds.add(point.id);
+            }
+            console.log(`\n🔵 ПЕРЕДАЮ СИНИЕ ТОЧКИ В МАТЧЕР: ${bluePointIds.size} шт`);
+            if (bluePointIds.size > 0 && this.debug) {
+                console.log(`   Примеры: ${Array.from(bluePointIds).slice(0,3).map(id => id.substring(0,12)).join(', ')}`);
+            }
         }
-    }
-    console.log(`   🔵 Синих точек в модели: ${bluePointIds.size}`);
-    console.log(`   🔵 Синих точек, попавших в треугольники матчера: ${bluePointsFound.size}`);
-    console.log(`   🔵 Треугольников с синими точками: ${blueTrianglesCount}`);
-}
 
-return finalResult;
-    }
+        result = triangleMatcher.findMatches(
+            points1,
+            points2,
+            model1.graph,
+            model2.graph,
+            { bluePointIds: bluePointIds }
+        );
+    } catch (error) {
+        if (this.debug) {
+            console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
+            console.log(error.stack);
+        }
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1.map(p => p.id),
+            noMatchB: points2.map(p => p.id),
+            stats: {}
+        };
+    }
+
+    if (!result) {
+        if (this.debug) console.log(`❌ triangleMatcher.findMatches вернул null/undefined`);
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1.map(p => p.id),
+            noMatchB: points2.map(p => p.id),
+            stats: {}
+        };
+    }
+
+    if (!result.matches) {
+        if (this.debug) {
+            console.log(`❌ result.matches = undefined`);
+            console.log(`   result =`, result);
+            console.log(`   keys =`, Object.keys(result));
+        }
+        return {
+            success: false,
+            matches: [],
+            count: 0,
+            sufficient: false,
+            similarity: 0,
+            time: Date.now() - startTime,
+            ambiguous: [],
+            noMatchA: points1.map(p => p.id),
+            noMatchB: points2.map(p => p.id),
+            stats: result.stats || {}
+        };
+    }
+
+    if (this.debug) console.log(`✅ triangleMatcher.findMatches выполнен, matches: ${result.matches.length}`);
+
+    const matchedPointA = new Set(result.matches.map(m => m.pointA));
+    const matchedPointB = new Set(result.matches.map(m => m.pointB));
+
+    const noMatchA = points1.filter(p => !matchedPointA.has(p.id)).map(p => p.id);
+    const noMatchB = points2.filter(p => !matchedPointB.has(p.id)).map(p => p.id);
+
+    const finalResult = {
+        success: true,
+        matches: result.matches,
+        triangles: result.triangles,
+        count: result.matches.length,
+        sufficient: result.matches.length >= 12,
+        similarity: result.matches.length / Math.min(points1.length, points2.length),
+        time: Date.now() - startTime,
+        ambiguous: [],
+        noMatchA,
+        noMatchB,
+        stats: result.stats
+    };
+
+    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && result.triangles) {
+        const bluePointIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
+        let blueTrianglesCount = 0;
+        let bluePointsFound = new Set();
+        for (const tri of result.triangles) {
+            if (tri.p1 && bluePointIds.has(tri.p1.id)) bluePointsFound.add(tri.p1.id);
+            if (tri.p2 && bluePointIds.has(tri.p2.id)) bluePointsFound.add(tri.p2.id);
+            if (tri.p3 && bluePointIds.has(tri.p3.id)) bluePointsFound.add(tri.p3.id);
+            if (bluePointIds.has(tri.p1?.id) || bluePointIds.has(tri.p2?.id) || bluePointIds.has(tri.p3?.id)) {
+                blueTrianglesCount++;
+            }
+        }
+        console.log(`   🔵 Синих точек в модели: ${bluePointIds.size}`);
+        console.log(`   🔵 Синих точек, попавших в треугольники матчера: ${bluePointsFound.size}`);
+        console.log(`   🔵 Треугольников с синими точками: ${blueTrianglesCount}`);
+    }
+
+    return finalResult;
+}
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
