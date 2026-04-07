@@ -2861,14 +2861,38 @@ const finalResult = {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
+  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
     const model = this.models.get(modelId);
+   
+    // 🔥 ДЕДУПЛИКАЦИЯ: убираем дубликаты пар (pointA, pointB)
+    const uniqueMatches = [];
+    const seenPairs = new Set();
+    for (const match of matches) {
+        const key = `${match.pointA}|${match.pointB}`;
+        if (!seenPairs.has(key)) {
+            seenPairs.add(key);
+            uniqueMatches.push(match);
+        }
+    }
+   
+    // 🔥 ДЕДУПЛИКАЦИЯ ПО pointB: одна точка модели не может соответствовать нескольким точкам фото
+    const uniqueByPointB = new Map(); // pointB -> match
+    for (const match of uniqueMatches) {
+        const existing = uniqueByPointB.get(match.pointB);
+        if (!existing || match.confidence > existing.confidence) {
+            uniqueByPointB.set(match.pointB, match);
+        }
+    }
+    const finalMatches = Array.from(uniqueByPointB.values());
    
     // 🔥 ДИАГНОСТИКА
     console.log(`\n🔍 updateModelWithOptimalMatches:`);
     console.log(`   modelId = ${modelId?.substring(0,20)}`);
     console.log(`   model.graph.nodes.size ДО = ${model?.graph?.nodes?.size || 0}`);
     console.log(`   matches.length = ${matches.length}`);
+    if (matches.length !== finalMatches.length) {
+        console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
+    }
    
     // 🔥 ВЫВОД ПЕРВЫХ 5 matches
     console.log(`\n🔍 ПЕРВЫЕ 5 matches (что сопоставил матчер):`);
@@ -2886,8 +2910,8 @@ const finalResult = {
     // 1. Обновляем существующие точки (только счётчик!)
 let updatedCount = 0;
 let notFoundCount = 0;
-
-for (const match of matches) {
+// 1. Обновляем существующие точки (используем finalMatches)
+for (const match of finalMatches) {
     const modelNode = model.graph.nodes.get(match.pointB);
     if (modelNode) {
         const oldCount = modelNode.confirmationCount || 1;
@@ -2913,9 +2937,8 @@ for (const match of matches) {
 if (this.debug) {
     console.log(`   📊 Обновлено точек: ${updatedCount}, не найдено: ${notFoundCount}`);
 }
-    // 2. Добавляем новые точки из фото
-    /*
-      if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+    // 2. Добавляем новые точки из фото (без изменений)
+if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
 
         for (const photoPoint of this.lastUniqueInPhoto) {
@@ -2950,7 +2973,7 @@ if (this.debug) {
             }
         }
     }
-*/
+
     if (this.debug) {
         console.log(`\n📊 Результат обновления модели:`);
         console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
