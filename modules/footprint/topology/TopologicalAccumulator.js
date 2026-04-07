@@ -2532,12 +2532,25 @@ return {
         if (this.debug) console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
         let result;
         try {
-            result = triangleMatcher.findMatches(
-                points1,
-                points2,
-                model1.graph,
-                model2.graph
-            );
+            // 🔥 ПЕРЕДАЁМ СИНИЕ ТОЧКИ В МАТЧЕР ДЛЯ ДИАГНОСТИКИ
+const bluePointIds = new Set();
+if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+    for (const point of this.lastUniqueInPhoto) {
+        bluePointIds.add(point.id);
+    }
+    console.log(`\n🔵 ПЕРЕДАЮ СИНИЕ ТОЧКИ В МАТЧЕР: ${bluePointIds.size} шт`);
+    if (bluePointIds.size > 0) {
+        console.log(`   Примеры: ${Array.from(bluePointIds).slice(0,3).map(id => id.substring(0,12)).join(', ')}`);
+    }
+}
+
+result = triangleMatcher.findMatches(
+    points1,
+    points2,
+    model1.graph,
+    model2.graph,
+    { bluePointIds: bluePointIds }  // ← новый параметр
+);
         } catch (error) {
             if (this.debug) {
                 console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
