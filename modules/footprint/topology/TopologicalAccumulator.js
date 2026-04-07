@@ -1571,75 +1571,7 @@ if (uniqueAddedCount > 0) {
 }
 
 
- // ===== НОВАЯ ДИАГНОСТИКА =====
-console.log(`\n🔍 ДИАГНОСТИКА ПОСЛЕ ПЕРЕСТРОЕНИЯ ГРАФА:`);
-
-const newPointIds = [];
-for (const [id, node] of existingModel.graph.nodes) {
-    if (node.confirmationCount === 1 && node.addedFrom === 'unique_photo_point') {
-        newPointIds.push(id);
-    }
-}
-console.log(`   • Новых точек (confirmationCount=1): ${newPointIds.length}`);
-
-if (newPointIds.length > 0) {
-    let pointsWithTriangles = 0;
-    let totalTriangles = 0;
-   
-    for (const pointId of newPointIds) {
-        const node = existingModel.graph.nodes.get(pointId);
-        const triCount = node.triangles || 0;
-        totalTriangles += triCount;
-        if (triCount > 0) pointsWithTriangles++;
-       
-        // ПРОВЕРЯЕМ РЕАЛЬНЫЕ ТРЕУГОЛЬНИКИ из triangleList
-        const actualTriangles = [];
-        for (const tri of existingModel.graph.triangleList || []) {
-            if (tri.includes(pointId)) {
-                actualTriangles.push(tri);
-            }
-        }
-       
-        if (actualTriangles.length === 0 && triCount > 0) {
-            console.log(`   ⚠️ РАЗНОГЛАСИЕ: точка ${pointId.substring(0,12)} имеет node.triangles=${triCount}, но НЕ найдена в triangleList!`);
-        }
-    }
-   
-    console.log(`   • Новых точек с node.triangles > 0: ${pointsWithTriangles}/${newPointIds.length}`);
-    console.log(`   • Среднее треугольников на новую точку: ${(totalTriangles / newPointIds.length).toFixed(1)}`);
-   
-    // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: есть ли треугольники, связывающие новые точки со старыми?
-    const oldPointIds = new Set();
-    for (const [id, node] of existingModel.graph.nodes) {
-        if (node.confirmationCount >= 2) {
-            oldPointIds.add(id);
-        }
-    }
-   
-    let newWithOldTriangles = 0;
-    for (const pointId of newPointIds) {
-        let hasOldNeighbor = false;
-        for (const tri of existingModel.graph.triangleList || []) {
-            if (tri.includes(pointId)) {
-                for (const v of tri) {
-                    if (oldPointIds.has(v) && v !== pointId) {
-                        hasOldNeighbor = true;
-                        break;
-                    }
-                }
-            }
-            if (hasOldNeighbor) break;
-        }
-        if (hasOldNeighbor) newWithOldTriangles++;
-    }
-   
-    console.log(`   • Новых точек с треугольниками, включающими СТАРЫЕ точки: ${newWithOldTriangles}/${newPointIds.length}`);
-   
-    if (newWithOldTriangles === 0 && newPointIds.length > 0) {
-        console.log(`   🔴 КРИТИЧНО: новые точки изолированы! У них нет треугольников со старыми точками.`);
-        console.log(`   → Они никогда не будут найдены матчером на следующих фото.`);
-    }
-}
+ 
 }
                  
 // Сохраняем для диагностики (опционально)
