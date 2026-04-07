@@ -1473,19 +1473,16 @@ if (this.debug && uniqueAddedCount > 0) {
 // 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
 if (uniqueAddedCount > 0) {
     if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА после добавления ${uniqueAddedCount} точек...`);
-   
-    // Собираем все точки модели
+
     const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
         id: node.id,
         x: node.x,
         y: node.y,
         confidence: node.confirmationCount > 0 ? 0.8 : 0.5
     }));
-   
-    // Перестраиваем граф Делоне
+
     const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
-   
-    // Обновляем рёбра
+
     existingModel.graph.edges = newGraph.edges;
     existingModel.graph.triangleList = newGraph.triangleList;
    
@@ -1509,12 +1506,80 @@ if (uniqueAddedCount > 0) {
         }
     }
    
-    if (this.debug) {
+ //   if (this.debug) {
         console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
         console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
+  //  }
+
+
+ // ===== НОВАЯ ДИАГНОСТИКА =====
+    console.log(`\n🔍 ДИАГНОСТИКА ПОСЛЕ ПЕРЕСТРОЕНИЯ ГРАФА:`);
+   
+    // Находим новые точки (confirmationCount === 1)
+    const newPointIds = [];
+    for (const [id, node] of existingModel.graph.nodes) {
+        if (node.confirmationCount === 1 && node.addedFrom === 'unique_photo_point') {
+            newPointIds.push(id);
+        }
+    }
+    console.log(`   • Новых точек (confirmationCount=1): ${newPointIds.length}`);
+   
+    if (newPointIds.length > 0) {
+        let pointsWithTriangles = 0;
+        let totalTriangles = 0;
+        const sampleTriangles = [];
+       
+        for (const pointId of newPointIds.slice(0, 10)) {
+            const node = existingModel.graph.nodes.get(pointId);
+            const triCount = node.triangles || 0;
+            totalTriangles += triCount;
+            if (triCount > 0) pointsWithTriangles++;
+           
+            // Находим треугольники с этой точкой
+            const pointTriangles = [];
+            for (const tri of existingModel.graph.triangleList || []) {
+                if (tri.includes(pointId) ||
+                    (tri[0] === pointId || tri[1] === pointId || tri[2] === pointId)) {
+                    pointTriangles.push(tri);
+                }
+            }
+           
+            if (pointTriangles.length > 0 && sampleTriangles.length < 3) {
+                sampleTriangles.push({
+                    pointId: pointId.substring(0,12),
+                    triangleCount: pointTriangles.length,
+                    triangles: pointTriangles.slice(0, 2).map(t =>
+                        t.map(id => id.substring(0,12)).join(', ')
+                    )
+                });
+            }
+        }
+       
+        console.log(`   • Новых точек с треугольниками: ${pointsWithTriangles}/${Math.min(newPointIds.length, 10)}`);
+        console.log(`   • Среднее треугольников на новую точку: ${(totalTriangles / Math.min(newPointIds.length, 10)).toFixed(1)}`);
+       
+        if (sampleTriangles.length > 0) {
+            console.log(`   • Примеры треугольников новых точек:`);
+            sampleTriangles.forEach(s => {
+                console.log(`      - ${s.pointId}: ${s.triangleCount} треугольников`);
+                s.triangles.forEach(t => console.log(`         [${t}]`));
+            });
+        } else {
+            console.log(`   ⚠️ НИ У ОДНОЙ новой точки НЕТ треугольников!`);
+            // Покажем координаты первых 5 новых точек
+            console.log(`   📍 Координаты новых точек (первые 5):`);
+            let shown = 0;
+            for (const pointId of newPointIds) {
+                const node = existingModel.graph.nodes.get(pointId);
+                if (node && shown < 5) {
+                    console.log(`      - ${pointId.substring(0,12)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)})`);
+                    shown++;
+                }
+            }
+        }
     }
 }
-
+                 
 // Сохраняем для диагностики (опционально)
 if (!this.lastUniqueInPhoto) {
     this.lastUniqueInPhoto = [];
@@ -2674,22 +2739,33 @@ return {
         stats: result.stats
     };
 
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && result.triangles) {
-        const bluePointIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
-        let blueTrianglesCount = 0;
-        let bluePointsFound = new Set();
-        for (const tri of result.triangles) {
-            if (tri.p1 && bluePointIds.has(tri.p1.id)) bluePointsFound.add(tri.p1.id);
-            if (tri.p2 && bluePointIds.has(tri.p2.id)) bluePointsFound.add(tri.p2.id);
-            if (tri.p3 && bluePointIds.has(tri.p3.id)) bluePointsFound.add(tri.p3.id);
-            if (bluePointIds.has(tri.p1?.id) || bluePointIds.has(tri.p2?.id) || bluePointIds.has(tri.p3?.id)) {
-                blueTrianglesCount++;
-            }
+    // Диагностика: смотрим треугольники МОДЕЛИ (model2), а не из матчера
+if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+    const bluePointIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
+    let blueInModelTriangles = 0;
+    let bluePointsFound = new Set();
+   
+    // Берём треугольники из ГРАФА МОДЕЛИ (model2.graph)
+    const modelTriangles = this.extractTrianglesFromGraph(model2.graph);
+   
+    for (const tri of modelTriangles) {
+        if (bluePointIds.has(tri.p1.id)) bluePointsFound.add(tri.p1.id);
+        if (bluePointIds.has(tri.p2.id)) bluePointsFound.add(tri.p2.id);
+        if (bluePointIds.has(tri.p3.id)) bluePointsFound.add(tri.p3.id);
+        if (bluePointIds.has(tri.p1.id) || bluePointIds.has(tri.p2.id) || bluePointIds.has(tri.p3.id)) {
+            blueInModelTriangles++;
         }
-        console.log(`   🔵 Синих точек в модели: ${bluePointIds.size}`);
-        console.log(`   🔵 Синих точек, попавших в треугольники матчера: ${bluePointsFound.size}`);
-        console.log(`   🔵 Треугольников с синими точками: ${blueTrianglesCount}`);
     }
+    console.log(`\n🔵 ДИАГНОСТИКА МОДЕЛИ (перед матчером):`);
+    console.log(`   • Синих точек в модели: ${bluePointIds.size}`);
+    console.log(`   • Синих точек в треугольниках МОДЕЛИ: ${bluePointsFound.size}`);
+    console.log(`   • Треугольников модели с синими точками: ${blueInModelTriangles}`);
+   
+    if (bluePointsFound.size === 0 && bluePointIds.size > 0) {
+        console.log(`   ⚠️ КРИТИЧНО: синие точки НЕ входят в треугольники модели!`);
+        console.log(`   → Они никогда не будут найдены матчером.`);
+    }
+}
 
     return finalResult;
 }
