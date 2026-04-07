@@ -2923,18 +2923,29 @@ if (this.debug && finalMatches.length > 0) {
    
     console.log(`   📊 Подтверждено точек модели: ${confirmedModelPoints.size} / ${model.graph.nodes.size}`);
    
-    // Показываем первые 10 неподтверждённых точек (синие)
     if (notConfirmed.length > 0) {
         const sampleNotConfirmed = notConfirmed.slice(0, 10);
         console.log(`   ⚠️ Не подтверждены (первые 10): ${sampleNotConfirmed.map(id => id.substring(0,12)).join(', ')}`);
        
-        // Проверяем, есть ли среди них точки из lastUniqueInPhoto
         if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
             const lastUniqueIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
             const blueNotConfirmed = notConfirmed.filter(id => lastUniqueIds.has(id));
             if (blueNotConfirmed.length > 0) {
                 console.log(`   🔵 СИНИЕ точки из предыдущего фото НЕ подтверждены: ${blueNotConfirmed.length} шт`);
-                console.log(`      Примеры: ${blueNotConfirmed.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+                console.log(`      ID: ${blueNotConfirmed.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+               
+                // 🔥 НОВОЕ: проверяем, есть ли эти точки в текущем фото
+                const photoPointIds = new Set(newGraph.nodes.keys());
+                const missingInPhoto = blueNotConfirmed.filter(id => !photoPointIds.has(id));
+                const presentInPhoto = blueNotConfirmed.filter(id => photoPointIds.has(id));
+               
+                if (missingInPhoto.length > 0) {
+                    console.log(`      ❌ Отсутствуют в текущем фото: ${missingInPhoto.length} шт — не могут подтвердиться`);
+                }
+                if (presentInPhoto.length > 0) {
+                    console.log(`      ✅ Присутствуют в текущем фото, но не сопоставились: ${presentInPhoto.length} шт`);
+                    console.log(`         ID: ${presentInPhoto.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+                }
             }
         }
     }
