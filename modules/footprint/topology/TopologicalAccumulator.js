@@ -183,7 +183,23 @@ this.affineRefiner = new AffineRefiner({
     console.log(`   existingModel.nodes = ${existingModel.graph?.nodes?.size || 0}`);
     console.log(`   modelIdHint = ${modelIdHint?.substring(0,20)}`);
    
-    const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+    console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+
+// 🔥 ДИАГНОСТИКА ПОСЛЕ ТРЕУГОЛЬНОГО СРАВНЕНИЯ
+if (this.debug && triangleResult && triangleResult.matches) {
+    const uniqueModelPoints = new Set(triangleResult.matches.map(m => m.pointB));
+    const modelSize = existingModel.graph.nodes.size;
+    const coverage = (uniqueModelPoints.size / modelSize * 100).toFixed(1);
+    console.log(`\n📊 ПОСЛЕ ТРЕУГОЛЬНОГО МАТЧЕРА:`);
+    console.log(`   • Уникальных точек модели в matches: ${uniqueModelPoints.size} / ${modelSize} (${coverage}%)`);
+    console.log(`   • Всего matches (с дублями): ${triangleResult.matches.length}`);
+   
+    // Если покрытие низкое — предупреждение
+    if (coverage < 80 && modelSize > 10) {
+        console.log(`   ⚠️ НИЗКОЕ ПОКРЫТИЕ! Синие точки из предыдущих фото могут не подтвердиться`);
+    }
+}
             // 🔥 ВРЕМЕННО: срабатывает даже с 1 точкой
             if (triangleResult.count >= 1) {
                 console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
@@ -2594,14 +2610,25 @@ const finalResult = {
     stats: result.stats
 };
 
-        if (this.debug) {
-            console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
-            console.log(`   • Найдено соответствий: ${finalResult.count}`);
-            console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
-            console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
-            console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
-            console.log(`   • Время: ${finalResult.time}ms`);
-        }
+   //     if (this.debug) {
+    console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
+    console.log(`   • Найдено соответствий: ${finalResult.count}`);
+    console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
+    console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
+    console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
+    console.log(`   • Время: ${finalResult.time}ms`);
+   
+    // 🔥 ДИАГНОСТИКА: покрытие модели
+    if (result && result.matches) {
+        const uniqueModelPoints = new Set(result.matches.map(m => m.pointB));
+        const modelSize = model2.graph?.nodes?.size || 0;
+        const coverage = modelSize > 0 ? (uniqueModelPoints.size / modelSize * 100).toFixed(1) : 0;
+        console.log(`   📊 ПОКРЫТИЕ МОДЕЛИ: ${uniqueModelPoints.size} / ${modelSize} (${coverage}%)`);
+        if (coverage < 80 && modelSize > 10) {
+            console.log(`   ⚠️ НИЗКОЕ ПОКРЫТИЕ! Только ${coverage}% точек модели совпало с фото`);
+        }
+    }
+// }
 
         return finalResult;
     }
@@ -2864,35 +2891,54 @@ const finalResult = {
   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
     const model = this.models.get(modelId);
    
-    // 🔥 ДЕДУПЛИКАЦИЯ: убираем дубликаты пар (pointA, pointB)
-    const uniqueMatches = [];
-    const seenPairs = new Set();
-    for (const match of matches) {
-        const key = `${match.pointA}|${match.pointB}`;
-        if (!seenPairs.has(key)) {
-            seenPairs.add(key);
-            uniqueMatches.push(match);
+    // 🔥 ДЕДУПЛИКАЦИЯ
+const uniqueMatches = [];
+const seenPairs = new Set();
+for (const match of matches) {
+    const key = `${match.pointA}|${match.pointB}`;
+    if (!seenPairs.has(key)) {
+        seenPairs.add(key);
+        uniqueMatches.push(match);
+    }
+}
+
+const uniqueByPointB = new Map();
+for (const match of uniqueMatches) {
+    const existing = uniqueByPointB.get(match.pointB);
+    if (!existing || match.confidence > existing.confidence) {
+        uniqueByPointB.set(match.pointB, match);
+    }
+}
+const finalMatches = Array.from(uniqueByPointB.values());
+
+if (this.debug && matches.length !== finalMatches.length) {
+    console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
+}
+
+// 🔥 ДИАГНОСТИКА: какие точки модели НЕ получили подтверждение
+if (this.debug && finalMatches.length > 0) {
+    const confirmedModelPoints = new Set(finalMatches.map(m => m.pointB));
+    const allModelPoints = Array.from(model.graph.nodes.keys());
+    const notConfirmed = allModelPoints.filter(id => !confirmedModelPoints.has(id));
+   
+    console.log(`   📊 Подтверждено точек модели: ${confirmedModelPoints.size} / ${model.graph.nodes.size}`);
+   
+    // Показываем первые 10 неподтверждённых точек (синие)
+    if (notConfirmed.length > 0) {
+        const sampleNotConfirmed = notConfirmed.slice(0, 10);
+        console.log(`   ⚠️ Не подтверждены (первые 10): ${sampleNotConfirmed.map(id => id.substring(0,12)).join(', ')}`);
+       
+        // Проверяем, есть ли среди них точки из lastUniqueInPhoto
+        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+            const lastUniqueIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
+            const blueNotConfirmed = notConfirmed.filter(id => lastUniqueIds.has(id));
+            if (blueNotConfirmed.length > 0) {
+                console.log(`   🔵 СИНИЕ точки из предыдущего фото НЕ подтверждены: ${blueNotConfirmed.length} шт`);
+                console.log(`      Примеры: ${blueNotConfirmed.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+            }
         }
     }
-   
-    // 🔥 ДЕДУПЛИКАЦИЯ ПО pointB: одна точка модели не может соответствовать нескольким точкам фото
-    const uniqueByPointB = new Map(); // pointB -> match
-    for (const match of uniqueMatches) {
-        const existing = uniqueByPointB.get(match.pointB);
-        if (!existing || match.confidence > existing.confidence) {
-            uniqueByPointB.set(match.pointB, match);
-        }
-    }
-    const finalMatches = Array.from(uniqueByPointB.values());
-   
-    // 🔥 ДИАГНОСТИКА
-    console.log(`\n🔍 updateModelWithOptimalMatches:`);
-    console.log(`   modelId = ${modelId?.substring(0,20)}`);
-    console.log(`   model.graph.nodes.size ДО = ${model?.graph?.nodes?.size || 0}`);
-    console.log(`   matches.length = ${matches.length}`);
-    if (matches.length !== finalMatches.length) {
-        console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
-    }
+}
    
     // 🔥 ВЫВОД ПЕРВЫХ 5 matches
     console.log(`\n🔍 ПЕРВЫЕ 5 matches (что сопоставил матчер):`);
