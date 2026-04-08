@@ -4872,10 +4872,11 @@ mergeDuplicatePoints(graph, threshold = 3) {
             if (dist < threshold) {
                 // Усредняем координаты
                 const avgX = (points[i].x + points[j].x) / 2;
-                const avgY = (points[i].y + points[j].y) / 2;
-                points[i].x = avgX;
-                points[i].y = avgY;
-                points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
+const avgY = (points[i].y + points[j].y) / 2;
+points[i].x = avgX;
+points[i].y = avgY;
+// Не суммируем confirmationCount — оставляем максимальное
+points[i].confirmationCount = Math.max(points[i].confirmationCount || 1, points[j].confirmationCount || 1);
                
                 // Запоминаем для обновления рёбер
                 edgesToUpdate.set(points[j].id, points[i].id);
