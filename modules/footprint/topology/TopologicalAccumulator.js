@@ -3100,18 +3100,35 @@ if (this.debug && finalMatches.length > 0) {
     }
    
     let confirmedExisting = 0;
-    let newNodesAdded = 0;
+let newNodesAdded = 0;
 
-    const matchedPhotoIds = new Set();
-    const matchedModelIds = new Set();
+const matchedPhotoIds = new Set();
+const matchedModelIds = new Set();
 
-    // 1. Обновляем существующие точки (только счётчик!)
+// ===== НОВОЕ: дедупликация по pointB (точкам модели) =====
+// Каждая точка модели может получить максимум +1 подтверждение за фото
+const uniqueMatchesByModel = new Map(); // pointB -> match
+for (const match of finalMatches) {
+    const pointB = match.pointB;
+    const existing = uniqueMatchesByModel.get(pointB);
+    if (!existing || match.confidence > existing.confidence) {
+        uniqueMatchesByModel.set(pointB, match);
+    }
+}
+const deduplicatedMatches = Array.from(uniqueMatchesByModel.values());
+
+if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
+    console.log(`   🔧 Дедупликация по модели: ${finalMatches.length} → ${deduplicatedMatches.length} matches`);
+}
+
+// 1. Обновляем существующие точки (только счётчик!)
 let updatedCount = 0;
 let notFoundCount = 0;
-// 1. Обновляем существующие точки (используем finalMatches)
-for (const match of finalMatches) {
+
+for (const match of deduplicatedMatches) {
     const modelNode = model.graph.nodes.get(match.pointB);
     if (modelNode) {
+        // Важно: точка модели получает ТОЛЬКО +1, даже если была в нескольких matches
         const oldCount = modelNode.confirmationCount || 1;
         modelNode.confirmationCount = oldCount + 1;
         modelNode.lastConfirmed = new Date();
