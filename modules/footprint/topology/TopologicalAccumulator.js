@@ -3017,38 +3017,56 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
 
   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
     const model = this.models.get(modelId);
-   
-    // 🔥 ДИАГНОСТИКА: что в lastUniqueInPhoto
- //   if (this.debug) {
-        console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
-        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-            console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
-        }
- //   }
-   
+
+    console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
+    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+        console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
+    }
+
     // 🔥 ДЕДУПЛИКАЦИЯ
-const uniqueMatches = [];
-const seenPairs = new Set();
-for (const match of matches) {
-    const key = `${match.pointA}|${match.pointB}`;
-    if (!seenPairs.has(key)) {
-        seenPairs.add(key);
-        uniqueMatches.push(match);
+    const uniqueMatches = [];
+    const seenPairs = new Set();
+    for (const match of matches) {
+        const key = `${match.pointA}|${match.pointB}`;
+        if (!seenPairs.has(key)) {
+            seenPairs.add(key);
+            uniqueMatches.push(match);
+        }
     }
-}
 
-const uniqueByPointB = new Map();
-for (const match of uniqueMatches) {
-    const existing = uniqueByPointB.get(match.pointB);
-    if (!existing || match.confidence > existing.confidence) {
-        uniqueByPointB.set(match.pointB, match);
+    const uniqueByPointB = new Map();
+    for (const match of uniqueMatches) {
+        const existing = uniqueByPointB.get(match.pointB);
+        if (!existing || match.confidence > existing.confidence) {
+            uniqueByPointB.set(match.pointB, match);
+        }
     }
-}
-const finalMatches = Array.from(uniqueByPointB.values());
+    const finalMatches = Array.from(uniqueByPointB.values());
 
-if (this.debug && matches.length !== finalMatches.length) {
-    console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
-}
+    if (this.debug && matches.length !== finalMatches.length) {
+        console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
+    }
+
+    // ===== НОВАЯ ДИАГНОСТИКА ПЕРЕД ОБНОВЛЕНИЕМ =====
+    console.log(`\n🔍 ДИАГНОСТИКА ПЕРЕД ОБНОВЛЕНИЕМ В updateModelWithOptimalMatches:`);
+    console.log(`   finalMatches.length = ${finalMatches.length}`);
+    const uniquePointB = new Set(finalMatches.map(m => m.pointB));
+    console.log(`   Уникальных pointB: ${uniquePointB.size}`);
+    if (finalMatches.length !== uniquePointB.size) {
+        console.log(`   ⚠️ ВНИМАНИЕ: есть дубликаты pointB! Будет множественное обновление одной точки.`);
+        // Покажем первые 5 дубликатов
+        const counts = new Map();
+        for (const m of finalMatches) {
+            counts.set(m.pointB, (counts.get(m.pointB) || 0) + 1);
+        }
+        const duplicates = [];
+        for (const [id, count] of counts) {
+            if (count > 1) duplicates.push({ id: id.substring(0,12), count });
+        }
+        console.log(`   Дубликаты: ${JSON.stringify(duplicates.slice(0,5))}`);
+    }
+    console.log(`   Первые 5 pointB: ${Array.from(uniquePointB).slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+    // ===== КОНЕЦ ДИАГНОСТИКИ =====
 
 // 🔥 ДИАГНОСТИКА: какие точки модели НЕ получили подтверждение
 if (this.debug && finalMatches.length > 0) {
