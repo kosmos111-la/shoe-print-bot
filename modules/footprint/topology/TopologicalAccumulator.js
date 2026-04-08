@@ -2336,7 +2336,8 @@ const updateResult = this.updateModelWithOptimalMatches(
     modelIdHint,
     exactGraph,
     finalValidatedMatches || [],
-    morphologyMap
+    morphologyMap,
+    updatedModelPointsThisPhoto  // ← передаём Set
 );
 
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
@@ -3068,7 +3069,7 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
+  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null) {
     // ===== ДИАГНОСТИКА: счётчик вызовов =====
     if (!this._updateCallCount) this._updateCallCount = 0;
     this._updateCallCount++;
@@ -3226,30 +3227,34 @@ let notFoundCount = 0;
 for (const match of deduplicatedMatches) {
     const modelNode = model.graph.nodes.get(match.pointB);
     if (modelNode) {
-        // Важно: точка модели получает ТОЛЬКО +1, даже если была в нескольких matches
+        // Проверяем, не обновляли ли уже эту точку в этом фото
+        if (updatedThisPhoto && updatedThisPhoto.has(match.pointB)) {
+          //  if (this.debug) {
+                console.log(`   ⏭️ updateModel: пропускаем повторное обновление точки ${match.pointB.substring(0,12)} (уже обновлена в этом фото)`);
+        //    }
+            // Всё равно добавляем в matchedPhotoIds для правильного учёта
+            matchedPhotoIds.add(match.pointA);
+            matchedModelIds.add(match.pointB);
+            updatedCount++;
+            continue;
+        }
+       
         const oldCount = modelNode.confirmationCount || 1;
-const newCount = oldCount + 1;
-
-// ===== ДИАГНОСТИКА: проверяем неожиданно высокие oldCount =====
-if (oldCount >= 3) {
-    console.log(`   ⚠️⚠️⚠️ ВНИМАНИЕ: точка ${match.pointB} уже имеет ${oldCount} подтверждений!`);
-    console.log(`      addedFrom: ${modelNode.addedFrom || 'unknown'}`);
-    console.log(`      addedAt: ${modelNode.addedAt || 'unknown'}`);
-    console.log(`      originalPhotoId: ${modelNode.originalPhotoId || 'none'}`);
-}
-
-console.log(`   🔄 Точка ${match.pointB}: было ${oldCount}, станет ${newCount} (+1)`);
-modelNode.confirmationCount = newCount;
+        const newCount = oldCount + 1;
+        console.log(`   🔄 Точка ${match.pointB}: было ${oldCount}, станет ${newCount} (+1)`);
+        modelNode.confirmationCount = newCount;
         modelNode.lastConfirmed = new Date();
         confirmedExisting++;
         matchedPhotoIds.add(match.pointA);
         matchedModelIds.add(match.pointB);
         updatedCount++;
        
-        // 🔥 ДИАГНОСТИКА ДЛЯ ПЕРВЫХ 5
+        // Добавляем в Set, чтобы не обновлять повторно
+        if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
+
         if (updatedCount <= 5) {
-    console.log(`   ✅ Обновлена точка ${match.pointB}: ${oldCount} → ${modelNode.confirmationCount}`);
-}
+            console.log(`   ✅ Обновлена точка ${match.pointB}: ${oldCount} → ${modelNode.confirmationCount}`);
+        }
     } else {
         notFoundCount++;
         if (notFoundCount <= 5) {
