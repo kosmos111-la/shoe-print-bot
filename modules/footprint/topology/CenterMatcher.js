@@ -603,10 +603,10 @@ class CenterMatcher {
         }));
 
         // Вычисляем все попарные расстояния
-        console.log(`\n📊 МАТРИЦА РАССТОЯНИЙ МЕЖДУ ЯКОРЯМИ:`);
-        console.log(`┌─────┬──────────────┬──────────────┬──────────────┬──────────────┐`);
-        console.log(`│  #  │  Фото-Фото   │ Модель-Модель│   Отношение  │   Статус     │`);
-        console.log(`├─────┼──────────────┼──────────────┼──────────────┼──────────────┤`);
+     //   console.log(`\n📊 МАТРИЦА РАССТОЯНИЙ МЕЖДУ ЯКОРЯМИ:`);
+     //   console.log(`┌─────┬──────────────┬──────────────┬──────────────┬──────────────┐`);
+     //   console.log(`│  #  │  Фото-Фото   │ Модель-Модель│   Отношение  │   Статус     │`);
+     //   console.log(`├─────┼──────────────┼──────────────┼──────────────┼──────────────┤`);
 
         const ratios = [];
         for (let i = 0; i < pairs.length; i++) {
@@ -617,10 +617,10 @@ class CenterMatcher {
                 ratios.push({ ratio, i, j });
 
                 const status = this.isConsistent(ratio, ratios.map(r => r.ratio)) ? '✅' : '❌';
-                console.log(
-                    `│ ${i+1}-${j+1}  │ ${photoDist.toFixed(1).padStart(12)} │ ${modelDist.toFixed(1).padStart(12)} │ ` +
-                    `${ratio.toFixed(3).padStart(12)} │ ${status.padStart(12)} │`
-                );
+       //      console.log(
+       //             `│ ${i+1}-${j+1}  │ ${photoDist.toFixed(1).padStart(12)} │ ${modelDist.toFixed(1).padStart(12)} │ ` +
+        //            `${ratio.toFixed(3).padStart(12)} │ ${status.padStart(12)} │`
+        //        );
             }
         }
 
