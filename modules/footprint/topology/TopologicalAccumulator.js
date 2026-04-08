@@ -820,6 +820,12 @@ if (existingModel) {
                     if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
 
 const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null) => {
+    // ===== СЧЁТЧИК ВЫЗОВОВ =====
+    if (typeof this._magneticPullCount === 'undefined') this._magneticPullCount = 0;
+    this._magneticPullCount++;
+    console.log(`\n🔁🔁🔁 magneticPull ВЫЗОВ #${this._magneticPullCount} 🔁🔁🔁`);
+    // ===== КОНЕЦ СЧЁТЧИКА =====
+   
     const pulledMatches = [];
     const usedPhotoPoints = new Set();
     const usedModelPoints = new Set();
