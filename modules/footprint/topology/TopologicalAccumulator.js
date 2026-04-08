@@ -125,14 +125,18 @@ this.affineRefiner = new AffineRefiner({
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
-        const photoId = options.photoId || `photo_${Date.now()}`;
-        const contours = options.contours || [];
-        const modelIdHint = options.modelId;
+    const photoId = options.photoId || `photo_${Date.now()}`;
+    const contours = options.contours || [];
+    const modelIdHint = options.modelId;
 
-    // 🔥 НОВОЕ: Извлекаем контур следа из contours
-    const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
+    // ===== ГЛОБАЛЬНЫЙ SET ДЛЯ ОТСЛЕЖИВАНИЯ ОБНОВЛЁННЫХ ЗА ФОТО ТОЧЕК =====
+    const updatedModelPointsThisPhoto = new Set();
+    // ===== КОНЕЦ =====
+
+    // 🔥 НОВОЕ: Извлекаем контур следа из contours
+    const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
    
     if (outlineContour && this.debug) {
         console.log(`📐 Найден контур следа (${outlineContour.points.length} точек) для сохранения в модель`);
@@ -819,13 +823,7 @@ if (existingModel) {
                     // ===== ШАГ 3.6: Финальное притягивание близких точек с топологической проверкой =====
                     if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
 
-const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null) => {
-    // ===== СЧЁТЧИК ВЫЗОВОВ =====
-    if (typeof this._magneticPullCount === 'undefined') this._magneticPullCount = 0;
-    this._magneticPullCount++;
-    console.log(`\n🔁🔁🔁 magneticPull ВЫЗОВ #${this._magneticPullCount} 🔁🔁🔁`);
-    // ===== КОНЕЦ СЧЁТЧИКА =====
-   
+const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null, updatedThisPhoto = null) => {
     const pulledMatches = [];
     const usedPhotoPoints = new Set();
     const usedModelPoints = new Set();
@@ -877,12 +875,40 @@ const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10
             const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
             const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
 
-            // Обновляем модель
-            modelPoint.x = avgX;
-            modelPoint.y = avgY;
-            modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
-            modelPoint.pulled = true;
-            modelPoint.pullDistance = dist;
+            // Проверяем, не обновляли ли уже эту точку в этом фото
+if (updatedThisPhoto && updatedThisPhoto.has(modelPoint.id)) {
+    if (this.debug) {
+        console.log(`   ⏭️ Пропускаем повторное обновление точки ${modelPoint.id.substring(0,12)} (уже обновлена в этом фото)`);
+    }
+    // Обновляем позицию, но НЕ увеличиваем confirmationCount
+    modelPoint.x = avgX;
+    modelPoint.y = avgY;
+    modelPoint.pulled = true;
+    modelPoint.pullDistance = dist;
+   
+    pulledMatches.push({
+        ...match,
+        pulled: true,
+        pullDistance: dist,
+        newPosition: { x: avgX, y: avgY },
+        skippedDuplicate: true
+    });
+   
+    usedPhotoPoints.add(match.pointA);
+    usedModelPoints.add(modelPoint.id);
+    pulledCount++;
+    continue;
+}
+
+// Если не обновляли — добавляем в Set и обновляем счётчик
+if (updatedThisPhoto) updatedThisPhoto.add(modelPoint.id);
+
+// Обновляем модель
+modelPoint.x = avgX;
+modelPoint.y = avgY;
+modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
+modelPoint.pulled = true;
+modelPoint.pullDistance = dist;
 
             pulledMatches.push({
                 ...match,
@@ -1035,12 +1061,14 @@ const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10
                     // Применяем притягивание если есть transform и matches
                     if (finalTransform && finalValidatedMatches && finalValidatedMatches.length > 0) {
                         const { pulledMatches, pulledCount } = magneticPull(
-                            finalValidatedMatches,
-                            exactGraph,
-                            existingModel.graph,
-                            finalTransform,
-                            25
-                        );
+    finalValidatedMatches,
+    exactGraph,
+    existingModel.graph,
+    finalTransform,
+    25,
+    null,
+    updatedModelPointsThisPhoto
+);
 
                         if (pulledCount > 0) {
                             if (this.debug) console.log(`\n✅ Притянуто ${pulledCount} точек!`);
@@ -1946,13 +1974,14 @@ if (existingModel) {
                                     if (this.debug) console.log(`\n🧲 ДОПОЛНИТЕЛЬНОЕ ПРИТЯГИВАНИЕ НОВЫХ ПАР`);
 
                                     // Берем ТОЛЬКО новые добавленные точки
-const newMatchesOnly = addedBluePoints; // или finalValidatedMatches.slice(-addedBluePoints.length)
 const { pulledMatches, pulledCount } = magneticPull(
-    newMatchesOnly,
+    finalValidatedMatches,
     exactGraph,
     existingModel.graph,
     finalTransform,
-    20
+    20,
+    null,
+    updatedModelPointsThisPhoto
 );
 
                                     if (pulledCount > 0) {
