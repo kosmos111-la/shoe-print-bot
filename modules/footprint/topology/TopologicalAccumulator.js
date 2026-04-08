@@ -1461,7 +1461,10 @@ existingModel.graph.nodes.set(newNodeId, {
     originalPhotoId: photoPoint.id
 });
 uniqueAddedCount++;
-console.log(`   ✅ Добавлена НОВАЯ точка из фото: ${newNodeId}, confirmationCount = 1 (originalPhotoId: ${photoPoint.id.substring(0,20)})`);
+console.log(`   ✅ Добавлена НОВАЯ точка из фото: ${newNodeId}`);
+console.log(`      confirmationCount = 1`);
+console.log(`      originalPhotoId: ${photoPoint.id}`);
+console.log(`      координаты: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
     }
 }
 console.log(`📊 Добавлено уникальных точек: ${uniqueAddedCount}`);
@@ -3087,9 +3090,11 @@ finalMatches = trulyUniqueMatches;
         }
         console.log(`   Дубликаты: ${JSON.stringify(duplicates.slice(0,5))}`);
     }
-    console.log(`   Первые 5 pointB (полные ID):`);
-Array.from(uniquePointB).slice(0,5).forEach((id, idx) => {
-    console.log(`      ${idx+1}: ${id}`);
+    console.log(`   Первые 5 pointB (полные ID) с их confirmationCount ДО обновления:`);
+Array.from(uniquePointB).slice(0,10).forEach((id, idx) => {
+    const node = model.graph.nodes.get(id);
+    const oldCount = node?.confirmationCount || 0;
+    console.log(`      ${idx+1}: ${id} -> было ${oldCount}`);
 });
     // ===== КОНЕЦ ДИАГНОСТИКИ =====
 
@@ -3174,6 +3179,15 @@ for (const match of deduplicatedMatches) {
         // Важно: точка модели получает ТОЛЬКО +1, даже если была в нескольких matches
         const oldCount = modelNode.confirmationCount || 1;
 const newCount = oldCount + 1;
+
+// ===== ДИАГНОСТИКА: проверяем неожиданно высокие oldCount =====
+if (oldCount >= 3) {
+    console.log(`   ⚠️⚠️⚠️ ВНИМАНИЕ: точка ${match.pointB} уже имеет ${oldCount} подтверждений!`);
+    console.log(`      addedFrom: ${modelNode.addedFrom || 'unknown'}`);
+    console.log(`      addedAt: ${modelNode.addedAt || 'unknown'}`);
+    console.log(`      originalPhotoId: ${modelNode.originalPhotoId || 'none'}`);
+}
+
 console.log(`   🔄 Точка ${match.pointB}: было ${oldCount}, станет ${newCount} (+1)`);
 modelNode.confirmationCount = newCount;
         modelNode.lastConfirmed = new Date();
