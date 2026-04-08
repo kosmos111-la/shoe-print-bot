@@ -541,8 +541,26 @@ for (const cand of deduplicatedCandidates) {
         console.log(`\n🎯 ИТОГ ИТЕРАТИВНОЙ СТАБИЛИЗАЦИИ:`);
         console.log(`   Всего стабилизировано: ${currentAnchors.size} точек`);
         console.log(`   Выполнено итераций: ${iteration}`);
-       
-        return allMatches;
+
+        // ===== ФИНАЛЬНАЯ ДЕДУПЛИКАЦИЯ МЕЖДУ ИТЕРАЦИЯМИ =====
+        const finalUniqueByModelId = new Map();
+        for (const [photoId, match] of allMatches) {
+            const existing = finalUniqueByModelId.get(match.modelId);
+            if (!existing || match.confidence > existing.confidence) {
+                finalUniqueByModelId.set(match.modelId, { photoId, match });
+            }
+        }
+
+        const deduplicatedAllMatches = new Map();
+        for (const [modelId, { photoId, match }] of finalUniqueByModelId) {
+            deduplicatedAllMatches.set(photoId, match);
+        }
+
+        if (this.debug && allMatches.size !== deduplicatedAllMatches.size) {
+            console.log(`   🔧 Финальная дедупликация iterativeStabilization: ${allMatches.size} → ${deduplicatedAllMatches.size}`);
+        }
+
+        return deduplicatedAllMatches;
     }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
