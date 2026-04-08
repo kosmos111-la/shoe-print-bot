@@ -3065,7 +3065,10 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         }
         console.log(`   Дубликаты: ${JSON.stringify(duplicates.slice(0,5))}`);
     }
-    console.log(`   Первые 5 pointB: ${Array.from(uniquePointB).slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+    console.log(`   Первые 5 pointB (полные ID):`);
+Array.from(uniquePointB).slice(0,5).forEach((id, idx) => {
+    console.log(`      ${idx+1}: ${id}`);
+});
     // ===== КОНЕЦ ДИАГНОСТИКИ =====
 
 // 🔥 ДИАГНОСТИКА: какие точки модели НЕ получили подтверждение
@@ -3148,7 +3151,9 @@ for (const match of deduplicatedMatches) {
     if (modelNode) {
         // Важно: точка модели получает ТОЛЬКО +1, даже если была в нескольких matches
         const oldCount = modelNode.confirmationCount || 1;
-        modelNode.confirmationCount = oldCount + 1;
+const newCount = oldCount + 1;
+console.log(`   🔄 Точка ${match.pointB}: было ${oldCount}, станет ${newCount} (+1)`);
+modelNode.confirmationCount = newCount;
         modelNode.lastConfirmed = new Date();
         confirmedExisting++;
         matchedPhotoIds.add(match.pointA);
@@ -3157,8 +3162,8 @@ for (const match of deduplicatedMatches) {
        
         // 🔥 ДИАГНОСТИКА ДЛЯ ПЕРВЫХ 5
         if (updatedCount <= 5) {
-            console.log(`   ✅ Обновлена точка ${match.pointB.substring(0,12)}: ${oldCount} → ${modelNode.confirmationCount}`);
-        }
+    console.log(`   ✅ Обновлена точка ${match.pointB}: ${oldCount} → ${modelNode.confirmationCount}`);
+}
     } else {
         notFoundCount++;
         if (notFoundCount <= 5) {
@@ -3552,8 +3557,9 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
             node.confirmationCount = 1;
-            node.addedFrom = 'original';
-            node.addedAt = new Date();
+node.addedFrom = 'original';
+node.addedAt = new Date();
+console.log(`   🆕 Новая точка в модели: ${nodeId}, confirmationCount = ${node.confirmationCount}`);
         }
 
         const model = {
