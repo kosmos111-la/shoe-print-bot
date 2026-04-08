@@ -216,11 +216,6 @@ const deduplicatedMap = new Map();
 for (const [modelId, { photoId, match }] of uniqueByModelId) {
     deduplicatedMap.set(photoId, match);
 }
-
-if (this.debug && photoToModel.size !== deduplicatedMap.size) {
-    console.log(`   🔧 Дедупликация positionPoints: ${photoToModel.size} → ${deduplicatedMap.size}`);
-}
-
 return deduplicatedMap;
     }
 
@@ -513,10 +508,6 @@ for (const cand of candidates) {
     }
 }
 const deduplicatedCandidates = Array.from(uniqueByModelId.values());
-
-if (this.debug && candidates.length !== deduplicatedCandidates.length) {
-    console.log(`   🔧 Дедупликация итеративной стабилизации: ${candidates.length} → ${deduplicatedCandidates.length}`);
-}
 
 for (const cand of deduplicatedCandidates) {
     allMatches.set(cand.photoId, {
