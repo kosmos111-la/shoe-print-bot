@@ -449,14 +449,14 @@ class RelativePositioning {
                 }
                
                 if (bestMatch && bestScore > 0.7) {
-                    candidates.push({
-                        photoId,
-                        modelId: bestMatch,
-                        score: bestScore,
-                        photoNode,
-                        anchors: top3.map(a => a.id.substring(0,6)).join(',')
-                    });
-                }
+    candidates.push({
+        photoId,
+        modelId: bestMatch,
+        score: bestScore,
+        photoNode,
+        anchors: top3.map(a => a.id.substring(0,6)).join(',')
+    });
+}
             }
            
             // Взаимная проверка
@@ -486,22 +486,35 @@ class RelativePositioning {
                 selectedCandidates.push(best);
             }
            
-            // Добавляем выбранных кандидатов
-            for (const cand of selectedCandidates) {
-                allMatches.set(cand.photoId, {
-                    modelId: cand.modelId,
-                    confidence: cand.score,
-                    source: 'iterative'
-                });
-               
-                currentAnchors.set(cand.photoId, {
-                    modelId: cand.modelId,
-                    confidence: cand.score
-                });
-               
-                modelToPhoto.set(cand.modelId, cand.photoId);
-                newAnchorsAdded++;
-            }
+            // ===== ДЕДУПЛИКАЦИЯ: каждая точка модели получает максимум +1 за итерацию =====
+const uniqueByModelId = new Map(); // modelId -> best candidate
+for (const cand of candidates) {
+    const existing = uniqueByModelId.get(cand.modelId);
+    if (!existing || cand.score > existing.score) {
+        uniqueByModelId.set(cand.modelId, cand);
+    }
+}
+const deduplicatedCandidates = Array.from(uniqueByModelId.values());
+
+if (this.debug && candidates.length !== deduplicatedCandidates.length) {
+    console.log(`   🔧 Дедупликация итеративной стабилизации: ${candidates.length} → ${deduplicatedCandidates.length}`);
+}
+
+for (const cand of deduplicatedCandidates) {
+    allMatches.set(cand.photoId, {
+        modelId: cand.modelId,
+        confidence: cand.score,
+        source: 'iterative'
+    });
+   
+    currentAnchors.set(cand.photoId, {
+        modelId: cand.modelId,
+        confidence: cand.score
+    });
+   
+    modelToPhoto.set(cand.modelId, cand.photoId);
+    newAnchorsAdded++;
+}
            
             console.log(`📊 Итерация ${iteration}: добавлено ${newAnchorsAdded} новых якорей`);
            
