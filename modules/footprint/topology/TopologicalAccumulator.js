@@ -2178,12 +2178,10 @@ const updateResult = this.updateModelWithOptimalMatches(
 );
 
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
-// 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ СЛИЯНИЕ ДУБЛИКАТОВ ДЛЯ ДИАГНОСТИКИ
-// const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
-// if (this.debug && mergedCount > 0) {
-//     console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
-// }
-console.log(`⚠️ [ДИАГНОСТИКА] mergeDuplicatePoints временно отключён`);
+const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
+if (mergedCount > 0) {
+    console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
+}
 
 // После updateModelWithOptimalMatches
                  
@@ -3425,7 +3423,6 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
             node.confirmationCount = 1;
 node.addedFrom = 'original';
 node.addedAt = new Date();
-console.log(`   🆕 Новая точка в модели: ${nodeId}, confirmationCount = ${node.confirmationCount}`);
         }
 
         const model = {
@@ -3537,57 +3534,72 @@ console.log(`   🆕 Новая точка в модели: ${nodeId}, confirm
     }
 
     cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
-    // 🔥 ВРЕМЕННО ОТКЛЮЧАЕМ ОЧИСТКУ ДЛЯ ДИАГНОСТИКИ
-    console.log(`\n⚠️ [ДИАГНОСТИКА] cleanUnconfirmedNodes временно отключена`);
-    return { removed: 0, remaining: 0 };      
-    /*      
-        const model = this.models.get(modelId);
-        if (!model) return { removed: 0, remaining: 0 };
+    const model = this.models.get(modelId);
+    if (!model) return { removed: 0, remaining: 0 };
 
-        const graph = model.graph;
-        const toRemove = [];
-        const now = Date.now();
+    const graph = model.graph;
+    const toRemove = [];
+    const now = Date.now();
 
-        const corePoints = new Set();
-        if (model.lastTriangleResult && model.lastTriangleResult.zones) {
-            model.lastTriangleResult.zones.core.forEach(p => corePoints.add(p.pointA));
-        }
+    // Защищаем точки из первого фото (original) от удаления
+    const originalPoints = new Set();
+    for (const [nodeId, node] of graph.nodes) {
+        if (node.addedFrom === 'original') {
+            originalPoints.add(nodeId);
+        }
+    }
 
-        for (const [nodeId, node] of graph.nodes) {
-            if (corePoints.has(nodeId)) continue;
-            if (node.addedFrom === 'original') continue;
+    for (const [nodeId, node] of graph.nodes) {
+        // Не удаляем оригинальные точки из первого фото
+        if (originalPoints.has(nodeId)) continue;
+       
+        // Не удаляем точки, добавленные в этом фото
+        if (node.addedFrom === 'unique_photo_point' && node.confirmationCount === 1) {
+            // Проверяем возраст — если точка только что добавлена, не удаляем
+            const addedAt = node.addedAt ? node.addedAt.getTime() : now;
+            const ageHours = (now - addedAt) / (1000 * 60 * 60);
+            if (ageHours < 1) continue;
+        }
 
-            const confirmations = node.confirmationCount || 1;
-            const addedAt = node.addedAt ? node.addedAt.getTime() : now;
-            const age = (now - addedAt) / (1000 * 60 * 60 * 24);
+        const confirmations = node.confirmationCount || 1;
+        const addedAt = node.addedAt ? node.addedAt.getTime() : now;
+        const ageDays = (now - addedAt) / (1000 * 60 * 60 * 24);
 
-            if (confirmations < minConfirmations && age > 0.1) {
-                toRemove.push(nodeId);
-            }
-        }
+        // Удаляем точки с подтверждением меньше minConfirmations и старше maxAge дней
+        if (confirmations < minConfirmations && ageDays > maxAge) {
+            toRemove.push(nodeId);
+        }
+    }
 
-        toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
+    // Удаляем точки
+    toRemove.forEach(nodeId => graph.nodes.delete(nodeId));
 
-        const newEdges = new Set();
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a) && graph.nodes.has(b)) {
-                newEdges.add(edge);
-            }
-        }
-        graph.edges = newEdges;
+    // Обновляем рёбра
+    const newEdges = new Set();
+    for (const edge of graph.edges) {
+        const [a, b] = edge.split('--');
+        if (graph.nodes.has(a) && graph.nodes.has(b)) {
+            newEdges.add(edge);
+        }
+    }
+    graph.edges = newEdges;
 
-        for (const node of graph.nodes.values()) node.degree = 0;
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
-            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
-        }
+    // Пересчитываем степени
+    for (const node of graph.nodes.values()) {
+        node.degree = 0;
+    }
+    for (const edge of graph.edges) {
+        const [a, b] = edge.split('--');
+        if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+        if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+    }
 
-        if (this.debug) console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
-        return { removed: toRemove.length, remaining: graph.nodes.size };
-      */  
-    }
+    if (this.debug && toRemove.length > 0) {
+        console.log(`🧹 Очищено ${toRemove.length} неподтверждённых точек`);
+    }
+   
+    return { removed: toRemove.length, remaining: graph.nodes.size };
+}
 
     setTriangleResult(modelId, result) {
         const model = this.models.get(modelId);
