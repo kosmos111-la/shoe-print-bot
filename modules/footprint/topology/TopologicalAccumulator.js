@@ -1945,13 +1945,15 @@ if (existingModel) {
                                     // 🔥 ДОБАВЛЯЕМ МАГНИТ ДЛЯ НОВЫХ ПАР
                                     if (this.debug) console.log(`\n🧲 ДОПОЛНИТЕЛЬНОЕ ПРИТЯГИВАНИЕ НОВЫХ ПАР`);
 
-                                    const { pulledMatches, pulledCount } = magneticPull(
-                                        finalValidatedMatches,
-                                        exactGraph,
-                                        existingModel.graph,
-                                        finalTransform,
-                                        20 // порог в пикселях
-                                    );
+                                    // Берем ТОЛЬКО новые добавленные точки
+const newMatchesOnly = addedBluePoints; // или finalValidatedMatches.slice(-addedBluePoints.length)
+const { pulledMatches, pulledCount } = magneticPull(
+    newMatchesOnly,
+    exactGraph,
+    existingModel.graph,
+    finalTransform,
+    20
+);
 
                                     if (pulledCount > 0) {
                                         if (this.debug) console.log(`\n✅ Притянуто ещё ${pulledCount} новых пар!`);
