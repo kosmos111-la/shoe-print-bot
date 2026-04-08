@@ -3016,8 +3016,14 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
+    // ===== ДИАГНОСТИКА: счётчик вызовов =====
+    if (!this._updateCallCount) this._updateCallCount = 0;
+    this._updateCallCount++;
+    console.log(`\n🔁🔁🔁 updateModelWithOptimalMatches ВЫЗОВ #${this._updateCallCount} 🔁🔁🔁`);
+    // ===== КОНЕЦ ДИАГНОСТИКИ =====
+   
     const model = this.models.get(modelId);
-
+   
     console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
     if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
