@@ -203,7 +203,25 @@ class RelativePositioning {
         console.log(`   🎯 Всего в фото: ${photoGraph.nodes.size} точек`);
         console.log(`   🎯 Сопоставлено всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
 
-        return photoToModel;
+       // ===== ДЕДУПЛИКАЦИЯ: каждая точка модели получает максимум +1 =====
+const uniqueByModelId = new Map();
+for (const [photoId, match] of photoToModel) {
+    const existing = uniqueByModelId.get(match.modelId);
+    if (!existing || match.confidence > existing.confidence) {
+        uniqueByModelId.set(match.modelId, { photoId, match });
+    }
+}
+
+const deduplicatedMap = new Map();
+for (const [modelId, { photoId, match }] of uniqueByModelId) {
+    deduplicatedMap.set(photoId, match);
+}
+
+if (this.debug && photoToModel.size !== deduplicatedMap.size) {
+    console.log(`   🔧 Дедупликация positionPoints: ${photoToModel.size} → ${deduplicatedMap.size}`);
+}
+
+return deduplicatedMap;
     }
 
     /**
