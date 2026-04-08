@@ -77,7 +77,7 @@ class CenterMatcher {
         const searchDim = 15;
 
         // УРОВЕНЬ 1: ХАБЫ (H)
-        let result = this.searchByRole('H', photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim);
+        let result = this.searchByRole('H', photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, false, photoMorphology, modelMorphology);
         if (result.size >= this.minConsistentPairs) {
             console.log(`\n✅ Найдено ${result.size} якорей на УРОВНЕ 1 (ХАБЫ)`);
            
@@ -120,7 +120,7 @@ class CenterMatcher {
 
     // ==================== ИЕРАРХИЧЕСКИЙ ПОИСК ПО РОЛЯМ ====================
 
-    searchByRole(roles, photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, highDegreeOnly = false) {
+    searchByRole(roles, photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, highDegreeOnly = false, photoMorphology = null, modelMorphology = null) {
         // Собираем ID точек с нужными ролями
         let photoIds = [];
         let modelIds = [];
@@ -165,11 +165,11 @@ class CenterMatcher {
         for (const photoId of photoIds) {
             for (const modelId of modelIds) {
                 const result = this.matchWithDFS(
-                    photoId, modelId,
-                    photoGraph, modelGraph,
-                    photoKPlets, modelKPlets,
-                    photoMorphology, modelMorphology
-                );
+        photoId, modelId,
+        photoGraph, modelGraph,
+        photoKPlets, modelKPlets,
+        photoMorphology, modelMorphology
+    );
 
                 if (result.score > bestScore) {
                     bestScore = result.score;
