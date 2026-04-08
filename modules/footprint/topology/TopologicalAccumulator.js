@@ -1449,19 +1449,19 @@ for (const photoPoint of uniqueInPhoto) {
    
     if (!isDuplicate) {
         const newNodeId = `node_${Date.now()}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-        existingModel.graph.nodes.set(newNodeId, {
-            id: newNodeId,
-            x: photoPoint.x,
-            y: photoPoint.y,
-            degree: 0,
-            morphology: morphologyMap.get(photoPoint.id),
-            confirmationCount: 1,
-            addedFrom: 'unique_photo_point',
-            addedAt: new Date(),
-            originalPhotoId: photoPoint.id
-        });
-        uniqueAddedCount++;
-        if (this.debug) console.log(`   ✅ Добавлена уникальная точка ${photoPoint.id.substring(0,12)} (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+existingModel.graph.nodes.set(newNodeId, {
+    id: newNodeId,
+    x: photoPoint.x,
+    y: photoPoint.y,
+    degree: 0,
+    morphology: morphologyMap.get(photoPoint.id),
+    confirmationCount: 1,
+    addedFrom: 'unique_photo_point',
+    addedAt: new Date(),
+    originalPhotoId: photoPoint.id
+});
+uniqueAddedCount++;
+console.log(`   ✅ Добавлена НОВАЯ точка из фото: ${newNodeId}, confirmationCount = 1 (originalPhotoId: ${photoPoint.id.substring(0,20)})`);
     }
 }
 console.log(`📊 Добавлено уникальных точек: ${uniqueAddedCount}`);
@@ -3040,14 +3040,30 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         }
     }
 
-    const uniqueByPointB = new Map();
-    for (const match of uniqueMatches) {
-        const existing = uniqueByPointB.get(match.pointB);
-        if (!existing || match.confidence > existing.confidence) {
-            uniqueByPointB.set(match.pointB, match);
-        }
+    // Дедупликация по pointB (точке модели) — оставляем только лучший match для каждой точки модели
+const uniqueByPointB = new Map();
+for (const match of uniqueMatches) {
+    const existing = uniqueByPointB.get(match.pointB);
+    if (!existing || match.confidence > existing.confidence) {
+        uniqueByPointB.set(match.pointB, match);
     }
-    const finalMatches = Array.from(uniqueByPointB.values());
+}
+let finalMatches = Array.from(uniqueByPointB.values());
+
+// ===== НОВОЕ: дополнительная защита — каждая точка модели получает максимум +1 за фото =====
+// Создаём Set уже обработанных pointB, чтобы случайно не обновить дважды
+const processedPointB = new Set();
+const trulyUniqueMatches = [];
+for (const match of finalMatches) {
+    if (!processedPointB.has(match.pointB)) {
+        processedPointB.add(match.pointB);
+        trulyUniqueMatches.push(match);
+    }
+}
+if (finalMatches.length !== trulyUniqueMatches.length) {
+    console.log(`   ⚠️ ВНИМАНИЕ: обнаружены дубликаты pointB! Было ${finalMatches.length}, стало ${trulyUniqueMatches.length}`);
+}
+finalMatches = trulyUniqueMatches;
 
     if (this.debug && matches.length !== finalMatches.length) {
         console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
