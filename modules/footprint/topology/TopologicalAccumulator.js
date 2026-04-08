@@ -1502,7 +1502,7 @@ if (uniqueAddedCount > 0) {
     const nodeIds = Array.from(existingModel.graph.nodes.keys());
     const edgesSet = existingModel.graph.edges;
     const newTriangleList = [];
-   
+
     for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
             for (let k = j + 1; k < nodeIds.length; k++) {
@@ -1520,28 +1520,28 @@ if (uniqueAddedCount > 0) {
             }
         }
     }
-   
+
     existingModel.graph.triangleList = newTriangleList;
-   
+
     // Подсчёт треугольников для каждой точки
     const triangleCounts = new Map();
     for (const nodeId of nodeIds) {
         triangleCounts.set(nodeId, 0);
     }
-   
+
     for (const tri of newTriangleList) {
         for (const v of tri) {
             triangleCounts.set(v, (triangleCounts.get(v) || 0) + 1);
         }
     }
-   
+
     for (const [nodeId, count] of triangleCounts) {
         if (existingModel.graph.nodes.has(nodeId)) {
             existingModel.graph.nodes.get(nodeId).triangles = count;
         }
     }
 
-  //  if (this.debug) {
+//    if (this.debug) {
         console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
         console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
        
@@ -1552,7 +1552,7 @@ if (uniqueAddedCount > 0) {
                 newPointIds.push(id);
             }
         }
-       
+
         if (newPointIds.length > 0) {
             let pointsWithTriangles = 0;
             for (const pointId of newPointIds) {
@@ -1567,11 +1567,7 @@ if (uniqueAddedCount > 0) {
             }
             console.log(`   🔵 Новых точек в triangleList: ${pointsWithTriangles}/${newPointIds.length}`);
         }
- //   }
-}
-
-
- 
+//    }
 }
                  
 // Сохраняем для диагностики (опционально)
