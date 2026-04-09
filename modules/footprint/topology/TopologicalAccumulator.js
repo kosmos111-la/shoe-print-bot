@@ -3261,13 +3261,17 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
                 { confidenceThreshold: 0.5 }
             );
 
-            stabilizedMatches = this.relativePositioning.iterativeStabilization(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap
-            );
+console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВХОД)`);
+
+stabilizedMatches = this.relativePositioning.iterativeStabilization(
+    newExactGraph,
+    model.graph,
+    centerMatches,
+    newMorphology,
+    model.morphologyMap
+);
+
+console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВЫХОД)`);
 
             finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
 
@@ -3305,14 +3309,16 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         const cleanResult = this.cleanUnconfirmedNodes(modelId, 2, 3);
         this.stats.totalNodesRemoved += cleanResult.removed;
 
-        return {
-            centerMatches: centerMatches.size,
-            totalMatches: finalMatches.size,
-            newNodesAdded,
-            nodesRemoved: cleanResult.removed,
-            matchMap
-        };
-    }
+        // В конце метода, перед return:
+    console.log(`\n🔍 enhanceExistingModel: КОНЕЦ, время ${Date.now() - startTime}ms`);
+    return {
+        centerMatches: centerMatches.size,
+        totalMatches: finalMatches.size,
+        newNodesAdded,
+        nodesRemoved: cleanResult.removed,
+        matchMap
+    };
+}
 
     buildMatchMap(centerMatches, allMatches, stabilizedMatches) {
         const matchMap = new Map();
