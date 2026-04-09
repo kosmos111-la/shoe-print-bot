@@ -551,8 +551,10 @@ for (const cand of deduplicatedCandidates) {
             console.log(`   🔧 Финальная дедупликация iterativeStabilization: ${allMatches.size} → ${deduplicatedAllMatches.size}`);
         }
 
-        return deduplicatedAllMatches;
-    }
+    // В конце метода, перед return:
+    console.log(`\n🔍 iterativeStabilization: КОНЕЦ, время ${Date.now() - startTime}ms`);
+    return deduplicatedAllMatches;
+}
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
 
