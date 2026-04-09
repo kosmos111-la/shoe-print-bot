@@ -20,21 +20,40 @@ class ModelVisualization {
 async createVisualization(options = {}) {
     try {
         const {
-    points = [],
-    photoPoints = [],
-    transform = null,
-    matches = new Map(),
-    edges = [],
-    triangles = [],
-    structures = [],
-    pointToStructure = new Map(),
-    outlineContour = null,
-    photoOutlineContour = null,  // 🔥 ДОБАВИТЬ
-    width = 1200,
-    height = 1000,
-    padding = 50,
-    outputPath = null
-} = options;
+            points = [],
+            photoPoints = [],
+            transform = null,
+            matches = new Map(),
+            edges = [],
+            triangles = [],
+            structures = [],
+            pointToStructure = new Map(),
+            outlineContour = null,
+            photoOutlineContour = null,
+            width = 1200,
+            height = 1000,
+            padding = 50,
+            outputPath = null
+        } = options;
+
+        // ========== НОВАЯ ДИАГНОСТИКА ==========
+        console.log(`\n🔍 createVisualization: получены данные`);
+        console.log(`   points.length: ${points.length}`);
+       
+        let redCount = 0, orangeCount = 0, yellowCount = 0, blueCount = 0, grayCount = 0;
+        for (const point of points) {
+            const confirmations = point.confirmationCount || 0;
+            if (confirmations >= 4) redCount++;
+            else if (confirmations === 3) orangeCount++;
+            else if (confirmations === 2) yellowCount++;
+            else if (confirmations === 1) blueCount++;
+            else grayCount++;
+        }
+        console.log(`   Статистика ПОЛУЧЕННЫХ точек: красных ${redCount}, оранж ${orangeCount}, жёлт ${yellowCount}, син ${blueCount}, сер ${grayCount}`);
+        console.log(`   matches.size: ${matches.size}`);
+        console.log(`   triangles.length: ${triangles.length}`);
+        console.log(`   structures.length: ${structures.length}`);
+        // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 // 🔥 ДИАГНОСТИКА КОНТУРОВ
 if (outlineContour) {
     console.log(`   📐 Контур модели: ${outlineContour.points.length} точек`);
@@ -252,6 +271,21 @@ this.drawModelPoints(ctx, points, matches, bounds, scale, width, height);
      * Рисует точки модели
      */
     drawModelPoints(ctx, points, matches, bounds, scale, width, height) {
+    // ========== НОВАЯ ДИАГНОСТИКА ==========
+    console.log(`\n🔍 drawModelPoints: начало отрисовки`);
+    console.log(`   Всего точек: ${points.length}`);
+   
+    let redCount = 0, orangeCount = 0, yellowCount = 0, blueCount = 0, grayCount = 0;
+    for (const point of points) {
+        const confirmations = point.confirmationCount || 0;
+        if (confirmations >= 4) redCount++;
+        else if (confirmations === 3) orangeCount++;
+        else if (confirmations === 2) yellowCount++;
+        else if (confirmations === 1) blueCount++;
+        else grayCount++;
+    }
+    console.log(`   Статистика ПОЛУЧЕННЫХ точек: красных ${redCount}, оранж ${orangeCount}, жёлт ${yellowCount}, син ${blueCount}, сер ${grayCount}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
         // Создаём Set сопоставленных точек модели
         const matchedModelPoints = new Set();
         for (const [photoId, match] of matches) {
