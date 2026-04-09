@@ -514,17 +514,30 @@ for (const cand of candidates) {
 const deduplicatedCandidates = Array.from(uniqueByModelId.values());
 
 for (const cand of deduplicatedCandidates) {
+    // 🔥 ПРОВЕРКА: не обновляли ли уже эту точку модели в текущем фото
+    if (updatedPointsThisPhoto && updatedPointsThisPhoto.has(cand.modelId)) {
+      //  if (this.debug) {
+            console.log(`   ⏭️ Пропускаем повторное обновление точки модели ${cand.modelId.substring(0,12)} (уже обновлена в этом фото)`);
+     //   }
+        continue;
+    }
+
+    // Добавляем в Set, чтобы не обновить повторно
+    if (updatedPointsThisPhoto) {
+        updatedPointsThisPhoto.add(cand.modelId);
+    }
+
     allMatches.set(cand.photoId, {
         modelId: cand.modelId,
         confidence: cand.score,
         source: 'iterative'
     });
-   
+
     currentAnchors.set(cand.photoId, {
         modelId: cand.modelId,
         confidence: cand.score
     });
-   
+
     modelToPhoto.set(cand.modelId, cand.photoId);
     newAnchorsAdded++;
 }
