@@ -2469,13 +2469,17 @@ if (bestMatch.similarity >= this.similarityThreshold) {
         console.log(`   🔧 Запускаю enhanceExistingModel (модель НЕ обновлена через треугольный матчер)`);
        
         const enhancedResult = await this.enhanceExistingModel(
-            bestMatch.modelId,
-            exactGraph,
-            knnGraph,
-            knnFingerprints,
-            morphologyMap,
-            options
-        );
+    bestMatch.modelId,
+    exactGraph,
+    knnGraph,
+    knnFingerprints,
+    morphologyMap,
+    {
+        ...options,
+        alreadyEnhanced: true,
+        updatedPointsThisPhoto: updatedModelPointsThisPhoto  // ← ДОЛЖНО БЫТЬ
+    }
+);
 
         this.photoToModel.set(photoId, bestMatch.modelId);
 
@@ -3230,22 +3234,25 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
   
 }
 
-    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
+    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options = {}) {
     // 🔥 Защита от повторного вызова
     if (options.alreadyEnhanced) {
         console.log(`   ⏭️ enhanceExistingModel: модель уже обновлена, пропускаю`);
         return { centerMatches: 0, totalMatches: 0, newNodesAdded: 0, nodesRemoved: 0, matchMap: new Map() };
     }
-   
-    const startTime = Date.now();  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+
+    // 🔥 ПОЛУЧАЕМ SET ДЛЯ ОТСЛЕЖИВАНИЯ ОБНОВЛЁННЫХ ТОЧЕК
+    const updatedPointsThisPhoto = options.updatedPointsThisPhoto;
+
+    const startTime = Date.now();
    
     const model = this.models.get(modelId);
     if (!model) return { error: 'Модель не найдена' };
 
-    if (this.debug) {
+ //   if (this.debug) {
         console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
         console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
-    }
+ //   }
 
         const centerMatches = this.centerMatcher.findCenterMatches(
             newExactGraph,
@@ -3276,14 +3283,13 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
     }
 );
 
-console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВХОД)`);
-
 stabilizedMatches = this.relativePositioning.iterativeStabilization(
     newExactGraph,
     model.graph,
     centerMatches,
     newMorphology,
-    model.morphologyMap
+    model.morphologyMap,
+    { updatedPointsThisPhoto: updatedPointsThisPhoto }  // ← ДОЛЖНО БЫТЬ
 );
 
 console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВЫХОД)`);
