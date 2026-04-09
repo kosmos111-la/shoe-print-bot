@@ -2931,6 +2931,21 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null) {
       
     const model = this.models.get(modelId);
+
+     // ========== НОВАЯ ДИАГНОСТИКА ==========
+    console.log(`\n🔍 [updateModelWithOptimalMatches] НАЧАЛО`);
+    console.log(`   matches.length: ${matches.length}`);
+   
+    let redBefore = 0, orangeBefore = 0, yellowBefore = 0, blueBefore = 0;
+    for (const node of model.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redBefore++;
+        else if (count === 3) orangeBefore++;
+        else if (count === 2) yellowBefore++;
+        else if (count === 1) blueBefore++;
+    }
+    console.log(`   ДО ОБНОВЛЕНИЯ: красных ${redBefore}, оранж ${orangeBefore}, жёлт ${yellowBefore}, син ${blueBefore}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
    
     console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
     if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
@@ -3074,6 +3089,14 @@ for (const match of deduplicatedMatches) {
        
         const oldCount = modelNode.confirmationCount || 1;
         const newCount = oldCount + 1;
+       // ========== НОВАЯ ДИАГНОСТИКА ==========
+    if (newCount >= 4 && oldCount < 4) {
+        console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
+        console.log(`      от точки фото: ${match.pointA.substring(0,20)}`);
+    } else if (this.debug && newCount >= 2) {
+        console.log(`   🔄 Точка ${match.pointB.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
+    }
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
         console.log(`   🔄 Точка ${match.pointB}: было ${oldCount}, станет ${newCount} (+1)`);
         modelNode.confirmationCount = newCount;
         modelNode.lastConfirmed = new Date();
