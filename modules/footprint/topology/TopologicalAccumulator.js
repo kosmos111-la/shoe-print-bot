@@ -2372,27 +2372,28 @@ this.photoToModel.set(photoId, modelIdHint);
                   
 return {
     status: 'consistent_anchors',
-    modelId: this.currentModelId,  // ← используем currentModelId вместо modelIdHint
-                        similarity: triangleResult?.similarity || 0,
-                        centerMatches: finalMatches?.length || 0,
-                        totalMatches: finalMatches?.length || 0,
-                        newNodesAdded: updateResult?.newNodesAdded || 0,
-                        nodesRemoved: cleanResult?.removed || 0,
-                        matchMap: matchMap,
-                        modelMatchMap: modelMatchMap,
-                        consistency: consistent?.stats,
-                        originalPhotoPoints: points,
-                        transform: finalTransform,
-                        structures: structures.map(s => ({
-                            id: s.id,
-                            triangleCount: s.triangleIds.size,
-                            pointCount: s.pointIds.size,
-                            confidence: s.calculateConfidence(),
-                            transform: s.transform
-                        })),
-                        structureCount: structures.length,
-                        message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
-                    };
+    alreadyEnhanced: true,  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    modelId: this.currentModelId,
+    similarity: triangleResult?.similarity || 0,
+    centerMatches: finalMatches?.length || 0,
+    totalMatches: finalMatches?.length || 0,
+    newNodesAdded: updateResult?.newNodesAdded || 0,
+    nodesRemoved: cleanResult?.removed || 0,
+    matchMap: matchMap,
+    modelMatchMap: modelMatchMap,
+    consistency: consistent?.stats,
+    originalPhotoPoints: points,
+    transform: finalTransform,
+    structures: structures.map(s => ({
+        id: s.id,
+        triangleCount: s.triangleIds.size,
+        pointCount: s.pointIds.size,
+        confidence: s.calculateConfidence(),
+        transform: s.transform
+    })),
+    structureCount: structures.length,
+    message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
+};
                 } else {
                     console.log(`\n⚠️ Финальная валидация не удалась`);
                     return {
@@ -2465,46 +2466,53 @@ return {
         }
 
         // Если сходство выше порога - улучшаем существующую модель
-        if (bestMatch.similarity >= this.similarityThreshold) {
-            console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
+if (bestMatch.similarity >= this.similarityThreshold) {
+    console.log(`\n✅ СОВПАДЕНИЕ! Сходство ${(bestMatch.similarity * 100).toFixed(1)}%`);
 
-            this.switchToModel(bestMatch.modelId);
+    this.switchToModel(bestMatch.modelId);
 
-            if (!this.fastMode) {
-                const enhancedResult = await this.enhanceExistingModel(
-                    bestMatch.modelId,
-                    exactGraph,
-                    knnGraph,
-                    knnFingerprints,
-                    morphologyMap,
-                    options
-                );
+    // 🔥 Проверяем, не была ли модель уже обновлена через треугольный матчер
+    const alreadyEnhanced = options.alreadyEnhanced === true;
+   
+    if (!this.fastMode && !alreadyEnhanced) {
+        console.log(`   🔧 Запускаю enhanceExistingModel (модель НЕ обновлена через треугольный матчер)`);
+       
+        const enhancedResult = await this.enhanceExistingModel(
+            bestMatch.modelId,
+            exactGraph,
+            knnGraph,
+            knnFingerprints,
+            morphologyMap,
+            options
+        );
 
-                this.photoToModel.set(photoId, bestMatch.modelId);
+        this.photoToModel.set(photoId, bestMatch.modelId);
 
-                return {
-                    status: 'enhanced',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    ...enhancedResult,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId
-                };
-            } else {
-                this.photoToModel.set(photoId, bestMatch.modelId);
+        return {
+            status: 'enhanced',
+            modelId: bestMatch.modelId,
+            similarity: bestMatch.similarity,
+            ...enhancedResult,
+            totalModels: this.models.size,
+            matchedModel: bestMatch.modelId
+        };
+    } else {
+        console.log(`   ⏭️ Пропускаю enhanceExistingModel (модель УЖЕ обновлена через треугольный матчер или fastMode)`);
+       
+        this.photoToModel.set(photoId, bestMatch.modelId);
 
-                return {
-                    status: 'matched_fast',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    exactMatches: bestMatch.exactMatches,
-                    similarMatches: bestMatch.similarMatches,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId,
-                    message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
-                };
-            }
-        }
+        return {
+            status: 'matched_high_confidence',
+            modelId: bestMatch.modelId,
+            similarity: bestMatch.similarity,
+            exactMatches: bestMatch.exactMatches,
+            similarMatches: bestMatch.similarMatches,
+            totalModels: this.models.size,
+            matchedModel: bestMatch.modelId,
+            message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
+        };
+    }
+}
         // Если сходство ниже порога - создаём НОВУЮ модель
         else {
             console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
@@ -3227,16 +3235,19 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
 }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-    console.log(`\n🔍 enhanceExistingModel: НАЧАЛО, modelId=${modelId?.slice(0,12)}`);
-    const startTime = Date.now();  // ← ДОБАВИТЬ
+    // 🔥 Защита от повторного вызова
+    if (options.alreadyEnhanced) {
+        console.log(`   ⏭️ enhanceExistingModel: модель уже обновлена, пропускаю`);
+        return { centerMatches: 0, totalMatches: 0, newNodesAdded: 0, nodesRemoved: 0, matchMap: new Map() };
+    }
    
     const model = this.models.get(modelId);
-        if (!model) return { error: 'Модель не найдена' };
+    if (!model) return { error: 'Модель не найдена' };
 
-        if (this.debug) {
-            console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
-            console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
-        }
+    if (this.debug) {
+        console.log(`\n🔧 УЛУЧШАЮ МОДЕЛЬ ${modelId.slice(0, 12)}...`);
+        console.log(`\n🔧 ЗАПУСК ПОЛНОГО АНАЛИЗА (на Делоне-графе)...`);
+    }
 
         const centerMatches = this.centerMatcher.findCenterMatches(
             newExactGraph,
