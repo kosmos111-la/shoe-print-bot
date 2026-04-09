@@ -1467,10 +1467,21 @@ if (this.debug && uniqueAddedCount > 0) {
     console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
 }
 
-// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ЛЮБОГО ИЗМЕНЕНИЯ МОДЕЛИ
-// (добавлены новые точки ИЛИ добавлены новые пары)
-if (uniqueAddedCount > 0 || finalValidatedMatches.length > 0) {
-    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА (новых точек: ${uniqueAddedCount}, новых пар: ${finalValidatedMatches.length})...`);
+// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
+if (uniqueAddedCount > 0) {
+    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА после добавления ${uniqueAddedCount} точек...`);
+
+    // ========== ДИАГНОСТИКА ПЕРЕД ПЕРЕСТРОЕНИЕМ ==========
+    let redBeforeRebuild = 0, orangeBeforeRebuild = 0, yellowBeforeRebuild = 0, blueBeforeRebuild = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redBeforeRebuild++;
+        else if (count === 3) orangeBeforeRebuild++;
+        else if (count === 2) yellowBeforeRebuild++;
+        else if (count === 1) blueBeforeRebuild++;
+    }
+    console.log(`   📊 ПЕРЕД перестроением: красных ${redBeforeRebuild}, оранж ${orangeBeforeRebuild}, жёлт ${yellowBeforeRebuild}, син ${blueBeforeRebuild}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
     const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
         id: node.id,
@@ -1539,10 +1550,17 @@ if (uniqueAddedCount > 0 || finalValidatedMatches.length > 0) {
         }
     }
 
-   // if (this.debug) {
-        console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
-        console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
-  //  }
+    // ========== ДИАГНОСТИКА ПОСЛЕ ПЕРЕСТРОЕНИЯ ==========
+    let redAfterRebuild = 0, orangeAfterRebuild = 0, yellowAfterRebuild = 0, blueAfterRebuild = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redAfterRebuild++;
+        else if (count === 3) orangeAfterRebuild++;
+        else if (count === 2) yellowAfterRebuild++;
+        else if (count === 1) blueAfterRebuild++;
+    }
+    console.log(`   📊 ПОСЛЕ перестроения: красных ${redAfterRebuild}, оранж ${orangeAfterRebuild}, жёлт ${yellowAfterRebuild}, син ${blueAfterRebuild}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 }
                  
 // Сохраняем для диагностики (опционально)
@@ -2354,7 +2372,8 @@ this.photoToModel.set(photoId, modelIdHint);
                   
 return {
     status: 'consistent_anchors',
-        modelId: this.currentModelId,
+    alreadyEnhanced: true,  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    modelId: this.currentModelId,
     similarity: triangleResult?.similarity || 0,
     centerMatches: finalMatches?.length || 0,
     totalMatches: finalMatches?.length || 0,
@@ -2453,45 +2472,46 @@ if (bestMatch.similarity >= this.similarityThreshold) {
     this.switchToModel(bestMatch.modelId);
 
     // 🔥 Проверяем, не была ли модель уже обновлена через треугольный матчер
-  if (!this.fastMode) {
-    console.log(`   🔧 Запускаю enhanceExistingModel`);
+    const alreadyEnhanced = options.alreadyEnhanced === true;
+   
+    if (!this.fastMode && !alreadyEnhanced) {
+        console.log(`   🔧 Запускаю enhanceExistingModel (модель НЕ обновлена через треугольный матчер)`);
+       
+        const enhancedResult = await this.enhanceExistingModel(
+            bestMatch.modelId,
+            exactGraph,
+            knnGraph,
+            knnFingerprints,
+            morphologyMap,
+            options
+        );
 
-    const enhancedResult = await this.enhanceExistingModel(
-        bestMatch.modelId,
-        exactGraph,
-        knnGraph,
-        knnFingerprints,
-        morphologyMap,
-        {
-            ...options,
-            updatedPointsThisPhoto: updatedModelPointsThisPhoto  // ← передаём Set
-        }
-    );
+        this.photoToModel.set(photoId, bestMatch.modelId);
 
-    this.photoToModel.set(photoId, bestMatch.modelId);
+        return {
+            status: 'enhanced',
+            modelId: bestMatch.modelId,
+            similarity: bestMatch.similarity,
+            ...enhancedResult,
+            totalModels: this.models.size,
+            matchedModel: bestMatch.modelId
+        };
+    } else {
+        console.log(`   ⏭️ Пропускаю enhanceExistingModel (модель УЖЕ обновлена через треугольный матчер или fastMode)`);
+       
+        this.photoToModel.set(photoId, bestMatch.modelId);
 
-    return {
-        status: 'enhanced',
-        modelId: bestMatch.modelId,
-        similarity: bestMatch.similarity,
-        ...enhancedResult,
-        totalModels: this.models.size,
-        matchedModel: bestMatch.modelId
-    };
-} else {
-    this.photoToModel.set(photoId, bestMatch.modelId);
-
-    return {
-        status: 'matched_fast',
-        modelId: bestMatch.modelId,
-        similarity: bestMatch.similarity,
-        exactMatches: bestMatch.exactMatches,
-        similarMatches: bestMatch.similarMatches,
-        totalModels: this.models.size,
-        matchedModel: bestMatch.modelId,
-        message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
-    };
-}
+        return {
+            status: 'matched_high_confidence',
+            modelId: bestMatch.modelId,
+            similarity: bestMatch.similarity,
+            exactMatches: bestMatch.exactMatches,
+            similarMatches: bestMatch.similarMatches,
+            totalModels: this.models.size,
+            matchedModel: bestMatch.modelId,
+            message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
+        };
+    }
 }
         // Если сходство ниже порога - создаём НОВУЮ модель
         else {
@@ -3214,8 +3234,12 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
   
 }
 
-    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options = {}) {
-    const updatedPointsThisPhoto = options.updatedPointsThisPhoto; // ← оставляем
+    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
+    // 🔥 Защита от повторного вызова
+    if (options.alreadyEnhanced) {
+        console.log(`   ⏭️ enhanceExistingModel: модель уже обновлена, пропускаю`);
+        return { centerMatches: 0, totalMatches: 0, newNodesAdded: 0, nodesRemoved: 0, matchMap: new Map() };
+    }
    
     const startTime = Date.now();  // ← ДОБАВИТЬ ЭТУ СТРОКУ
    
@@ -3245,16 +3269,13 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
             if (this.debug) console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
 
             allMatches = this.relativePositioning.positionPoints(
-    newExactGraph,
-    model.graph,
-    centerMatches,
-    newMorphology,
-    model.morphologyMap,
-    {
-        confidenceThreshold: 0.5,
-        updatedPointsThisPhoto: updatedPointsThisPhoto  // ← ПЕРЕДАЁМ SET
-    }
-);
+                newExactGraph,
+                model.graph,
+                centerMatches,
+                newMorphology,
+                model.morphologyMap,
+                { confidenceThreshold: 0.5 }
+            );
 
 console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВХОД)`);
 
@@ -3263,8 +3284,7 @@ stabilizedMatches = this.relativePositioning.iterativeStabilization(
     model.graph,
     centerMatches,
     newMorphology,
-    model.morphologyMap,
-    { updatedPointsThisPhoto: updatedPointsThisPhoto }  // ← ПЕРЕДАЁМ SET
+    model.morphologyMap
 );
 
 console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВЫХОД)`);
@@ -3272,13 +3292,12 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
             finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
 
             const updateResult = this.updateModelWithMatches(
-    modelId,
-    newExactGraph,
-    finalMatches,
-    centerMatches,
-    newMorphology,
-    updatedPointsThisPhoto  // ← добавить
-);
+                modelId,
+                newExactGraph,
+                finalMatches,
+                centerMatches,
+                newMorphology
+            );
             newNodesAdded = updateResult.newNodesAdded;
         } else {
             if (this.debug) console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
@@ -3355,7 +3374,7 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         return matchMap;
     }
 
-    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology, updatedPointsThisPhoto = null) {
+    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
         const model = this.models.get(modelId);
         let confirmedExisting = 0;
         let newNodesAdded = 0;
@@ -3364,30 +3383,12 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         const matchedPhotoIds = new Set();
         const matchedModelIds = new Set();
 
-             for (const [photoId, match] of matches) {
-        const modelNode = model.graph.nodes.get(match.modelId);
-        if (modelNode) {
-            // 🔥 ПРОВЕРКА: не обновляли ли уже эту точку в текущем фото
-            if (updatedPointsThisPhoto && updatedPointsThisPhoto.has(modelNode.id)) {
-               // if (this.debug) {
-                    console.log(`   ⏭️ Пропускаем повторное обновление точки ${modelNode.id.substring(0,12)} (уже обновлена в этом фото)`);
-               // }
-                continue;
-            }
-           
-            if (updatedPointsThisPhoto) {
-                updatedPointsThisPhoto.add(modelNode.id);
-            }
-           
-            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-       
-        const oldCount = modelNode.confirmationCount || 1;
-        const newCount = oldCount + 1;
-        console.log(`   🔄 Точка ${modelNode.id.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
-       
-        modelNode.confirmationCount = newCount;
-        modelNode.lastConfirmed = new Date();
-        confirmedExisting++;
+        for (const [photoId, match] of matches) {
+            const modelNode = model.graph.nodes.get(match.modelId);
+            if (modelNode) {
+                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
+                modelNode.lastConfirmed = new Date();
+                confirmedExisting++;
                 matchedPhotoIds.add(photoId);
                 matchedModelIds.add(match.modelId);
             }
