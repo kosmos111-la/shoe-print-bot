@@ -2185,7 +2185,7 @@ const updateResult = this.updateModelWithOptimalMatches(
     updatedModelPointsThisPhoto
 );
 
-// ========== 🟢 НОВАЯ ДИАГНОСТИКА ПОСЛЕ updateModelWithOptimalMatches ==========
+// Диагностика после updateModelWithOptimalMatches
 // if (this.debug) {
     let redAfterUpdate = 0, orangeAfterUpdate = 0, yellowAfterUpdate = 0, blueAfterUpdate = 0;
     for (const node of existingModel.graph.nodes.values()) {
@@ -2197,7 +2197,15 @@ const updateResult = this.updateModelWithOptimalMatches(
     }
     console.log(`\n📊 ПОСЛЕ updateModelWithOptimalMatches (до слияния): красных ${redAfterUpdate}, оранж ${orangeAfterUpdate}, жёлт ${yellowAfterUpdate}, син ${blueAfterUpdate}`);
 // }
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
+// 🔥 НОВАЯ ДИАГНОСТИКА: содержимое updatedModelPointsThisPhoto
+// if (this.debug) {
+    console.log(`\n🔍 updatedModelPointsThisPhoto содержит ${updatedModelPointsThisPhoto.size} точек перед слиянием:`);
+    const sample = Array.from(updatedModelPointsThisPhoto).slice(0, 5);
+    sample.forEach(id => console.log(`   - ${id.substring(0,20)}`));
+// }
+
+// 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
 const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
 if (mergedCount > 0) {
     console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
@@ -2248,10 +2256,23 @@ if (mergedCount > 0) {
                         console.log(`   • modelMatchMap сохранён в модель: ${modelMatchMap?.size || 0} пар`);
                     }
 
-                    // Очищаем неподтверждённые точки
-                    const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-                    this.stats.totalNodesRemoved += cleanResult.removed;
-                    this.stats.triangleMatchesCount += finalValidatedMatches?.length || 0;
+                   // Очищаем неподтверждённые точки
+const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+this.stats.totalNodesRemoved += cleanResult.removed;
+this.stats.triangleMatchesCount += finalValidatedMatches?.length || 0;
+
+// 🔥 НОВАЯ ДИАГНОСТИКА: после cleanUnconfirmedNodes
+// if (this.debug) {
+    let redAfterClean = 0, orangeAfterClean = 0, yellowAfterClean = 0, blueAfterClean = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redAfterClean++;
+        else if (count === 3) orangeAfterClean++;
+        else if (count === 2) yellowAfterClean++;
+        else if (count === 1) blueAfterClean++;
+    }
+    console.log(`\n📊 ПОСЛЕ cleanUnconfirmedNodes: красных ${redAfterClean}, оранж ${orangeAfterClean}, жёлт ${yellowAfterClean}, син ${blueAfterClean}`);
+// }
 
                     // Статистика
                     const confirmedInModel = finalValidatedMatches?.length || 0;
