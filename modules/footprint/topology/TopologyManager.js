@@ -131,16 +131,33 @@ const result = await this.accumulator.processPoints(points, {
     contours: contours
 });
 
-        // 🔥 СОХРАНЯЕМ patternData И clusterData
-        if (result.modelId && this.accumulator.models.has(result.modelId)) {
-            const model = this.accumulator.models.get(result.modelId);
-            if (model.patternData) {
-                this.patterns.set(result.modelId, model.patternData);
-            }
-            if (model.clusterData) {
-                this.clusters.set(result.modelId, model.clusterData);
-            }
-        }
+// ========== ДИАГНОСТИКА ПОСЛЕ accumulator.processPoints ==========
+console.log(`\n🔍 ПОСЛЕ accumulator.processPoints в TopologyManager:`);
+const modelAfterProcess = this.accumulator.getCurrentModel();
+if (modelAfterProcess && modelAfterProcess.graph) {
+    let red = 0, orange = 0, yellow = 0, blue = 0;
+    for (const node of modelAfterProcess.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) red++;
+        else if (count === 3) orange++;
+        else if (count === 2) yellow++;
+        else if (count === 1) blue++;
+    }
+    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+    console.log(`   Всего узлов: ${modelAfterProcess.graph.nodes.size}`);
+}
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
+// 🔥 СОХРАНЯЕМ patternData И clusterData
+if (result.modelId && this.accumulator.models.has(result.modelId)) {
+    const model = this.accumulator.models.get(result.modelId);
+    if (model.patternData) {
+        this.patterns.set(result.modelId, model.patternData);
+    }
+    if (model.clusterData) {
+        this.clusters.set(result.modelId, model.clusterData);
+    }
+}
 
         // 🔥 ВАЖНО: обновляем текущий modelId для следующих вызовов
 if (result.modelId) {
