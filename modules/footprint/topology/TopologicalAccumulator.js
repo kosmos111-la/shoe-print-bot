@@ -3241,6 +3241,8 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         return { centerMatches: 0, totalMatches: 0, newNodesAdded: 0, nodesRemoved: 0, matchMap: new Map() };
     }
    
+    const startTime = Date.now();  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+   
     const model = this.models.get(modelId);
     if (!model) return { error: 'Модель не найдена' };
 
@@ -3324,7 +3326,7 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         this.stats.totalNodesRemoved += cleanResult.removed;
 
         // В конце метода, перед return:
-    console.log(`\n🔍 enhanceExistingModel: КОНЕЦ, время ${Date.now() - startTime}ms`);
+    onsole.log(`\n🔍 enhanceExistingModel: КОНЕЦ, время ${Date.now() - startTime}ms`);
     return {
         centerMatches: centerMatches.size,
         totalMatches: finalMatches.size,
@@ -3333,7 +3335,6 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         matchMap
     };
 }
-
     buildMatchMap(centerMatches, allMatches, stabilizedMatches) {
         const matchMap = new Map();
         let pairNumber = 1;
