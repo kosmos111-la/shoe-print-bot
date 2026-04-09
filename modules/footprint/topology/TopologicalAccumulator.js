@@ -3263,13 +3263,16 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
             if (this.debug) console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
 
             allMatches = this.relativePositioning.positionPoints(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap,
-                { confidenceThreshold: 0.5 }
-            );
+    newExactGraph,
+    model.graph,
+    centerMatches,
+    newMorphology,
+    model.morphologyMap,
+    {
+        confidenceThreshold: 0.5,
+        updatedPointsThisPhoto: updatedPointsThisPhoto  // ← ПЕРЕДАЁМ SET
+    }
+);
 
 console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВХОД)`);
 
