@@ -2185,11 +2185,37 @@ const updateResult = this.updateModelWithOptimalMatches(
     updatedModelPointsThisPhoto  // ← передаём Set
 );
 
+// Диагностика перед слиянием
+// if (this.debug) {
+    let redBefore = 0, orangeBefore = 0, yellowBefore = 0, blueBefore = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redBefore++;
+        else if (count === 3) orangeBefore++;
+        else if (count === 2) yellowBefore++;
+        else if (count === 1) blueBefore++;
+    }
+    console.log(`\n📊 ДО СЛИЯНИЯ: красных ${redBefore}, оранж ${orangeBefore}, жёлт ${yellowBefore}, син ${blueBefore}`);
+// }
+
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
 const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
 if (mergedCount > 0) {
     console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
 }
+
+// Диагностика после слияния
+// if (this.debug) {
+    let redAfter = 0, orangeAfter = 0, yellowAfter = 0, blueAfter = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redAfter++;
+        else if (count === 3) orangeAfter++;
+        else if (count === 2) yellowAfter++;
+        else if (count === 1) blueAfter++;
+    }
+    console.log(`📊 ПОСЛЕ СЛИЯНИЯ: красных ${redAfter}, оранж ${orangeAfter}, жёлт ${yellowAfter}, син ${blueAfter}`);
+// }
 
 // После updateModelWithOptimalMatches
                  
@@ -4888,7 +4914,7 @@ mergeDuplicatePoints(graph, threshold = 3) {
 const avgY = (points[i].y + points[j].y) / 2;
 points[i].x = avgX;
 points[i].y = avgY;
-// Не суммируем confirmationCount — оставляем максимальное
+// Не суммируем confirmationCount — оставляем максимальное значение
 points[i].confirmationCount = Math.max(points[i].confirmationCount || 1, points[j].confirmationCount || 1);
                
                 // Запоминаем для обновления рёбер
