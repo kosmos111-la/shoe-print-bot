@@ -300,6 +300,25 @@ let visualizationData = null;
 let modelVizPath = null;
 let photoVizPath = null;
 
+  // ========== ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ ==========
+console.log(`\n🔍 ПЕРЕД ТОПОЛОГИЧЕСКОЙ ВИЗУАЛИЗАЦИЕЙ:`);
+const topologyManagerCheck = this.getTopologyManager(userId);
+if (topologyManagerCheck) {
+    const model = topologyManagerCheck.accumulator.getCurrentModel();
+    if (model && model.graph) {
+        let red = 0, orange = 0, yellow = 0, blue = 0;
+        for (const node of model.graph.nodes.values()) {
+            const count = node.confirmationCount || 0;
+            if (count >= 4) red++;
+            else if (count === 3) orange++;
+            else if (count === 2) yellow++;
+            else if (count === 1) blue++;
+        }
+        console.log(`   Состояние модели ПЕРЕД визуализацией: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+        console.log(`   Всего узлов: ${model.graph.nodes.size}`);
+    }
+}
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========        
 
 if (this.config.enableMergeVisualization && this.visualizationManager) {
     try {
@@ -431,6 +450,26 @@ if (bot && chatId) {
 // ВИЗУАЛИЗАЦИЯ МОДЕЛИ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО
 
 if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+
+ // ========== ДИАГНОСТИКА ПЕРЕД ЧИСТОЙ МОДЕЛЬЮ ==========
+    console.log(`\n🔍 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ ЧИСТОЙ МОДЕЛИ:`);
+    const topologyManagerCheck2 = this.getTopologyManager(userId);
+    if (topologyManagerCheck2) {
+        const model = topologyManagerCheck2.accumulator.getCurrentModel();
+        if (model && model.graph) {
+            let red = 0, orange = 0, yellow = 0, blue = 0;
+            for (const node of model.graph.nodes.values()) {
+                const count = node.confirmationCount || 0;
+                if (count >= 4) red++;
+                else if (count === 3) orange++;
+                else if (count === 2) yellow++;
+                else if (count === 1) blue++;
+            }
+            console.log(`   Состояние модели ПЕРЕД чистой визуализацией: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+        }
+    }
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
+  
     try {
         console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...');
 
@@ -553,7 +592,28 @@ const modelImagePath = await modelViz.createVisualization({
         console.log(`⚠️ Ошибка визуализации чистой модели: ${modelVizError.message}`);
         console.log(modelVizError.stack);
     }
-}if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+}
+          if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+
+         // ========== ДИАГНОСТИКА ПЕРЕД НАЛОЖЕНИЕМ ==========
+    console.log(`\n🔍 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ С НАЛОЖЕНИЕМ:`);
+    const topologyManagerCheck3 = this.getTopologyManager(userId);
+    if (topologyManagerCheck3) {
+        const model = topologyManagerCheck3.accumulator.getCurrentModel();
+        if (model && model.graph) {
+            let red = 0, orange = 0, yellow = 0, blue = 0;
+            for (const node of model.graph.nodes.values()) {
+                const count = node.confirmationCount || 0;
+                if (count >= 4) red++;
+                else if (count === 3) orange++;
+                else if (count === 2) yellow++;
+                else if (count === 1) blue++;
+            }
+            console.log(`   Состояние модели ПЕРЕД наложением: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+        }
+    }
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========   
+            
     try {
         console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО...');
        
