@@ -824,6 +824,11 @@ if (existingModel) {
                     if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
 
 const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null, updatedThisPhoto = null) => {
+    // Диагностика размера Set
+    if (updatedThisPhoto) {
+        console.log(`\n🧲 magneticPull: в Set уже ${updatedThisPhoto.size} точек`);
+    }
+   
     const pulledMatches = [];
     const usedPhotoPoints = new Set();
     const usedModelPoints = new Set();
@@ -897,7 +902,10 @@ if (updatedThisPhoto && updatedThisPhoto.has(modelPoint.id)) {
 }
 
 // Если не обновляли — добавляем в Set и обновляем счётчик
-if (updatedThisPhoto) updatedThisPhoto.add(modelPoint.id);
+if (updatedThisPhoto) {
+    updatedThisPhoto.add(modelPoint.id);
+    console.log(`   ✅ Добавлена в Set: ${modelPoint.id.substring(0,12)} (было ${oldCount}, станет ${newCount})`);
+}
 
 // Обновляем модель
 modelPoint.x = avgX;
@@ -3000,20 +3008,25 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
 let updatedCount = 0;
 let notFoundCount = 0;
 
+// Диагностика: какие точки уже в Set
+if (updatedThisPhoto && updatedThisPhoto.size > 0) {
+    console.log(`   📋 В Set уже ${updatedThisPhoto.size} точек:`);
+    const sample = Array.from(updatedThisPhoto).slice(0, 5);
+    sample.forEach(id => console.log(`      - ${id.substring(0,12)}`));
+}
+
 for (const match of deduplicatedMatches) {
     const modelNode = model.graph.nodes.get(match.pointB);
     if (modelNode) {
         // Проверяем, не обновляли ли уже эту точку в этом фото
         if (updatedThisPhoto && updatedThisPhoto.has(match.pointB)) {
-          //  if (this.debug) {
-                console.log(`   ⏭️ updateModel: пропускаем повторное обновление точки ${match.pointB.substring(0,12)} (уже обновлена в этом фото)`);
-        //    }
-            // Всё равно добавляем в matchedPhotoIds для правильного учёта
-            matchedPhotoIds.add(match.pointA);
-            matchedModelIds.add(match.pointB);
-            updatedCount++;
-            continue;
-        }
+    console.log(`   ⏭️ Пропускаем (уже в Set): ${match.pointB.substring(0,12)}`);
+    // Всё равно добавляем в matchedPhotoIds для правильного учёта
+    matchedPhotoIds.add(match.pointA);
+    matchedModelIds.add(match.pointB);
+    updatedCount++;
+    continue;
+}
        
         const oldCount = modelNode.confirmationCount || 1;
         const newCount = oldCount + 1;
