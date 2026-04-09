@@ -315,14 +315,14 @@ if (this.debug && triangleResult && triangleResult.matches) {
                 );
 
                 // ===== ШАГ 3: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
-                const finalMatches = this.twoStagePositioning(
-                    consistent.points,
-                    triangleResult.matches,
-                    exactGraph,
-                    existingModel.graph,
-                    morphologyMap,
-                    existingModel.morphologyMap
-                );
+const finalMatches = await this.twoStagePositioning(
+    consistent.points,
+    triangleResult.matches,
+    exactGraph,
+    existingModel.graph,
+    morphologyMap,
+    existingModel.morphologyMap
+);
 
                 if (this.debug) {
                     console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
@@ -823,7 +823,7 @@ if (existingModel) {
                     // ===== ШАГ 3.6: Финальное притягивание близких точек с топологической проверкой =====
                     if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
 
-const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null, updatedThisPhoto = null) => {
+const magneticPull = async (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null, updatedThisPhoto = null) => {
     // Диагностика размера Set
     if (updatedThisPhoto) {
         console.log(`\n🧲 magneticPull: в Set уже ${updatedThisPhoto.size} точек`);
@@ -1062,7 +1062,7 @@ const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10
 };
                     // Применяем притягивание если есть transform и matches
                     if (finalTransform && finalValidatedMatches && finalValidatedMatches.length > 0) {
-                        const { pulledMatches, pulledCount } = magneticPull(
+                        const { pulledMatches, pulledCount } = await magneticPull(
     finalValidatedMatches,
     exactGraph,
     existingModel.graph,
@@ -4283,7 +4283,7 @@ generateStructureColors(structures) {
     * @param {Map} modelMorphology - морфология точек модели
     * @returns {Object} - достроенные соответствия
     */
-    twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology) {
+    async twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology) {
         if (this.debug) console.log(`\n🔧 ДВУХЭТАПНАЯ ДОСТРОЙКА ТОЧЕК`);
 
         // ===== ШАГ 1: Разделяем точки на категории =====
@@ -4402,14 +4402,14 @@ generateStructureColors(structures) {
         }
 
         // Запускаем RelativePositioning
-        const positionedMatches = this.relativePositioning.positionPoints(
-            graphA,
-            graphB,
-            anchorMatches,
-            morphologyMap,
-            modelMorphology,
-            { confidenceThreshold: 0.5 }
-        );
+        const positionedMatches = await this.relativePositioning.positionPoints(
+    graphA,
+    graphB,
+    anchorMatches,
+    morphologyMap,
+    modelMorphology,
+    { confidenceThreshold: 0.5 }
+);
 
         if (this.debug) console.log(`\n📊 ИТОГ ЭТАПА 2:`);
         if (this.debug) console.log(`   • Достроено: ${positionedMatches.size} точек`);
