@@ -3326,7 +3326,7 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         this.stats.totalNodesRemoved += cleanResult.removed;
 
         // В конце метода, перед return:
-    onsole.log(`\n🔍 enhanceExistingModel: КОНЕЦ, время ${Date.now() - startTime}ms`);
+    console.log(`\n🔍 enhanceExistingModel: КОНЕЦ, время ${Date.now() - startTime}ms`);
     return {
         centerMatches: centerMatches.size,
         totalMatches: finalMatches.size,
