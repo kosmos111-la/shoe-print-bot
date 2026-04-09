@@ -3144,25 +3144,25 @@ for (const match of deduplicatedMatches) {
 
         const oldCount = modelNode.confirmationCount || 1;
         const newCount = oldCount + 1;
-       
+
         // ========== ОБНОВЛЕНИЕ КООРДИНАТ ТОЧКИ МОДЕЛИ ==========
         const photoPoint = newGraph.nodes.get(match.pointA);
         if (photoPoint && transform) {
             const projected = this.applyTransform(photoPoint, transform);
-           
+
             const oldX = modelNode.x;
             const oldY = modelNode.y;
-           
+
             // Усредняем координаты (взвешенно по количеству подтверждений)
             modelNode.x = (oldX * oldCount + projected.x) / newCount;
             modelNode.y = (oldY * oldCount + projected.y) / newCount;
-           
+
             if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
                 console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)})`);
             }
         }
         // ========== КОНЕЦ ОБНОВЛЕНИЯ КООРДИНАТ ==========
-       
+
         modelNode.confirmationCount = newCount;
         modelNode.lastConfirmed = new Date();
         confirmedExisting++;
@@ -3171,8 +3171,8 @@ for (const match of deduplicatedMatches) {
         updatedCount++;
 
         if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
-    }
-} else {
+       
+    } else {
         notFoundCount++;
         if (notFoundCount <= 5) {
             console.log(`   ⚠️ Точка ${match.pointB?.substring(0,12)} НЕ НАЙДЕНА в модели!`);
