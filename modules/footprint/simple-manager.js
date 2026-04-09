@@ -327,9 +327,24 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
             // Получаем данные для визуализации
             visualizationData = topologyManager.getAccumulativeVisualizationData();
 
+// ========== ДИАГНОСТИКА ПОСЛЕ getAccumulativeVisualizationData ==========
+console.log(`\n🔍 ПОСЛЕ getAccumulativeVisualizationData:`);
+const modelAfterGetViz = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
+if (modelAfterGetViz && modelAfterGetViz.graph) {
+    let red = 0, orange = 0, yellow = 0, blue = 0;
+    for (const node of modelAfterGetViz.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) red++;
+        else if (count === 3) orange++;
+        else if (count === 2) yellow++;
+        else if (count === 1) blue++;
+    }
+    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+}
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
-            // 🔥 ИЩЕМ matchMap
-            let matchMap = null;
+// 🔥 ИЩЕМ matchMap
+let matchMap = null;
 
             if (topologicalResult && topologicalResult.matchMap) {
                 matchMap = topologicalResult.matchMap;
@@ -440,6 +455,23 @@ if (bot && chatId) {
             chatId,
             topologicalResult
         );
+       
+        // ========== ДИАГНОСТИКА ПОСЛЕ ОТПРАВКИ В TELEGRAM ==========
+        console.log(`\n🔍 ПОСЛЕ отправки в Telegram:`);
+        const modelAfterTelegram = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
+        if (modelAfterTelegram && modelAfterTelegram.graph) {
+            let red = 0, orange = 0, yellow = 0, blue = 0;
+            for (const node of modelAfterTelegram.graph.nodes.values()) {
+                const count = node.confirmationCount || 0;
+                if (count >= 4) red++;
+                else if (count === 3) orange++;
+                else if (count === 2) yellow++;
+                else if (count === 1) blue++;
+            }
+            console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+        }
+        // ========== КОНЕЦ ДИАГНОСТИКИ ==========
+       
     } else {
         console.log('⚠️ Нет визуализаций для отправки');
         telegramSent = true;
@@ -560,7 +592,23 @@ const modelImagePath = await modelViz.createVisualization({
     height: 1000
 });
 
-                if (modelImagePath && fs.existsSync(modelImagePath)) {
+// ========== ДИАГНОСТИКА ПОСЛЕ ВИЗУАЛИЗАЦИИ ЧИСТОЙ МОДЕЛИ ==========
+console.log(`\n🔍 ПОСЛЕ визуализации чистой модели:`);
+const modelAfterCleanViz = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
+if (modelAfterCleanViz && modelAfterCleanViz.graph) {
+    let red = 0, orange = 0, yellow = 0, blue = 0;
+    for (const node of modelAfterCleanViz.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) red++;
+        else if (count === 3) orange++;
+        else if (count === 2) yellow++;
+        else if (count === 1) blue++;
+    }
+    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+}
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
+if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Чистая модель сохранена: ${modelImagePath}`);
 
                     // Отправляем в Telegram
@@ -706,14 +754,30 @@ const modelImagePath = await modelViz.createVisualization({
     transform: transform,
     matches: matchMap,
     edges: edges,
-    outlineContour: visualizationData?.outlineContour,                              // 🔥 КОНТУР МОДЕЛИ
-    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'), // 🔥 КОНТУР ФОТО
+    outlineContour: visualizationData?.outlineContour,
+    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'),
     outputPath: outputPath,
     width: 1200,
     height: 1000
 });
-               
-                if (modelImagePath && fs.existsSync(modelImagePath)) {
+
+// ========== ДИАГНОСТИКА ПОСЛЕ ВИЗУАЛИЗАЦИИ С НАЛОЖЕНИЕМ ==========
+console.log(`\n🔍 ПОСЛЕ визуализации с наложением:`);
+const modelAfterOverlayViz = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
+if (modelAfterOverlayViz && modelAfterOverlayViz.graph) {
+    let red = 0, orange = 0, yellow = 0, blue = 0;
+    for (const node of modelAfterOverlayViz.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) red++;
+        else if (count === 3) orange++;
+        else if (count === 2) yellow++;
+        else if (count === 1) blue++;
+    }
+    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+}
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
+if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Визуализация с наложением создана: ${modelImagePath}`);
                    
                     // Отправляем в Telegram
