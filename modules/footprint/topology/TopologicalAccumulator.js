@@ -1424,6 +1424,8 @@ existingModel.graph.nodes.set(newNodeId, {
     originalPhotoId: photoPoint.id
 });
 uniqueAddedCount++;
+// Добавляем новую точку в Set, чтобы она не получила повторное подтверждение
+updatedModelPointsThisPhoto.add(newNodeId);
 console.log(`   ✅ Добавлена НОВАЯ точка из фото: ${newNodeId}`);
 console.log(`      confirmationCount = 1`);
 console.log(`      originalPhotoId: ${photoPoint.id}`);
