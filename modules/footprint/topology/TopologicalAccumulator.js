@@ -1402,7 +1402,17 @@ let uniqueAddedCount = 0;
 console.log(`🔍 НАЧАЛО ДОБАВЛЕНИЯ УНИКАЛЬНЫХ ТОЧЕК:`);
 console.log(`   uniqueInPhoto.length = ${uniqueInPhoto.length}`);
 console.log(`   Текущий размер модели: ${existingModel.graph.nodes.size}`);
-
+// ========== ДИАГНОСТИКА ПЕРЕД ДОБАВЛЕНИЕМ ==========
+let redBeforeAdd = 0, orangeBeforeAdd = 0, yellowBeforeAdd = 0, blueBeforeAdd = 0;
+for (const node of existingModel.graph.nodes.values()) {
+    const count = node.confirmationCount || 0;
+    if (count >= 4) redBeforeAdd++;
+    else if (count === 3) orangeBeforeAdd++;
+    else if (count === 2) yellowBeforeAdd++;
+    else if (count === 1) blueBeforeAdd++;
+}
+console.log(`   📊 ПЕРЕД добавлением: красных ${redBeforeAdd}, оранж ${orangeBeforeAdd}, жёлт ${yellowBeforeAdd}, син ${blueBeforeAdd}`);
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
 for (const photoPoint of uniqueInPhoto) {
     let isDuplicate = false;
     for (const [modelId, modelNode] of existingModel.graph.nodes) {
@@ -1440,6 +1450,19 @@ console.log(`      координаты: (${photoPoint.x.toFixed(1)}, ${pho
 }
 console.log(`📊 Добавлено уникальных точек: ${uniqueAddedCount}`);
 console.log(`   Размер модели ПОСЛЕ добавления: ${existingModel.graph.nodes.size}`);
+
+// ========== ДИАГНОСТИКА ПОСЛЕ ДОБАВЛЕНИЯ ==========
+let redAfterAdd = 0, orangeAfterAdd = 0, yellowAfterAdd = 0, blueAfterAdd = 0;
+for (const node of existingModel.graph.nodes.values()) {
+    const count = node.confirmationCount || 0;
+    if (count >= 4) redAfterAdd++;
+    else if (count === 3) orangeAfterAdd++;
+    else if (count === 2) yellowAfterAdd++;
+    else if (count === 1) blueAfterAdd++;
+}
+console.log(`   📊 ПОСЛЕ добавления (до перестроения): красных ${redAfterAdd}, оранж ${orangeAfterAdd}, жёлт ${yellowAfterAdd}, син ${blueAfterAdd}`);
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+                  
 if (this.debug && uniqueAddedCount > 0) {
     console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
 }
@@ -1447,6 +1470,18 @@ if (this.debug && uniqueAddedCount > 0) {
 // 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
 if (uniqueAddedCount > 0) {
     if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА после добавления ${uniqueAddedCount} точек...`);
+
+    // ========== ДИАГНОСТИКА ПЕРЕД ПЕРЕСТРОЕНИЕМ ==========
+    let redBeforeRebuild = 0, orangeBeforeRebuild = 0, yellowBeforeRebuild = 0, blueBeforeRebuild = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redBeforeRebuild++;
+        else if (count === 3) orangeBeforeRebuild++;
+        else if (count === 2) yellowBeforeRebuild++;
+        else if (count === 1) blueBeforeRebuild++;
+    }
+    console.log(`   📊 ПЕРЕД перестроением: красных ${redBeforeRebuild}, оранж ${orangeBeforeRebuild}, жёлт ${yellowBeforeRebuild}, син ${blueBeforeRebuild}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
     const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
         id: node.id,
@@ -1483,11 +1518,11 @@ if (uniqueAddedCount > 0) {
                 const a = nodeIds[i];
                 const b = nodeIds[j];
                 const c = nodeIds[k];
-               
+
                 const ab = [a, b].sort().join('--');
                 const bc = [b, c].sort().join('--');
                 const ca = [c, a].sort().join('--');
-               
+
                 if (edgesSet.has(ab) && edgesSet.has(bc) && edgesSet.has(ca)) {
                     newTriangleList.push([a, b, c]);
                 }
@@ -1515,33 +1550,17 @@ if (uniqueAddedCount > 0) {
         }
     }
 
-//    if (this.debug) {
-        console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
-        console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
-       
-        // Проверка: есть ли у новых точек треугольники
-        const newPointIds = [];
-        for (const [id, node] of existingModel.graph.nodes) {
-            if (node.confirmationCount === 1 && node.addedFrom === 'unique_photo_point') {
-                newPointIds.push(id);
-            }
-        }
-
-        if (newPointIds.length > 0) {
-            let pointsWithTriangles = 0;
-            for (const pointId of newPointIds) {
-                let hasTriangle = false;
-                for (const tri of newTriangleList) {
-                    if (tri.includes(pointId)) {
-                        hasTriangle = true;
-                        break;
-                    }
-                }
-                if (hasTriangle) pointsWithTriangles++;
-            }
-            console.log(`   🔵 Новых точек в triangleList: ${pointsWithTriangles}/${newPointIds.length}`);
-        }
-//    }
+    // ========== ДИАГНОСТИКА ПОСЛЕ ПЕРЕСТРОЕНИЯ ==========
+    let redAfterRebuild = 0, orangeAfterRebuild = 0, yellowAfterRebuild = 0, blueAfterRebuild = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redAfterRebuild++;
+        else if (count === 3) orangeAfterRebuild++;
+        else if (count === 2) yellowAfterRebuild++;
+        else if (count === 1) blueAfterRebuild++;
+    }
+    console.log(`   📊 ПОСЛЕ перестроения: красных ${redAfterRebuild}, оранж ${orangeAfterRebuild}, жёлт ${yellowAfterRebuild}, син ${blueAfterRebuild}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 }
                  
 // Сохраняем для диагностики (опционально)
@@ -1574,6 +1593,18 @@ if (existingModel) {
                     // ===== ШАГ 3.9: ПОЛНЫЙ ЦИКЛ ДЛЯ СИНИХ ТОЧЕК =====
                     if (this.debug) console.log(`\n🔷 ПОЛНЫЙ ЦИКЛ ДЛЯ СИНИХ ТОЧЕК`);
 
+// ========== ДИАГНОСТИКА ПЕРЕД ЦИКЛОМ СИНИХ ТОЧЕК ==========
+let redBeforeBlue = 0, orangeBeforeBlue = 0, yellowBeforeBlue = 0, blueBeforeBlue = 0;
+for (const node of existingModel.graph.nodes.values()) {
+    const count = node.confirmationCount || 0;
+    if (count >= 4) redBeforeBlue++;
+    else if (count === 3) orangeBeforeBlue++;
+    else if (count === 2) yellowBeforeBlue++;
+    else if (count === 1) blueBeforeBlue++;
+}
+console.log(`   📊 ПЕРЕД циклом синих точек: красных ${redBeforeBlue}, оранж ${orangeBeforeBlue}, жёлт ${yellowBeforeBlue}, син ${blueBeforeBlue}`);
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+                  
                     try {
                         // Получаем оставшиеся синие точки
                         const remainingPhotoPoints = unmatchedPhotoPoints.filter(p => !matchedPointsA.has(p?.id));
@@ -2032,6 +2063,18 @@ const { pulledMatches, pulledCount } = magneticPull(
                         }
                     }
 
+// ========== ДИАГНОСТИКА ПОСЛЕ ЦИКЛА СИНИХ ТОЧЕК ==========
+let redAfterBlue = 0, orangeAfterBlue = 0, yellowAfterBlue = 0, blueAfterBlue = 0;
+for (const node of existingModel.graph.nodes.values()) {
+    const count = node.confirmationCount || 0;
+    if (count >= 4) redAfterBlue++;
+    else if (count === 3) orangeAfterBlue++;
+    else if (count === 2) yellowAfterBlue++;
+    else if (count === 1) blueAfterBlue++;
+}
+console.log(`   📊 ПОСЛЕ цикла синих точек: красных ${redAfterBlue}, оранж ${orangeAfterBlue}, жёлт ${yellowAfterBlue}, син ${blueAfterBlue}`);
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+                  
 // ===== ШАГ 3.10: КОРРЕКЦИЯ ПО BOUNDING BOX =====
 if (finalValidatedMatches.length >= 3) {
     console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
