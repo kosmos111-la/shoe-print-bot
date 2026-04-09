@@ -1471,7 +1471,7 @@ if (this.debug && uniqueAddedCount > 0) {
 
 // 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ЛЮБОГО ИЗМЕНЕНИЯ МОДЕЛИ
 if (uniqueAddedCount > 0 || finalValidatedMatches.length > 0) {
-    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА (новых точек: ${uniqueAddedCount}, новых пар: ${finalValidatedMatches.length})...`);
+   console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА (новых точек: ${uniqueAddedCount}, новых пар: ${finalValidatedMatches.length})...`);
    
     const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
         id: node.id,
@@ -1480,8 +1480,10 @@ if (uniqueAddedCount > 0 || finalValidatedMatches.length > 0) {
         confidence: node.confirmationCount > 0 ? 0.8 : 0.5
     }));
 
-    const newGraph = this.knnBuilder.buildGraph(allPoints, 'model_update');
+    const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
+ // const newGraph = this.knnBuilder.buildGraph(allPoints, 'model_update');  // ← вместо graphBuilder
 
+  
     // Обновляем рёбра
     existingModel.graph.edges = newGraph.edges;
 
