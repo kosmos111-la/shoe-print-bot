@@ -254,23 +254,26 @@ if (result.modelId) {
     // ==================== ВИЗУАЛИЗАЦИЯ ====================
 
     getAccumulativeVisualizationData(modelId = null) {
-        const targetModelId = modelId || this.accumulator.currentModelId;
+    console.log(`\n🔍 getAccumulativeVisualizationData ВЫЗВАН`);
+    console.log(new Error().stack.split('\n').slice(1, 5).join('\n'));
+   
+    const targetModelId = modelId || this.accumulator.currentModelId;
 
-        if (!targetModelId) {
-            console.log('⚠️ Нет активной топологической модели');
-            return null;
-        }
-
-        const vizData = this.accumulator.getVisualizationData(targetModelId);
-       
-        // Добавляем паттерны и кластеры для визуализации
-        if (vizData) {
-            vizData.patternData = this.patterns.get(targetModelId);
-            vizData.clusterData = this.clusters.get(targetModelId);
-        }
-
-        return vizData;
+    if (!targetModelId) {
+        console.log('⚠️ Нет активной топологической модели');
+        return null;
     }
+
+    const vizData = this.accumulator.getVisualizationData(targetModelId);
+   
+    // Добавляем паттерны и кластеры для визуализации
+    if (vizData) {
+        vizData.patternData = this.patterns.get(targetModelId);
+        vizData.clusterData = this.clusters.get(targetModelId);
+    }
+
+    return vizData;
+}
 
     // ==================== РАБОТА С ПАТТЕРНАМИ И КЛАСТЕРАМИ ====================
 
