@@ -3264,14 +3264,17 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         if (centerMatches.size >= this.centerMatcher.minConsistentPairs) {
             if (this.debug) console.log(`\n🧩 RelativePositioning достраивает остальные точки...`);
 
-            allMatches = this.relativePositioning.positionPoints(
-                newExactGraph,
-                model.graph,
-                centerMatches,
-                newMorphology,
-                model.morphologyMap,
-                { confidenceThreshold: 0.5 }
-            );
+           allMatches = this.relativePositioning.positionPoints(
+    newExactGraph,
+    model.graph,
+    centerMatches,
+    newMorphology,
+    model.morphologyMap,
+    {
+        confidenceThreshold: 0.5,
+        updatedPointsThisPhoto: updatedPointsThisPhoto  // ← ДОЛЖНО БЫТЬ
+    }
+);
 
 console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВХОД)`);
 
