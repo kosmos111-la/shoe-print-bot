@@ -373,9 +373,12 @@ return deduplicatedMap;
     // ==================== ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ====================
 
     iterativeStabilization(photoGraph, modelGraph, initialAnchors, photoMorphology, modelMorphology) {
-        console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК...`);
-       
-        let currentAnchors = new Map(initialAnchors);
+    console.log(`\n🔍 iterativeStabilization: НАЧАЛО`);
+    const startTime = Date.now();  // ← ДОБАВИТЬ ЭТУ СТРОКУ!
+   
+    console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК...`);
+   
+    let currentAnchors = new Map(initialAnchors);
         let allMatches = new Map(initialAnchors);
         let iteration = 0;
         let newAnchorsAdded = 0;
