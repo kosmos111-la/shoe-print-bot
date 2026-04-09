@@ -2185,8 +2185,8 @@ const updateResult = this.updateModelWithOptimalMatches(
     updatedModelPointsThisPhoto
 );
 
-// ===== ДИАГНОСТИКА ПОСЛЕ updateModelWithOptimalMatches (ПЕРЕД СЛИЯНИЕМ) =====
-if (this.debug) {
+// ========== 🟢 НОВАЯ ДИАГНОСТИКА ПОСЛЕ updateModelWithOptimalMatches ==========
+// if (this.debug) {
     let redAfterUpdate = 0, orangeAfterUpdate = 0, yellowAfterUpdate = 0, blueAfterUpdate = 0;
     for (const node of existingModel.graph.nodes.values()) {
         const count = node.confirmationCount || 0;
@@ -2196,10 +2196,8 @@ if (this.debug) {
         else if (count === 1) blueAfterUpdate++;
     }
     console.log(`\n📊 ПОСЛЕ updateModelWithOptimalMatches (до слияния): красных ${redAfterUpdate}, оранж ${orangeAfterUpdate}, жёлт ${yellowAfterUpdate}, син ${blueAfterUpdate}`);
-}
-// ===== КОНЕЦ ДИАГНОСТИКИ =====
-
-// 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
+// }
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
 const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
 if (mergedCount > 0) {
     console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
