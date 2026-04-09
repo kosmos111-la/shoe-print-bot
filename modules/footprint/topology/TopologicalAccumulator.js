@@ -2483,7 +2483,11 @@ if (bestMatch.similarity >= this.similarityThreshold) {
             knnGraph,
             knnFingerprints,
             morphologyMap,
-            options
+            {
+            ...options,
+            alreadyEnhanced: true,
+            updatedPointsThisPhoto: updatedModelPointsThisPhoto  // ← ПЕРЕДАЁМ SET
+        }
         );
 
         this.photoToModel.set(photoId, bestMatch.modelId);
@@ -3234,8 +3238,8 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
   
 }
 
-    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-    // 🔥 Защита от повторного вызова
+    async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options = {}) {
+    const updatedPointsThisPhoto = options.updatedPointsThisPhoto; // ← ПОЛУЧАЕМ SET
     if (options.alreadyEnhanced) {
         console.log(`   ⏭️ enhanceExistingModel: модель уже обновлена, пропускаю`);
         return { centerMatches: 0, totalMatches: 0, newNodesAdded: 0, nodesRemoved: 0, matchMap: new Map() };
@@ -3284,7 +3288,8 @@ stabilizedMatches = this.relativePositioning.iterativeStabilization(
     model.graph,
     centerMatches,
     newMorphology,
-    model.morphologyMap
+    model.morphologyMap,
+    { updatedPointsThisPhoto: updatedPointsThisPhoto }  // ← ПЕРЕДАЁМ SET
 );
 
 console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... (ВЫХОД)`);
@@ -3292,12 +3297,13 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
             finalMatches = new Map([...centerMatches, ...allMatches, ...stabilizedMatches]);
 
             const updateResult = this.updateModelWithMatches(
-                modelId,
-                newExactGraph,
-                finalMatches,
-                centerMatches,
-                newMorphology
-            );
+    modelId,
+    newExactGraph,
+    finalMatches,
+    centerMatches,
+    newMorphology,
+    updatedPointsThisPhoto  // ← добавить
+);
             newNodesAdded = updateResult.newNodesAdded;
         } else {
             if (this.debug) console.log(`\n⚠️ Недостаточно якорей (${centerMatches.size})`);
@@ -3374,7 +3380,7 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         return matchMap;
     }
 
-    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology) {
+    updateModelWithMatches(modelId, newGraph, matches, anchorMatches, newMorphology, updatedPointsThisPhoto = null) {
         const model = this.models.get(modelId);
         let confirmedExisting = 0;
         let newNodesAdded = 0;
@@ -3384,11 +3390,28 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         const matchedModelIds = new Set();
 
         for (const [photoId, match] of matches) {
-            const modelNode = model.graph.nodes.get(match.modelId);
-            if (modelNode) {
-                modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-                modelNode.lastConfirmed = new Date();
-                confirmedExisting++;
+    const modelNode = model.graph.nodes.get(match.modelId);
+    if (modelNode) {
+        // 🔥 ПРОВЕРКА: не обновляли ли уже эту точку в текущем фото
+        if (updatedPointsThisPhoto && updatedPointsThisPhoto.has(modelNode.id)) {
+            if (this.debug) {
+                console.log(`   ⏭️ Пропускаем повторное обновление точки ${modelNode.id.substring(0,12)} (уже обновлена в этом фото)`);
+            }
+            continue; // ← НЕ добавляем подтверждение
+        }
+       
+        // Добавляем в Set, чтобы не обновить повторно
+        if (updatedPointsThisPhoto) {
+            updatedPointsThisPhoto.add(modelNode.id);
+        }
+       
+        const oldCount = modelNode.confirmationCount || 1;
+        const newCount = oldCount + 1;
+        console.log(`   🔄 Точка ${modelNode.id.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
+       
+        modelNode.confirmationCount = newCount;
+        modelNode.lastConfirmed = new Date();
+        confirmedExisting++;
                 matchedPhotoIds.add(photoId);
                 matchedModelIds.add(match.modelId);
             }
