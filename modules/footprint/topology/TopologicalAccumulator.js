@@ -3379,22 +3379,21 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         const matchedPhotoIds = new Set();
         const matchedModelIds = new Set();
 
-            for (const [photoId, match] of matches) {
+             for (const [photoId, match] of matches) {
         const modelNode = model.graph.nodes.get(match.modelId);
         if (modelNode) {
             // 🔥 ПРОВЕРКА: не обновляли ли уже эту точку в текущем фото
             if (updatedPointsThisPhoto && updatedPointsThisPhoto.has(modelNode.id)) {
-                if (this.debug) {
+               // if (this.debug) {
                     console.log(`   ⏭️ Пропускаем повторное обновление точки ${modelNode.id.substring(0,12)} (уже обновлена в этом фото)`);
-                }
-                continue; // ← НЕ добавляем подтверждение
+               // }
+                continue;
             }
-
-            // Добавляем в Set, чтобы не обновить повторно
+           
             if (updatedPointsThisPhoto) {
                 updatedPointsThisPhoto.add(modelNode.id);
             }
-
+           
             modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
        
         const oldCount = modelNode.confirmationCount || 1;
