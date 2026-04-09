@@ -2313,6 +2313,20 @@ if (existingModel && existingModel.id !== this.currentModelId) {
 
 this.photoToModel.set(photoId, modelIdHint);
 
+// ========== ДИАГНОСТИКА В КОНЦЕ processPoints ==========
+// if (this.debug) {
+    let redEnd = 0, orangeEnd = 0, yellowEnd = 0, blueEnd = 0;
+    for (const node of existingModel.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redEnd++;
+        else if (count === 3) orangeEnd++;
+        else if (count === 2) yellowEnd++;
+        else if (count === 1) blueEnd++;
+    }
+    console.log(`\n🔍 В КОНЦЕ processPoints: красных ${redEnd}, оранж ${orangeEnd}, жёлт ${yellowEnd}, син ${blueEnd}`);
+// }
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+                  
 return {
     status: 'consistent_anchors',
     modelId: this.currentModelId,  // ← используем currentModelId вместо modelIdHint
