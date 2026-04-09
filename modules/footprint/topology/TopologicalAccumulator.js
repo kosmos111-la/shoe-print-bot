@@ -120,7 +120,8 @@ this.affineRefiner = new AffineRefiner({
         console.log(`🏗 МУЛЬТИ-МОДЕЛЬНЫЙ TopologicalAccumulator создан: "${this.name}"`);
         console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ' : 'ПОЛНЫЙ'}`);
         console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
-    }
+     this.currentTransform = null;  // ← ДОБАВИТЬ
+}
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
@@ -780,8 +781,9 @@ if (existingModel) {
                 if (finalValidationResult && finalValidationResult.success) {
                     // 🔥 СОХРАНЯЕМ TRANSFORM В МОДЕЛЬ
                     if (existingModel) {
-                        existingModel.transform = finalTransform;
-                    }
+    existingModel.lastTransform = finalTransform;
+}
+this.currentTransform = finalTransform;
                   // 🔥 СОХРАНЯЕМ КОНТУР В СУЩЕСТВУЮЩУЮ МОДЕЛЬ
     if (outlineContour && !existingModel.metadata.outlineContour) {
         existingModel.metadata.outlineContour = outlineContour;
@@ -1467,22 +1469,10 @@ if (this.debug && uniqueAddedCount > 0) {
     console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
 }
 
-// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
-if (uniqueAddedCount > 0) {
-    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА после добавления ${uniqueAddedCount} точек...`);
-
-    // ========== ДИАГНОСТИКА ПЕРЕД ПЕРЕСТРОЕНИЕМ ==========
-    let redBeforeRebuild = 0, orangeBeforeRebuild = 0, yellowBeforeRebuild = 0, blueBeforeRebuild = 0;
-    for (const node of existingModel.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redBeforeRebuild++;
-        else if (count === 3) orangeBeforeRebuild++;
-        else if (count === 2) yellowBeforeRebuild++;
-        else if (count === 1) blueBeforeRebuild++;
-    }
-    console.log(`   📊 ПЕРЕД перестроением: красных ${redBeforeRebuild}, оранж ${orangeBeforeRebuild}, жёлт ${yellowBeforeRebuild}, син ${blueBeforeRebuild}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-
+// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ЛЮБОГО ИЗМЕНЕНИЯ МОДЕЛИ
+if (uniqueAddedCount > 0 || finalValidatedMatches.length > 0) {
+    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА (новых точек: ${uniqueAddedCount}, новых пар: ${finalValidatedMatches.length})...`);
+   
     const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
         id: node.id,
         x: node.x,
@@ -1490,7 +1480,7 @@ if (uniqueAddedCount > 0) {
         confidence: node.confirmationCount > 0 ? 0.8 : 0.5
     }));
 
-    const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
+    const newGraph = this.knnBuilder.buildGraph(allPoints, 'model_update');
 
     // Обновляем рёбра
     existingModel.graph.edges = newGraph.edges;
@@ -2225,7 +2215,8 @@ const updateResult = this.updateModelWithOptimalMatches(
     exactGraph,
     finalValidatedMatches || [],
     morphologyMap,
-    updatedModelPointsThisPhoto
+    updatedModelPointsThisPhoto,
+    finalTransform  // ← ДОБАВИТЬ
 );
 
 // Диагностика после updateModelWithOptimalMatches
@@ -2993,7 +2984,7 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null) {
+  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null, transform = null) {
       
     const model = this.models.get(modelId);
 
@@ -3144,39 +3135,44 @@ for (const match of deduplicatedMatches) {
     if (modelNode) {
         // Проверяем, не обновляли ли уже эту точку в этом фото
         if (updatedThisPhoto && updatedThisPhoto.has(match.pointB)) {
-    console.log(`   ⏭️ Пропускаем (уже в Set): ${match.pointB.substring(0,12)}`);
-    // Всё равно добавляем в matchedPhotoIds для правильного учёта
-    matchedPhotoIds.add(match.pointA);
-    matchedModelIds.add(match.pointB);
-    updatedCount++;
-    continue;
-}
-       
+            console.log(`   ⏭️ Пропускаем (уже в Set): ${match.pointB.substring(0,12)}`);
+            matchedPhotoIds.add(match.pointA);
+            matchedModelIds.add(match.pointB);
+            updatedCount++;
+            continue;
+        }
+
         const oldCount = modelNode.confirmationCount || 1;
         const newCount = oldCount + 1;
-       // ========== НОВАЯ ДИАГНОСТИКА ==========
-    if (newCount >= 4 && oldCount < 4) {
-        console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
-        console.log(`      от точки фото: ${match.pointA.substring(0,20)}`);
-    } else if (this.debug && newCount >= 2) {
-        console.log(`   🔄 Точка ${match.pointB.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
-    }
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-        console.log(`   🔄 Точка ${match.pointB}: было ${oldCount}, станет ${newCount} (+1)`);
+       
+        // ========== ОБНОВЛЕНИЕ КООРДИНАТ ТОЧКИ МОДЕЛИ ==========
+        const photoPoint = newGraph.nodes.get(match.pointA);
+        if (photoPoint && transform) {
+            const projected = this.applyTransform(photoPoint, transform);
+           
+            const oldX = modelNode.x;
+            const oldY = modelNode.y;
+           
+            // Усредняем координаты (взвешенно по количеству подтверждений)
+            modelNode.x = (oldX * oldCount + projected.x) / newCount;
+            modelNode.y = (oldY * oldCount + projected.y) / newCount;
+           
+            if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
+                console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)})`);
+            }
+        }
+        // ========== КОНЕЦ ОБНОВЛЕНИЯ КООРДИНАТ ==========
+       
         modelNode.confirmationCount = newCount;
         modelNode.lastConfirmed = new Date();
         confirmedExisting++;
         matchedPhotoIds.add(match.pointA);
         matchedModelIds.add(match.pointB);
         updatedCount++;
-       
-        // Добавляем в Set, чтобы не обновлять повторно
-        if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
 
-        if (updatedCount <= 5) {
-            console.log(`   ✅ Обновлена точка ${match.pointB}: ${oldCount} → ${modelNode.confirmationCount}`);
-        }
-    } else {
+        if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
+    }
+} else {
         notFoundCount++;
         if (notFoundCount <= 5) {
             console.log(`   ⚠️ Точка ${match.pointB?.substring(0,12)} НЕ НАЙДЕНА в модели!`);
