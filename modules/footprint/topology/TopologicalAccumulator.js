@@ -3784,17 +3784,31 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
     console.log(`   Всего узлов: ${graph.nodes.size}`);
     // ========== КОНЕЦ ДИАГНОСТИКИ ==========
   
+ // ========== ДИАГНОСТИКА СОСТОЯНИЯ МОДЕЛИ ==========
+    let redCount = 0, orangeCount = 0, yellowCount = 0, blueCount = 0, grayCount = 0;
+    for (const node of graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) redCount++;
+        else if (count === 3) orangeCount++;
+        else if (count === 2) yellowCount++;
+        else if (count === 1) blueCount++;
+        else grayCount++;
+    }
+    console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,20)}`);
+    console.log(`   Статистика ИЗ МОДЕЛИ: красных ${redCount}, оранж ${orangeCount}, жёлт ${yellowCount}, син ${blueCount}, сер ${grayCount}`);
+    console.log(`   Всего узлов: ${graph.nodes.size}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
+  
+   // 🔥 ПОЛУЧАЕМ КОНТУР (ОДИН РАЗ)
+    const outlineContour = model.metadata?.outlineContour || null;
 
-    // 🔥 ПОЛУЧАЕМ КОНТУР (ОДИН РАЗ)
-    const outlineContour = model.metadata?.outlineContour || null;
-
-    if (this.debug) {
-        console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
-        console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
-        if (outlineContour) {
-            console.log(`   points: ${outlineContour.points?.length || 0}`);
-        }
-    }
+   // if (this.debug) {
+        console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
+        console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+        if (outlineContour) {
+            console.log(`   points: ${outlineContour.points?.length || 0}`);
+        }
+ //   }
 
     const rawStructures = model.structures || [];
     const pointToStructure = model.pointToStructure || new Map();
