@@ -2182,21 +2182,22 @@ const updateResult = this.updateModelWithOptimalMatches(
     exactGraph,
     finalValidatedMatches || [],
     morphologyMap,
-    updatedModelPointsThisPhoto  // ← передаём Set
+    updatedModelPointsThisPhoto
 );
 
-// Диагностика перед слиянием
-// if (this.debug) {
-    let redBefore = 0, orangeBefore = 0, yellowBefore = 0, blueBefore = 0;
+// ===== ДИАГНОСТИКА ПОСЛЕ updateModelWithOptimalMatches (ПЕРЕД СЛИЯНИЕМ) =====
+if (this.debug) {
+    let redAfterUpdate = 0, orangeAfterUpdate = 0, yellowAfterUpdate = 0, blueAfterUpdate = 0;
     for (const node of existingModel.graph.nodes.values()) {
         const count = node.confirmationCount || 0;
-        if (count >= 4) redBefore++;
-        else if (count === 3) orangeBefore++;
-        else if (count === 2) yellowBefore++;
-        else if (count === 1) blueBefore++;
+        if (count >= 4) redAfterUpdate++;
+        else if (count === 3) orangeAfterUpdate++;
+        else if (count === 2) yellowAfterUpdate++;
+        else if (count === 1) blueAfterUpdate++;
     }
-    console.log(`\n📊 ДО СЛИЯНИЯ: красных ${redBefore}, оранж ${orangeBefore}, жёлт ${yellowBefore}, син ${blueBefore}`);
-// }
+    console.log(`\n📊 ПОСЛЕ updateModelWithOptimalMatches (до слияния): красных ${redAfterUpdate}, оранж ${orangeAfterUpdate}, жёлт ${yellowAfterUpdate}, син ${blueAfterUpdate}`);
+}
+// ===== КОНЕЦ ДИАГНОСТИКИ =====
 
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
 const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
