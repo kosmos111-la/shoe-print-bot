@@ -828,7 +828,7 @@ const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10
     if (updatedThisPhoto) {
         console.log(`\n🧲 magneticPull: в Set уже ${updatedThisPhoto.size} точек`);
     }
-   
+
     const pulledMatches = [];
     const usedPhotoPoints = new Set();
     const usedModelPoints = new Set();
@@ -870,49 +870,49 @@ const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10
 
         // 🔥 Если точка уже близко — просто сохраняем
         if (dist < threshold && dist > 0.5) {
-        
+
             // Усредняем позицию (взвешенно по уверенности)
             const weight = match.confidence || 0.5;
             const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
             const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
 
             // Проверяем, не обновляли ли уже эту точку в этом фото
-if (updatedThisPhoto && updatedThisPhoto.has(modelPoint.id)) {
-    if (this.debug) {
-        console.log(`   ⏭️ Пропускаем повторное обновление точки ${modelPoint.id.substring(0,12)} (уже обновлена в этом фото)`);
-    }
-    // Обновляем позицию, но НЕ увеличиваем confirmationCount
-    modelPoint.x = avgX;
-    modelPoint.y = avgY;
-    modelPoint.pulled = true;
-    modelPoint.pullDistance = dist;
-   
-    pulledMatches.push({
-        ...match,
-        pulled: true,
-        pullDistance: dist,
-        newPosition: { x: avgX, y: avgY },
-        skippedDuplicate: true
-    });
-   
-    usedPhotoPoints.add(match.pointA);
-    usedModelPoints.add(modelPoint.id);
-    pulledCount++;
-    continue;
-}
+            if (updatedThisPhoto && updatedThisPhoto.has(modelPoint.id)) {
+                if (this.debug) {
+                    console.log(`   ⏭️ Пропускаем повторное обновление точки ${modelPoint.id.substring(0,12)} (уже обновлена в этом фото)`);
+                }
+                // Обновляем позицию, но НЕ увеличиваем confirmationCount
+                modelPoint.x = avgX;
+                modelPoint.y = avgY;
+                modelPoint.pulled = true;
+                modelPoint.pullDistance = dist;
 
-// Если не обновляли — добавляем в Set и обновляем счётчик
-if (updatedThisPhoto) {
-    updatedThisPhoto.add(modelPoint.id);
-    console.log(`   ✅ Добавлена в Set: ${modelPoint.id.substring(0,12)} (было ${oldCount}, станет ${newCount})`);
-}
+                pulledMatches.push({
+                    ...match,
+                    pulled: true,
+                    pullDistance: dist,
+                    newPosition: { x: avgX, y: avgY },
+                    skippedDuplicate: true
+                });
 
-// Обновляем модель
-modelPoint.x = avgX;
-modelPoint.y = avgY;
-modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
-modelPoint.pulled = true;
-modelPoint.pullDistance = dist;
+                usedPhotoPoints.add(match.pointA);
+                usedModelPoints.add(modelPoint.id);
+                pulledCount++;
+                continue;
+            }
+
+            // Если не обновляли — добавляем в Set и обновляем счётчик
+            if (updatedThisPhoto) {
+                updatedThisPhoto.add(modelPoint.id);
+                console.log(`   ✅ Добавлена в Set: ${modelPoint.id.substring(0,12)}`);
+            }
+
+            // Обновляем модель
+            modelPoint.x = avgX;
+            modelPoint.y = avgY;
+            modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
+            modelPoint.pulled = true;
+            modelPoint.pullDistance = dist;
 
             pulledMatches.push({
                 ...match,
@@ -1039,7 +1039,7 @@ modelPoint.pullDistance = dist;
         }
     }
 
-    // ===== НОВАЯ ДЕДУПЛИКАЦИЯ: каждая точка модели получает максимум +1 =====
+    // ===== ДЕДУПЛИКАЦИЯ: каждая точка модели получает максимум +1 =====
     const uniqueByModelId = new Map();
     for (const match of pulledMatches) {
         const existing = uniqueByModelId.get(match.pointB);
@@ -1053,12 +1053,10 @@ modelPoint.pullDistance = dist;
         console.log(`   🔧 Дедупликация magneticPull: ${pulledMatches.length} → ${deduplicatedMatches.length}`);
     }
 
-   // if (this.debug) {
-        console.log(`\n📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ (после дедупликации):`);
-        console.log(`   • Притянуто точек: ${deduplicatedMatches.length}`);
-        console.log(`   • Топологически проверено: ${topologyCheckedCount}`);
-        console.log(`   • Отвергнуто топологией: ${topologyRejectedCount}`);
-   // }
+    console.log(`\n📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ (после дедупликации):`);
+    console.log(`   • Притянуто точек: ${deduplicatedMatches.length}`);
+    console.log(`   • Топологически проверено: ${topologyCheckedCount}`);
+    console.log(`   • Отвергнуто топологией: ${topologyRejectedCount}`);
 
     return { pulledMatches: deduplicatedMatches, pulledCount: deduplicatedMatches.length };
 };
