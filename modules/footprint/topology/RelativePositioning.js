@@ -372,7 +372,8 @@ return deduplicatedMap;
 
     // ==================== ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ====================
 
-    iterativeStabilization(photoGraph, modelGraph, initialAnchors, photoMorphology, modelMorphology) {
+    iterativeStabilization(photoGraph, modelGraph, initialAnchors, photoMorphology, modelMorphology, options = {}) {
+    const updatedPointsThisPhoto = options.updatedPointsThisPhoto;
     console.log(`\n🔍 iterativeStabilization: НАЧАЛО`);
     const startTime = Date.now();  // ← ДОБАВИТЬ ЭТУ СТРОКУ!
    
