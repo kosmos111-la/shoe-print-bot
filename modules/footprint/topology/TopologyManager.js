@@ -131,8 +131,25 @@ const result = await this.accumulator.processPoints(points, {
     contours: contours
 });
 
-// ========== ДИАГНОСТИКА ПОСЛЕ accumulator.processPoints ==========
-console.log(`\n🔍 ПОСЛЕ accumulator.processPoints в TopologyManager:`);
+// ========== ДИАГНОСТИКА СРАЗУ ПОСЛЕ ВОЗВРАТА ИЗ accumulator.processPoints ==========
+console.log(`\n🔍 СРАЗУ ПОСЛЕ ВОЗВРАТА ИЗ accumulator.processPoints:`);
+const modelImmediate = this.accumulator.getCurrentModel();
+if (modelImmediate && modelImmediate.graph) {
+    let red = 0, orange = 0, yellow = 0, blue = 0;
+    for (const node of modelImmediate.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) red++;
+        else if (count === 3) orange++;
+        else if (count === 2) yellow++;
+        else if (count === 1) blue++;
+    }
+    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+    console.log(`   Всего узлов: ${modelImmediate.graph.nodes.size}`);
+}
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
+// ========== ДИАГНОСТИКА ПОСЛЕ accumulator.processPoints (оставляем для сравнения) ==========
+console.log(`\n🔍 ПОСЛЕ accumulator.processPoints в TopologyManager (после всех операций):`);
 const modelAfterProcess = this.accumulator.getCurrentModel();
 if (modelAfterProcess && modelAfterProcess.graph) {
     let red = 0, orange = 0, yellow = 0, blue = 0;
@@ -183,21 +200,37 @@ if (result.modelId) {
             console.log(`🔍 matchMap передан в результат: ${matchMap.size} пар`);
         }
 
-        return {
-            success: true,
-            topologicalResult: {
-                ...result,
-                matchMap: matchMap
-            },
-            modelInfo: modelInfo,
-            pointsCount: points.length,
-            modelId: result.modelId,
-            similarity: result.similarity || 0,
-            decision: this.getDecisionFromResult(result),
-            sandboxMode: this.sandboxMode,
-            patternData: this.patterns.get(result.modelId),
-            clusterData: this.clusters.get(result.modelId)
-        };
+        // ========== ДИАГНОСТИКА ПЕРЕД ВОЗВРАТОМ ИЗ processFootprint ==========
+console.log(`\n🔍 ПЕРЕД ВОЗВРАТОМ ИЗ processFootprint:`);
+const modelBeforeReturn = this.accumulator.getCurrentModel();
+if (modelBeforeReturn && modelBeforeReturn.graph) {
+    let red = 0, orange = 0, yellow = 0, blue = 0;
+    for (const node of modelBeforeReturn.graph.nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) red++;
+        else if (count === 3) orange++;
+        else if (count === 2) yellow++;
+        else if (count === 1) blue++;
+    }
+    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+}
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
+return {
+    success: true,
+    topologicalResult: {
+        ...result,
+        matchMap: matchMap
+    },
+    modelInfo: modelInfo,
+    pointsCount: points.length,
+    modelId: result.modelId,
+    similarity: result.similarity || 0,
+    decision: this.getDecisionFromResult(result),
+    sandboxMode: this.sandboxMode,
+    patternData: this.patterns.get(result.modelId),
+    clusterData: this.clusters.get(result.modelId)
+};
     }
 
     // ==================== ИЗВЛЕЧЕНИЕ ТОЧЕК И КОНТУРОВ ====================
