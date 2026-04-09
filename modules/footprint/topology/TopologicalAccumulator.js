@@ -1467,21 +1467,10 @@ if (this.debug && uniqueAddedCount > 0) {
     console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
 }
 
-// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
-if (uniqueAddedCount > 0) {
-    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА после добавления ${uniqueAddedCount} точек...`);
-
-    // ========== ДИАГНОСТИКА ПЕРЕД ПЕРЕСТРОЕНИЕМ ==========
-    let redBeforeRebuild = 0, orangeBeforeRebuild = 0, yellowBeforeRebuild = 0, blueBeforeRebuild = 0;
-    for (const node of existingModel.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redBeforeRebuild++;
-        else if (count === 3) orangeBeforeRebuild++;
-        else if (count === 2) yellowBeforeRebuild++;
-        else if (count === 1) blueBeforeRebuild++;
-    }
-    console.log(`   📊 ПЕРЕД перестроением: красных ${redBeforeRebuild}, оранж ${orangeBeforeRebuild}, жёлт ${yellowBeforeRebuild}, син ${blueBeforeRebuild}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
+// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ЛЮБОГО ИЗМЕНЕНИЯ МОДЕЛИ
+// (добавлены новые точки ИЛИ добавлены новые пары)
+if (uniqueAddedCount > 0 || finalValidatedMatches.length > 0) {
+    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА (новых точек: ${uniqueAddedCount}, новых пар: ${finalValidatedMatches.length})...`);
 
     const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
         id: node.id,
@@ -1550,17 +1539,10 @@ if (uniqueAddedCount > 0) {
         }
     }
 
-    // ========== ДИАГНОСТИКА ПОСЛЕ ПЕРЕСТРОЕНИЯ ==========
-    let redAfterRebuild = 0, orangeAfterRebuild = 0, yellowAfterRebuild = 0, blueAfterRebuild = 0;
-    for (const node of existingModel.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redAfterRebuild++;
-        else if (count === 3) orangeAfterRebuild++;
-        else if (count === 2) yellowAfterRebuild++;
-        else if (count === 1) blueAfterRebuild++;
-    }
-    console.log(`   📊 ПОСЛЕ перестроения: красных ${redAfterRebuild}, оранж ${orangeAfterRebuild}, жёлт ${yellowAfterRebuild}, син ${blueAfterRebuild}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
+   // if (this.debug) {
+        console.log(`   ✅ Граф перестроен: ${existingModel.graph.nodes.size} узлов, ${existingModel.graph.edges.size} рёбер`);
+        console.log(`   📐 Треугольников в графе: ${existingModel.graph.triangleList?.length || 0}`);
+  //  }
 }
                  
 // Сохраняем для диагностики (опционально)
