@@ -2464,53 +2464,47 @@ return {
             console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
         }
 
-// Если сходство выше порога - улучшаем существующую модель
-if (bestMatch.similarity >= this.similarityThreshold) {
-    console.log(`\n✅ СОВПАДЕНИЕ! Сходство ${(bestMatch.similarity * 100).toFixed(1)}%`);
+        // Если сходство выше порога - улучшаем существующую модель
+        if (bestMatch.similarity >= this.similarityThreshold) {
+            console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
 
-    this.switchToModel(bestMatch.modelId);
+            this.switchToModel(bestMatch.modelId);
 
-    // 🔥 НЕ вызываем enhanceExistingModel, если сходство очень высокое (>95%)
-    // Это предотвращает двойное обновление модели и появление красных точек
-    if (!this.fastMode && bestMatch.similarity < 0.95) {
-        console.log(`   🔧 Запускаю enhanceExistingModel (сходство ${(bestMatch.similarity * 100).toFixed(1)}% < 95%)`);
-       
-        const enhancedResult = await this.enhanceExistingModel(
-            bestMatch.modelId,
-            exactGraph,
-            knnGraph,
-            knnFingerprints,
-            morphologyMap,
-            options
-        );
+            if (!this.fastMode) {
+                const enhancedResult = await this.enhanceExistingModel(
+                    bestMatch.modelId,
+                    exactGraph,
+                    knnGraph,
+                    knnFingerprints,
+                    morphologyMap,
+                    options
+                );
 
-        this.photoToModel.set(photoId, bestMatch.modelId);
+                this.photoToModel.set(photoId, bestMatch.modelId);
 
-        return {
-            status: 'enhanced',
-            modelId: bestMatch.modelId,
-            similarity: bestMatch.similarity,
-            ...enhancedResult,
-            totalModels: this.models.size,
-            matchedModel: bestMatch.modelId
-        };
-    } else {
-        console.log(`   ⏭️ Пропускаю enhanceExistingModel (сходство ${(bestMatch.similarity * 100).toFixed(1)}% >= 95%)`);
-       
-        this.photoToModel.set(photoId, bestMatch.modelId);
+                return {
+                    status: 'enhanced',
+                    modelId: bestMatch.modelId,
+                    similarity: bestMatch.similarity,
+                    ...enhancedResult,
+                    totalModels: this.models.size,
+                    matchedModel: bestMatch.modelId
+                };
+            } else {
+                this.photoToModel.set(photoId, bestMatch.modelId);
 
-        return {
-            status: 'matched_high_confidence',
-            modelId: bestMatch.modelId,
-            similarity: bestMatch.similarity,
-            exactMatches: bestMatch.exactMatches,
-            similarMatches: bestMatch.similarMatches,
-            totalModels: this.models.size,
-            matchedModel: bestMatch.modelId,
-            message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
-        };
-    }
-}
+                return {
+                    status: 'matched_fast',
+                    modelId: bestMatch.modelId,
+                    similarity: bestMatch.similarity,
+                    exactMatches: bestMatch.exactMatches,
+                    similarMatches: bestMatch.similarMatches,
+                    totalModels: this.models.size,
+                    matchedModel: bestMatch.modelId,
+                    message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
+                };
+            }
+        }
         // Если сходство ниже порога - создаём НОВУЮ модель
         else {
             console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
