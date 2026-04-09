@@ -3764,27 +3764,13 @@ node.addedAt = new Date();
 }
 
 getVisualizationData(modelId = null, reliablePhotoIds = []) {
-    const targetId = modelId || this.currentModelId;
-    if (!targetId || !this.models.has(targetId)) return null;
+    const targetId = modelId || this.currentModelId;
+    if (!targetId || !this.models.has(targetId)) return null;
 
-    const model = this.models.get(targetId);
-    const graph = model.graph;
- // ========== НОВАЯ ДИАГНОСТИКА ==========
-    console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,20)}`);
-    let redCount = 0, orangeCount = 0, yellowCount = 0, blueCount = 0, grayCount = 0;
-    for (const node of graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redCount++;
-        else if (count === 3) orangeCount++;
-        else if (count === 2) yellowCount++;
-        else if (count === 1) blueCount++;
-        else grayCount++;
-    }
-    console.log(`   Статистика ИЗ МОДЕЛИ: красных ${redCount}, оранж ${orangeCount}, жёлт ${yellowCount}, син ${blueCount}, сер ${grayCount}`);
-    console.log(`   Всего узлов: ${graph.nodes.size}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-  
- // ========== ДИАГНОСТИКА СОСТОЯНИЯ МОДЕЛИ ==========
+    const model = this.models.get(targetId);
+    const graph = model.graph;
+
+    // ========== ДИАГНОСТИКА СОСТОЯНИЯ МОДЕЛИ ==========
     let redCount = 0, orangeCount = 0, yellowCount = 0, blueCount = 0, grayCount = 0;
     for (const node of graph.nodes.values()) {
         const count = node.confirmationCount || 0;
