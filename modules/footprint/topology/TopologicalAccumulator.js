@@ -3227,7 +3227,10 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
 }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
-        const model = this.models.get(modelId);
+    console.log(`\n🔍 enhanceExistingModel: НАЧАЛО, modelId=${modelId?.slice(0,12)}`);
+    const startTime = Date.now();  // ← ДОБАВИТЬ
+   
+    const model = this.models.get(modelId);
         if (!model) return { error: 'Модель не найдена' };
 
         if (this.debug) {
