@@ -1489,8 +1489,38 @@ for (const node of existingModel.graph.nodes.values()) {
 console.log(`   📊 ПОСЛЕ добавления (до перестроения): красных ${redAfterAdd}, оранж ${orangeAfterAdd}, жёлт ${yellowAfterAdd}, син ${blueAfterAdd}`);
 // ========== КОНЕЦ ДИАГНОСТИКИ ==========
                   
-if (this.debug && uniqueAddedCount > 0) {
-    console.log(`   📊 Добавлено уникальных точек в модель: ${uniqueAddedCount}`);
+// 🔥 ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК — ПЕРЕСТРАИВАЕМ ГРАФ
+if (uniqueAddedCount > 0) {
+    console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА ПОСЛЕ ДОБАВЛЕНИЯ ${uniqueAddedCount} НОВЫХ ТОЧЕК`);
+   
+    const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        confidence: node.confirmationCount > 0 ? 0.8 : 0.5
+    }));
+   
+    const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
+   
+    // 🔥 ВАЖНО: Заменяем граф полностью
+    existingModel.graph = newGraph;
+   
+    // 🔥 ВАЖНО: Обновляем points в модели
+    existingModel.points = Array.from(newGraph.nodes.values()).map(node => ({
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        confirmationCount: node.confirmationCount || 1,
+        morphology: node.morphology || null,
+        sourceContours: node.sourceContours || [],
+        addedFrom: node.addedFrom || 'updated',
+        addedAt: node.addedAt || new Date(),
+        originalPhotoId: node.originalPhotoId || null,
+        confidence: node.morphology?.confidence || 0.5
+    }));
+   
+    console.log(`   ✅ Граф перестроен: ${newGraph.nodes.size} узлов, ${newGraph.edges.size} рёбер`);
+    console.log(`   💾 model.points обновлены: ${existingModel.points.length} точек`);
 }
 
 // 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
