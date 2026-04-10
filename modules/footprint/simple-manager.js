@@ -603,17 +603,19 @@ console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructu
 
                 const modelImagePath = await modelViz.createVisualization({
                     points: points,
-                    photoPoints: photoPoints,
-                    transform: transform,
+                    photoPoints: [], // 🔥 ИСПРАВЛЕНО: пустой массив вместо неопределённой переменной
+                    transform: null,
                     matches: matchMap,
                     edges: edges,
                     triangles: triangles,
                     structures: structures,
                     pointToStructure: pointToStructure,
+                    outlineContour: visualizationData?.outlineContour,
+                    photoOutlineContour: null,
                     outputPath: outputPath,
                     width: 1200,
                     height: 1000
-                });;
+                });
 
 // ========== ДИАГНОСТИКА ПОСЛЕ ВИЗУАЛИЗАЦИИ ЧИСТОЙ МОДЕЛИ ==========
 console.log(`\n🔍 ПОСЛЕ визуализации чистой модели:`);
