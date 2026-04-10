@@ -3385,9 +3385,6 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
   //  }
     // 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ (с диагностикой)
     const updatedModelPoints = Array.from(model.graph.nodes.values()).map(node => {
-        // 🔥 ДИАГНОСТИКА
-        const hasContour = node.morphology?.contour ? true : false;
-       
         return {
             id: node.id,
             x: node.x,
@@ -3402,9 +3399,9 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
         };
     });
 
-    // 🔥 ДИАГНОСТИКА
-    const pointsWithContour = updatedModelPoints.filter(p => p.morphology?.contour).length;
-    console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с контуром: ${pointsWithContour}`);
+    // 🔥 ДИАГНОСТИКА (используем другое имя переменной)
+    const modelPointsWithContour = updatedModelPoints.filter(p => p.morphology?.contour).length;
+    console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с контуром: ${modelPointsWithContour}`);
 
     model.points = updatedModelPoints;
 
