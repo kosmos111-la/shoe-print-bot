@@ -304,26 +304,115 @@ return {
     // ==================== ВИЗУАЛИЗАЦИЯ ====================
 
     getAccumulativeVisualizationData(modelId = null) {
-    console.log(`\n🔍 getAccumulativeVisualizationData ВЫЗВАН`);
-    console.log(new Error().stack.split('\n').slice(1, 5).join('\n'));
-   
-    const targetModelId = modelId || this.accumulator.currentModelId;
+        console.log(`\n🔍 getAccumulativeVisualizationData ВЫЗВАН`);
+        console.log(new Error().stack.split('\n').slice(1, 5).join('\n'));
+       
+        const targetModelId = modelId || this.accumulator.currentModelId;
 
-    if (!targetModelId) {
-        console.log('⚠️ Нет активной топологической модели');
-        return null;
-    }
+        if (!targetModelId) {
+            console.log('⚠️ Нет активной топологической модели');
+            return null;
+        }
 
-    const vizData = this.accumulator.getVisualizationData(targetModelId);
-   
-    // Добавляем паттерны и кластеры для визуализации
-    if (vizData) {
+        const model = this.accumulator.models.get(targetModelId);
+        if (!model) {
+            console.log('⚠️ Модель не найдена');
+            return null;
+        }
+
+        const graph = model.graph;
+       
+        // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ поля, включая morphology и sourceContours
+        const points = Array.from(graph.nodes.values()).map(node => ({
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            confirmationCount: node.confirmationCount || 0,
+            degree: node.degree || 0,
+            triangles: node.triangles || 0,
+            // 🔥 КРИТИЧНО: Копируем морфологию и историю контуров
+            morphology: node.morphology || null,
+            sourceContours: node.sourceContours || [],
+            // Остальные поля
+            clusterId: node.clusterId,
+            patternType: node.patternType,
+            addedFrom: node.addedFrom
+        }));
+
+        // 🔥 ДИАГНОСТИКА
+        let pointsWithContour = 0;
+        let pointsWithHistory = 0;
+        for (const point of points) {
+            if (point.morphology?.contour) pointsWithContour++;
+            if (point.sourceContours?.length > 0) pointsWithHistory++;
+        }
+        console.log(`   📊 getAccumulativeVisualizationData: точек с контуром ${pointsWithContour}, с историей ${pointsWithHistory}`);
+
+        const edges = Array.from(graph.edges);
+       
+        // Получаем структуры
+        const structures = (model.structures || []).map(s => ({
+            id: s.id,
+            pointIds: s.pointIds || [],
+            triangleIds: s.triangleIds || [],
+            triangles: s.triangles || [],
+            confidence: s.confidence || 0,
+            transform: s.transform || null,
+            rays: s.rays || []
+        }));
+
+        // Получаем треугольники
+        const triangles = this.accumulator.extractTrianglesFromGraph(graph);
+
+        // Получаем pointToStructure
+        const pointToStructure = model.pointToStructure || new Map();
+
+        // Получаем уникальные точки
+        const uniquePoints = model.uniquePoints || { model: [], photo: [] };
+
+        // Получаем matchMap
+        const matchMap = model.lastTriangleResult?.matchMap || new Map();
+        const modelMatchMap = model.lastTriangleResult?.modelMatchMap || new Map();
+
+        const stats = {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: points.filter(p => p.confirmationCount >= 3).length,
+            confirmed2: points.filter(p => p.confirmationCount === 2).length,
+            confirmed1: points.filter(p => p.confirmationCount === 1).length,
+            confirmed0: points.filter(p => !p.confirmationCount).length,
+            structureCount: structures.length,
+            // 🔥 Дополнительная статистика
+            uniquePoints: graph.nodes.size,
+            confirmedPoints: points.filter(p => p.confirmationCount >= 2).length,
+            stability: graph.nodes.size > 0 ?
+                (points.filter(p => p.confirmationCount >= 2).length / graph.nodes.size * 100).toFixed(1) : 0
+        };
+
+        const vizData = {
+            modelId: targetModelId,
+            modelName: model.metadata.name,
+            points: points,
+            photoPoints: model.originalPoints || [],
+            edges: edges,
+            triangles: triangles,
+            structures: structures,
+            pointToStructure: pointToStructure,
+            uniquePoints: uniquePoints,
+            matchMap: matchMap,
+            modelMatchMap: modelMatchMap,
+            outlineContour: model.metadata?.outlineContour || null,
+            transform: model.transform || model.lastTransform || null,
+            stats: stats,
+            metadata: model.metadata
+        };
+
+        // Добавляем паттерны и кластеры
         vizData.patternData = this.patterns.get(targetModelId);
         vizData.clusterData = this.clusters.get(targetModelId);
-    }
 
-    return vizData;
-}
+        return vizData;
+    }
 
     // ==================== РАБОТА С ПАТТЕРНАМИ И КЛАСТЕРАМИ ====================
 
