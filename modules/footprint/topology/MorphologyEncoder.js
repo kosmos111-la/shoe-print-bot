@@ -436,28 +436,55 @@ class MorphologyEncoder {
         });
 
         const existingConf = existing.morphology?.confidence || existing.confidence || 0.5;
-       
-        let finalContour;
-        let finalConfidence;
+   
+    let finalContour;
+    let finalConfidence;
 
-        const HIGH_CONFIDENCE = 0.85;
+    const HIGH_CONFIDENCE = 0.85;
 
-        const isExistingHigh = existingConf >= HIGH_CONFIDENCE;
-        const isNewHigh = newConfidence >= HIGH_CONFIDENCE;
+    const isExistingHigh = existingConf >= HIGH_CONFIDENCE;
+    const isNewHigh = newConfidence >= HIGH_CONFIDENCE;
 
-        if (isExistingHigh && !isNewHigh) {
-            console.log(`   🛡️ Модель уверена (${(existingConf*100).toFixed(0)}%), игнорируем новый контур (${(newConfidence*100).toFixed(0)}%)`);
+    if (isExistingHigh && !isNewHigh) {
+        console.log(`   🛡️ Модель уверена (${(existingConf*100).toFixed(0)}%), игнорируем новый контур (${(newConfidence*100).toFixed(0)}%)`);
+        // 🔥 ИСПРАВЛЕНО: если existingContour нет, используем новый
+        if (existingContour && Array.isArray(existingContour) && existingContour.length >= 3) {
             finalContour = existingContour;
-            finalConfidence = existingConf;
-        } else if (isNewHigh && !isExistingHigh) {
-            console.log(`   ⚡ Новый контур увереннее (${(newConfidence*100).toFixed(0)}%), заменяем старый (${(existingConf*100).toFixed(0)}%)`);
-            finalContour = newContour;
-            finalConfidence = newConfidence;
         } else {
-            console.log(`   🔄 Усреднение контуров (уверенности: ${(existingConf*100).toFixed(0)}% и ${(newConfidence*100).toFixed(0)}%)`);
-            finalContour = this.averageContoursInternal(existingContour || newContour, newContour);
-            finalConfidence = Math.min(existingConf, newConfidence);
+            console.log(`      ⚠️ existingContour отсутствует, беру новый контур`);
+            finalContour = newContour;
         }
+        finalConfidence = existingConf;
+    } else if (isNewHigh && !isExistingHigh) {
+        console.log(`   ⚡ Новый контур увереннее (${(newConfidence*100).toFixed(0)}%), заменяем старый (${(existingConf*100).toFixed(0)}%)`);
+        // 🔥 ИСПРАВЛЕНО: если newContour нет, оставляем existing
+        if (newContour && Array.isArray(newContour) && newContour.length >= 3) {
+            finalContour = newContour;
+        } else {
+            console.log(`      ⚠️ newContour повреждён, оставляю existing`);
+            finalContour = existingContour;
+        }
+        finalConfidence = newConfidence;
+    } else {
+        console.log(`   🔄 Усреднение контуров (уверенности: ${(existingConf*100).toFixed(0)}% и ${(newConfidence*100).toFixed(0)}%)`);
+        // 🔥 ИСПРАВЛЕНО: проверяем оба контура
+        if (!existingContour || existingContour.length < 3) {
+            console.log(`      ⚠️ existingContour повреждён, беру новый`);
+            finalContour = newContour;
+        } else if (!newContour || newContour.length < 3) {
+            console.log(`      ⚠️ newContour повреждён, беру existing`);
+            finalContour = existingContour;
+        } else {
+            finalContour = this.averageContoursInternal(existingContour, newContour);
+        }
+        finalConfidence = Math.min(existingConf, newConfidence);
+    }
+
+    // 🔥 ФИНАЛЬНАЯ ПРОВЕРКА
+    if (!finalContour || finalContour.length < 3) {
+        console.log(`   ❌ КРИТИЧНО: finalContour всё ещё повреждён!`);
+        finalContour = existingContour || newContour || [];
+    }
 
         // 🔥 ЗАЩИТА: проверяем, что finalContour существует и не пустой
 let finalMorphology;
