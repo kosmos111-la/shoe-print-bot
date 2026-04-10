@@ -3176,6 +3176,10 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
             // ========== 🔥 НОВОЕ: ОБНОВЛЕНИЕ МОРФОЛОГИИ И КОНТУРОВ ==========
             const newMorph = newMorphology?.get(match.pointA);
             if (newMorph && newMorph.hasContour) {
+              // 🔥 ИСПРАВЛЕНИЕ 6: Устанавливаем confidence если его нет
+                if (newMorph.confidence === undefined) {
+                    newMorph.confidence = match.confidence || 0.5;
+                }
                 // Используем метод слияния с учетом уверенности
                 const mergeResult = this.morphologyEncoder.mergeContoursWithConfidence(
                     {
