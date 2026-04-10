@@ -278,7 +278,7 @@ class ModelVisualization {
         let historyDrawn = 0;
         let photoContoursDrawn = 0;
        
-        // 1. Рисуем исторические контуры из модели (сохранённые sourceContours)
+        // 1. Рисуем исторические контуры из модели
         for (const point of modelPoints) {
             const history = point.sourceContours;
             if (!history || history.length === 0) continue;
@@ -286,16 +286,16 @@ class ModelVisualization {
             for (const item of history) {
                 if (!item.points || item.points.length < 3) continue;
                
-                // Цвет зависит от источника
+                // 🔥 ЯРКИЕ ЦВЕТА ДЛЯ ИСТОРИИ
                 if (item.type === 'model_existing') {
-                    ctx.strokeStyle = 'rgba(180, 180, 180, 0.35)'; // Светло-серый
+                    ctx.strokeStyle = '#888888'; // Серый, непрозрачный
                 } else if (item.type === 'photo_new') {
-                    ctx.strokeStyle = 'rgba(210, 180, 140, 0.35)'; // Бежевый
+                    ctx.strokeStyle = '#D2B48C'; // Бежевый (тан), непрозрачный
                 } else {
-                    ctx.strokeStyle = 'rgba(150, 150, 150, 0.3)';
+                    ctx.strokeStyle = '#AAAAAA';
                 }
                
-                ctx.lineWidth = 0.8;
+                ctx.lineWidth = 1.2; // Чуть толще для видимости
                 this.drawPolygon(ctx, item.points, bounds, scale, width, height);
                 historyDrawn++;
             }
@@ -303,8 +303,8 @@ class ModelVisualization {
        
         // 2. Рисуем контуры из текущего фото (если есть)
         if (photoContours && photoContours.length > 0) {
-            ctx.strokeStyle = 'rgba(170, 0, 255, 0.3)'; // Полупрозрачный фиолетовый для текущего фото
-            ctx.lineWidth = 0.8;
+            ctx.strokeStyle = '#AA00FF'; // Фиолетовый, непрозрачный
+            ctx.lineWidth = 1.2;
            
             for (const pc of photoContours) {
                 if (pc.contour && pc.contour.length >= 3) {
@@ -561,7 +561,7 @@ class ModelVisualization {
 
         let legendHeight = 220;
         if (transform) legendHeight += 70;
-        if (hasContours) legendHeight += 30;
+        if (hasContours) legendHeight += 50; // Увеличиваем для новых элементов
 
         // Полупрозрачный фон
         ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
@@ -609,6 +609,7 @@ class ModelVisualization {
 
         // 🔥 НОВОЕ: Контуры в легенде
         if (hasContours) {
+            // Финальный контур (зелёный)
             ctx.strokeStyle = '#00FF00';
             ctx.lineWidth = 2.5;
             ctx.beginPath();
@@ -617,18 +618,31 @@ class ModelVisualization {
             ctx.stroke();
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '12px Arial';
-            ctx.fillText('🟢 Контур протектора (модель)', legendX + 20, currentY - 5);
+            ctx.fillText('🟢 Финальный контур модели', legendX + 20, currentY - 5);
             currentY += lineHeight;
 
-            ctx.strokeStyle = 'rgba(180, 180, 180, 0.5)';
-            ctx.lineWidth = 0.8;
+            // Исторический контур (серый)
+            ctx.strokeStyle = '#888888';
+            ctx.lineWidth = 1.2;
             ctx.beginPath();
             ctx.moveTo(legendX, currentY - 8);
             ctx.lineTo(legendX + 14, currentY - 8);
             ctx.stroke();
             ctx.fillStyle = '#FFFFFF';
             ctx.font = '12px Arial';
-            ctx.fillText('📜 История контуров', legendX + 20, currentY - 5);
+            ctx.fillText('📜 История (предыдущие фото)', legendX + 20, currentY - 5);
+            currentY += lineHeight;
+
+            // Контур из текущего фото (фиолетовый)
+            ctx.strokeStyle = '#AA00FF';
+            ctx.lineWidth = 1.2;
+            ctx.beginPath();
+            ctx.moveTo(legendX, currentY - 8);
+            ctx.lineTo(legendX + 14, currentY - 8);
+            ctx.stroke();
+            ctx.fillStyle = '#FFFFFF';
+            ctx.font = '12px Arial';
+            ctx.fillText('🟣 Текущее фото (трансформировано)', legendX + 20, currentY - 5);
             currentY += lineHeight;
         }
 
