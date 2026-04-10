@@ -3211,38 +3211,14 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
         if (modelNode) {
             // Проверяем, не обновляли ли уже эту точку в этом фото
             const alreadyUpdated = updatedThisPhoto && updatedThisPhoto.has(match.pointB);
-
-if (alreadyUpdated) {
-    console.log(`   🔄 Точка ${match.pointB.substring(0,12)} уже обновлялась, но confirmationCount увеличится`);
-    // 🔥 НЕ делаем continue! Продолжаем выполнение
-}
-
-const oldCount = modelNode.confirmationCount || 1;
-const newCount = oldCount + 1;
-
-// Координаты обновляем ТОЛЬКО если точка ещё не обновлялась
-if (!alreadyUpdated) {
-    const photoPoint = newGraph.nodes.get(match.pointA);
-    if (photoPoint && transform) {
-        // ... обновление координат ...
-    }
-}
-
-// Морфологию обновляем ВСЕГДА
-// ... код обновления морфологии ...
-
-modelNode.confirmationCount = newCount;
-modelNode.lastConfirmed = new Date();
-confirmedExisting++;
-matchedPhotoIds.add(match.pointA);
-matchedModelIds.add(match.pointB);
-updatedCount++;
-
-if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
+           
+            if (alreadyUpdated) {
+                console.log(`   🔄 Точка ${match.pointB.substring(0,12)} уже обновлялась, но confirmationCount увеличится`);
+            }
 
             const oldCount = modelNode.confirmationCount || 1;
             const newCount = oldCount + 1;
-           
+
             // ========== ДИАГНОСТИКА ==========
             if (newCount >= 4 && oldCount < 4) {
                 console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
@@ -3250,63 +3226,28 @@ if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
             } else if (this.debug && newCount >= 2) {
                 console.log(`   🔄 Точка ${match.pointB.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
             }
-           
-            // ========== ОБНОВЛЕНИЕ КООРДИНАТ ТОЧКИ МОДЕЛИ ==========
-            const photoPoint = newGraph.nodes.get(match.pointA);
-            if (photoPoint && transform) {
-                const projected = this.applyTransform(photoPoint, transform);
 
-                const oldX = modelNode.x;
-                const oldY = modelNode.y;
+            // ========== ОБНОВЛЕНИЕ КООРДИНАТ (только если ещё не обновляли) ==========
+            if (!alreadyUpdated) {
+                const photoPoint = newGraph.nodes.get(match.pointA);
+                if (photoPoint && transform) {
+                    const projected = this.applyTransform(photoPoint, transform);
+                    const oldX = modelNode.x;
+                    const oldY = modelNode.y;
+                    modelNode.x = (oldX * oldCount + projected.x) / newCount;
+                    modelNode.y = (oldY * oldCount + projected.y) / newCount;
 
-                // Усредняем координаты (взвешенно по количеству подтверждений)
-                modelNode.x = (oldX * oldCount + projected.x) / newCount;
-                modelNode.y = (oldY * oldCount + projected.y) / newCount;
-
-                if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
-                    console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)})`);
+                    if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
+                        console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)})`);
+                    }
                 }
             }
 
-            // ========== 🔥 НОВОЕ: ОБНОВЛЕНИЕ МОРФОЛОГИИ И КОНТУРОВ ==========
+            // ========== ОБНОВЛЕНИЕ МОРФОЛОГИИ И КОНТУРОВ ==========
             const newMorph = newMorphology?.get(match.pointA);
             if (newMorph && newMorph.hasContour) {
-              // 🔥 ИСПРАВЛЕНИЕ 6: Устанавливаем confidence если его нет
-                if (newMorph.confidence === undefined) {
-                    newMorph.confidence = match.confidence || 0.5;
-                }
-                // Используем метод слияния с учетом уверенности
-                const mergeResult = this.morphologyEncoder.mergeContoursWithConfidence(
-                    {
-                        morphology: modelNode.morphology,
-                        confirmationCount: modelNode.confirmationCount,
-                        confidence: modelNode.morphology?.confidence || match.confidence || 0.5,
-                        sourceContours: modelNode.sourceContours || []
-                    },
-                    {
-                        morphology: newMorph,
-                        confidence: match.confidence || newMorph.confidence || 0.5
-                    },
-                    transform // transform из фото в модель
-                );
-
-                // Инициализируем morphology если нет
-                if (!modelNode.morphology) modelNode.morphology = {};
-               
-                // Обновляем метрики морфологии
-                Object.assign(modelNode.morphology, mergeResult.finalMorphology);
-                modelNode.morphology.contour = mergeResult.finalContour;
-                modelNode.morphology.confidence = mergeResult.finalConfidence;
-                modelNode.morphology.hasContour = true;
-               
-                // Сохраняем историю контуров для визуализации
-                modelNode.sourceContours = mergeResult.historyContours;
-               
-                if (this.debug) {
-                    console.log(`   📐 Контур точки ${modelNode.id.substring(0,12)} обновлён (уверенность: ${(mergeResult.finalConfidence*100).toFixed(0)}%, история: ${mergeResult.historyContours.length})`);
-                }
+                // ... существующий код обновления морфологии ...
             } else if (newMorph) {
-                // Если нет контура, но есть другие метрики — обновляем их
                 if (!modelNode.morphology) modelNode.morphology = {};
                 Object.assign(modelNode.morphology, newMorph);
             }
@@ -3318,7 +3259,6 @@ if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
             matchedModelIds.add(match.pointB);
             updatedCount++;
 
-            // Добавляем в Set, чтобы не обновлять повторно
             if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
 
             if (updatedCount <= 5) {
