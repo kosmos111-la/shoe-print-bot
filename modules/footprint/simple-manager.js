@@ -523,7 +523,7 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                 console.log(`   • Точек модели: ${modelInfo.graph.nodes.size}`);
                 console.log(`   • Соответствий: ${matchMap.size}`);
 
-                // Подготавливаем точки модели с номерами пар
+                 // Подготавливаем точки модели с номерами пар
                 const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
                     let pairNumber = null;
                     let status = null;
@@ -537,15 +537,42 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                         }
                     }
 
+                    // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ необходимые поля для визуализации
                     return {
                         id: node.id,
                         x: node.x,
                         y: node.y,
                         confirmationCount: node.confirmationCount || 0,
                         pairNumber: pairNumber,
-                        status: status
+                        status: status,
+                        // 🔥 КРИТИЧНО: Добавляем morphology и sourceContours
+                        morphology: node.morphology || null,
+                        sourceContours: node.sourceContours || []
                     };
                 });
+
+                // 🔥 ПРОВЕРКА: ДИАГНОСТИКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ
+                console.log(`\n🔍 ПРОВЕРКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ:`);
+                const originalNodes = Array.from(modelInfo.graph.nodes.values());
+                let originalWithContour = 0;
+                let preparedWithContour = 0;
+               
+                for (const node of originalNodes) {
+                    if (node.morphology?.contour) originalWithContour++;
+                }
+               
+                for (const point of points) {
+                    if (point.morphology?.contour) preparedWithContour++;
+                }
+               
+                console.log(`   • В исходных узлах модели: ${originalWithContour} контуров`);
+                console.log(`   • В подготовленных точках: ${preparedWithContour} контуров`);
+               
+                if (originalWithContour > 0 && preparedWithContour === 0) {
+                    console.log(`   ❌ КОНТУРЫ ПОТЕРЯНЫ ПРИ ПОДГОТОВКЕ ТОЧЕК!`);
+                } else if (preparedWithContour > 0) {
+                    console.log(`   ✅ Контуры успешно скопированы в points!`);
+                }
 
                 const edges = Array.from(modelInfo.graph.edges);
 
