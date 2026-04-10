@@ -3280,7 +3280,6 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
             }
         }
     }
-}
    // if (this.debug) {
         console.log(`\n📊 Результат обновления модели:`);
         console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
@@ -3288,6 +3287,7 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
         console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
   //  }
     return { confirmedExisting, newNodesAdded };
+    }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
     console.log(`\n🔍 enhanceExistingModel: НАЧАЛО, modelId=${modelId?.slice(0,12)}`);
