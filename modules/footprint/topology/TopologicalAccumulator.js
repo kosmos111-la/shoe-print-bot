@@ -2473,10 +2473,12 @@ return {
         // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
             console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-    ...options,
-    outlineContour: outlineContour  // 🔥 ПЕРЕДАЁМ КОНТУР
-});
+            // 🔥 Сохраняем граф в памяти модели для текущей сессии
+const model = this.models.get(result.modelId);
+if (model) {
+    model.graph = exactGraph;  // 🔥 ВАЖНО: сохраняем граф в памяти!
+    console.log(`   💾 Граф сохранён в модели: ${model.graph.nodes.size} узлов`);
+}
             this.photoToModel.set(photoId, result.modelId);
             return {
                 ...result,
