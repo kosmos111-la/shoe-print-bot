@@ -2225,7 +2225,8 @@ const updateResult = this.updateModelWithOptimalMatches(
     exactGraph,
     finalValidatedMatches || [],
     morphologyMap,
-    updatedModelPointsThisPhoto
+    updatedModelPointsThisPhoto,
+    finalTransform // 🔥 ДОБАВЛЕНО
 );
 
 // Диагностика после updateModelWithOptimalMatches
@@ -3667,9 +3668,21 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
             node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
-            node.confirmationCount = 1;
-node.addedFrom = 'original';
-node.addedAt = new Date();
+             node.confirmationCount = 1;
+            node.addedFrom = 'original';
+            node.addedAt = new Date();
+           
+            // 🔥 НОВОЕ: Сохраняем контур в источник для визуализации
+            const morph = morphologyMap.get(nodeId);
+            if (morph && morph.hasContour && morph.contour) {
+                node.sourceContours = [{
+                    points: morph.contour,
+                    confidence: morph.confidence || 0.5,
+                    type: 'photo_new'
+                }];
+            } else {
+                node.sourceContours = [];
+            }
         }
 
         const model = {
