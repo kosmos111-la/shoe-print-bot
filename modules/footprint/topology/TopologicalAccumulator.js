@@ -3280,6 +3280,42 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
             }
         }
     }
+   // ========== 🔥 ДИАГНОСТИКА КОНТУРОВ ПОСЛЕ ОБНОВЛЕНИЯ ==========
+    console.log(`\n🔍 ДИАГНОСТИКА КОНТУРОВ В МОДЕЛИ ПОСЛЕ ОБНОВЛЕНИЯ:`);
+   
+    let totalPoints = 0;
+    let pointsWithContour = 0;
+    let pointsWithHistory = 0;
+    let totalHistoryItems = 0;
+   
+    for (const [nodeId, node] of model.graph.nodes) {
+        totalPoints++;
+       
+        if (node.morphology?.contour && node.morphology.contour.length > 0) {
+            pointsWithContour++;
+            if (pointsWithContour <= 3) {
+                console.log(`   ✅ Точка ${nodeId.substring(0,12)}: контур ЕСТЬ (${node.morphology.contour.length} точек)`);
+            }
+        }
+       
+        if (node.sourceContours && node.sourceContours.length > 0) {
+            pointsWithHistory++;
+            totalHistoryItems += node.sourceContours.length;
+            if (pointsWithHistory <= 3) {
+                console.log(`   📜 Точка ${nodeId.substring(0,12)}: история ${node.sourceContours.length} контуров`);
+                const first = node.sourceContours[0];
+                console.log(`      - тип: ${first.type}, уверенность: ${(first.confidence*100).toFixed(0)}%, точек: ${first.points?.length || 0}`);
+            }
+        }
+    }
+   
+    console.log(`\n📊 ИТОГ ДИАГНОСТИКИ КОНТУРОВ:`);
+    console.log(`   • Всего точек в модели: ${totalPoints}`);
+    console.log(`   • Точек с контуром: ${pointsWithContour}`);
+    console.log(`   • Точек с историей: ${pointsWithHistory}`);
+    console.log(`   • Всего элементов истории: ${totalHistoryItems}`);
+    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
    // if (this.debug) {
         console.log(`\n📊 Результат обновления модели:`);
         console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
