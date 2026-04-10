@@ -97,7 +97,7 @@ class MorphologyEncoder {
         // Компактность (периметр²/площадь)
         const compactness = area > 0 ? (perimeter * perimeter) / area : 0;
 
-        return {
+   return {
             compactness,
             eccentricity,
             orientation,
@@ -105,10 +105,10 @@ class MorphologyEncoder {
             hasContour: true,
             contour: simplified,
             radialProfile: radial.profile,
-            asymmetry: asymmetry,  // 🔥 НОВОЕ
-            radialDistances: radial.distances
+            asymmetry: asymmetry,
+            radialDistances: radial.distances,
+            confidence: 0.5 // 🔥 ДОБАВЛЕНО: значение по умолчанию
         };
-    }
 
     /**
      * 🔥 НОВЫЙ МЕТОД: вычисление асимметрии (0 - симметрично, 1 - максимально асимметрично)
