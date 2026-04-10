@@ -158,8 +158,34 @@ this.affineRefiner = new AffineRefiner({
         // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
         if (modelIdHint && this.models.has(modelIdHint)) {
     console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
-
+   
     const existingModel = this.models.get(modelIdHint);
+   
+    // 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ИЗ ТОЧЕК (если он отсутствует или устарел)
+    if (!existingModel.graph || existingModel.graph.nodes.size === 0) {
+        console.log(`\n🔧 Модель загружена без графа, перестраиваю из ${existingModel.points?.length || 0} точек...`);
+        existingModel.graph = this.rebuildGraphFromPoints(existingModel.points);
+    } else {
+        // Проверяем, не устарел ли граф (например, количество точек изменилось)
+        const pointCount = existingModel.points?.length || 0;
+        const nodeCount = existingModel.graph.nodes.size;
+        if (pointCount !== nodeCount) {
+            console.log(`\n⚠️ Граф устарел (точек ${pointCount}, узлов ${nodeCount}), перестраиваю...`);
+            existingModel.graph = this.rebuildGraphFromPoints(existingModel.points);
+        }
+    }
+   
+    // 🔥 Синхронизируем координаты из points в graph.nodes (на случай если они обновлялись)
+    if (existingModel.points) {
+        for (const point of existingModel.points) {
+            const node = existingModel.graph.nodes.get(point.id);
+            if (node) {
+                node.x = point.x;
+                node.y = point.y;
+                node.confirmationCount = point.confirmationCount;
+            }
+        }
+    }
 if (existingModel && existingModel.lastUniqueInPhoto) {
     this.lastUniqueInPhoto = existingModel.lastUniqueInPhoto;
     if (this.debug) console.log(`🔵 Восстановлено ${this.lastUniqueInPhoto.length} синих точек из модели`);
@@ -3327,7 +3353,23 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
         console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
         console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
   //  }
-    return { confirmedExisting, newNodesAdded };
+    // 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ
+model.points = Array.from(model.graph.nodes.values()).map(node => ({
+    id: node.id,
+    x: node.x,
+    y: node.y,
+    confirmationCount: node.confirmationCount || 1,
+    morphology: node.morphology || null,
+    sourceContours: node.sourceContours || [],
+    addedFrom: node.addedFrom || 'updated',
+    addedAt: node.addedAt || new Date(),
+    originalPhotoId: node.originalPhotoId || null,
+    confidence: node.morphology?.confidence || 0.5
+}));
+
+console.log(`   💾 Обновлены points в модели: ${model.points.length} точек`);
+
+return { confirmedExisting, newNodesAdded };
     }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
@@ -3688,30 +3730,55 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
             }
         }
 
-        const model = {
-    id: modelId,
-    graph: exactGraph,
-    knnGraph: null,
-    knnFingerprints: knnFingerprints,
-    morphologyMap: morphologyMap,
-    originalPoints: originalPoints,
-    patternData: patternData,
-    clusterData: clusterData,
-    metadata: {
-        name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-        createdAt: new Date(),
-        pointsCount: originalPoints.length,
-        nodesCount: exactGraph.nodes.size,
-        edgesCount: exactGraph.edges.size,
-        photoCount: 1,
-        source: options.source || 'unknown'
-    },
-    history: [{
-        action: 'created',
-        timestamp: new Date(),
-        points: originalPoints.length,
-        nodes: exactGraph.nodes.size
-    }]
+        // Извлекаем точки из графа с ВСЕМИ необходимыми полями
+const points = Array.from(exactGraph.nodes.values()).map(node => ({
+    id: node.id,
+    x: node.x,
+    y: node.y,
+    confirmationCount: node.confirmationCount || 1,
+   
+    // Морфология
+    morphology: node.morphology || null,
+   
+    // История контуров
+    sourceContours: node.sourceContours || [],
+   
+    // Метаданные
+    addedFrom: node.addedFrom || 'original',
+    addedAt: node.addedAt || new Date(),
+    originalPhotoId: node.originalPhotoId || null,
+   
+    // Дополнительные поля (для совместимости)
+    confidence: node.confidence || 0.5,
+    degree: 0,  // будет пересчитано при построении графа
+    triangles: 0 // будет пересчитано
+}));
+
+const model = {
+    id: modelId,
+    points: points,  // 🔥 ТОЛЬКО ТОЧКИ, БЕЗ ГРАФА
+    knnGraph: null,
+    knnFingerprints: knnFingerprints,
+    morphologyMap: morphologyMap,
+    originalPoints: originalPoints,
+    patternData: patternData,
+    clusterData: clusterData,
+    metadata: {
+        name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
+        createdAt: new Date(),
+        pointsCount: originalPoints.length,
+        nodesCount: exactGraph.nodes.size,
+        edgesCount: exactGraph.edges.size,
+        photoCount: 1,
+        source: options.source || 'unknown',
+        outlineContour: options.outlineContour || null
+    },
+    history: [{
+        action: 'created',
+        timestamp: new Date(),
+        points: originalPoints.length,
+        nodes: exactGraph.nodes.size
+    }]
 };
  // 🔥 СОХРАНЯЕМ КОНТУР В МОДЕЛЬ (если передан)
     if (options.outlineContour) {
@@ -4100,51 +4167,56 @@ generateStructureColors(structures) {
     }
 
     exportModel(modelId) {
-        const model = this.models.get(modelId);
-        if (!model) return null;
-
-        return {
-            id: model.id,
-            metadata: model.metadata,
-            graph: {
-                nodes: Array.from(model.graph.nodes.entries()),
-                edges: Array.from(model.graph.edges),
-                avgDegree: model.graph.avgDegree
-            },
-            knnFingerprints: Array.from(model.knnFingerprints.entries()),
-            morphologyMap: Array.from(model.morphologyMap.entries()),
-            history: model.history
-        };
-    }
+    const model = this.models.get(modelId);
+    if (!model) return null;
+   
+    // 🔥 Экспортируем ТОЛЬКО точки, граф не сохраняем
+    const points = model.points || Array.from(model.graph?.nodes?.values() || []);
+   
+    return {
+        id: model.id,
+        points: points,
+        metadata: model.metadata,
+        knnFingerprints: Array.from(model.knnFingerprints?.entries() || []),
+        morphologyMap: Array.from(model.morphologyMap?.entries() || []),
+        history: model.history || []
+    };
+}
 
     importModel(modelData) {
-        try {
-            const modelId = modelData.id;
-            const nodes = new Map(modelData.graph.nodes);
-            const edges = new Set(modelData.graph.edges);
-            const knnFingerprints = new Map(modelData.knnFingerprints);
-            const morphologyMap = new Map(modelData.morphologyMap);
-
-            const model = {
-                id: modelId,
-                graph: { nodes, edges, avgDegree: modelData.graph.avgDegree },
-                knnGraph: null,
-                knnFingerprints,
-                morphologyMap,
-                originalPoints: [],
-                metadata: modelData.metadata,
-                history: modelData.history || []
-            };
-
-            this.models.set(modelId, model);
-            this.stats.totalModels++;
-            console.log(`📥 Импортирована модель ${modelId.slice(0, 12)}...`);
-            return true;
-        } catch (error) {
-            console.log(`❌ Ошибка импорта: ${error.message}`);
-            return false;
-        }
-    }
+    try {
+        const modelId = modelData.id;
+       
+        // 🔥 Строим граф из точек
+        const points = modelData.points || [];
+        const graph = points.length >= 3
+            ? this.graphBuilder.buildGraph(points, 'imported_model')
+            : this.graphBuilder.buildMinimalGraph(points);
+       
+        const knnFingerprints = new Map(modelData.knnFingerprints || []);
+        const morphologyMap = new Map(modelData.morphologyMap || []);
+       
+        const model = {
+            id: modelId,
+            points: points,
+            graph: graph,
+            knnGraph: null,
+            knnFingerprints,
+            morphologyMap,
+            originalPoints: [],
+            metadata: modelData.metadata || {},
+            history: modelData.history || []
+        };
+       
+        this.models.set(modelId, model);
+        this.stats.totalModels++;
+        console.log(`📥 Импортирована модель ${modelId.slice(0, 12)}...`);
+        return true;
+    } catch (error) {
+        console.log(`❌ Ошибка импорта: ${error.message}`);
+        return false;
+    }
+}
 
     /**
     * Проверяет глобальную согласованность всех найденных якорей
@@ -5196,6 +5268,39 @@ points[i].confirmationCount = Math.max(points[i].confirmationCount || 1, points[
     return mergedCount;
 }
 
+  /**
+* 🔥 Перестраивает граф из сохранённых точек
+* @param {Array} points - массив точек модели
+* @returns {Object} - граф Делоне
+*/
+rebuildGraphFromPoints(points) {
+    console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА ИЗ ${points.length} ТОЧЕК`);
+   
+    if (!points || points.length < 3) {
+        console.log('⚠️ Слишком мало точек для построения графа');
+        return this.graphBuilder.buildMinimalGraph(points);
+    }
+   
+    // Строим граф Делоне
+    const graph = this.graphBuilder.buildGraph(points, 'model_rebuilt');
+   
+    // Восстанавливаем дополнительные поля в узлах
+    for (const point of points) {
+        const node = graph.nodes.get(point.id);
+        if (node) {
+            node.confirmationCount = point.confirmationCount || 1;
+            node.morphology = point.morphology || null;
+            node.sourceContours = point.sourceContours || [];
+            node.addedFrom = point.addedFrom || 'original';
+            node.addedAt = point.addedAt ? new Date(point.addedAt) : new Date();
+            node.originalPhotoId = point.originalPhotoId || null;
+        }
+    }
+   
+    console.log(`✅ Граф перестроен: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
+    return graph;
+}
+  
      /**
      * Подсчитывает количество треугольников для каждой точки графа
      */
