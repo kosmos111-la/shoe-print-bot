@@ -3636,48 +3636,47 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         const patternData = this.patternAnalyzer.analyzeFootprint(tempModel);
         const clusterData = this.clusterAnalyzer.analyze(points, features, exactGraph);
 
-        for (const [nodeId, node] of exactGraph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
-            const cluster = clusterData.enhancedFeatures.get(nodeId);
+         for (const [nodeId, node] of exactGraph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
+            const cluster = clusterData.enhancedFeatures.get(nodeId);
 
-            node.morphology = morph;
-            node.hasContour = morph.hasContour || false;
-            node.compactness = morph.compactness;
-            node.eccentricity = morph.eccentricity;
-            node.orientation = morph.orientation;
-            node.normalizedArea = morph.normalizedArea;
-            node.radialProfile = morph.radialProfile;
-            node.asymmetry = morph.asymmetry || 0;
-            node.logArea = morph.logArea;
+            node.morphology = morph;
+            node.hasContour = morph.hasContour || false;
+            node.compactness = morph.compactness;
+            node.eccentricity = morph.eccentricity;
+            node.orientation = morph.orientation;
+            node.normalizedArea = morph.normalizedArea;
+            node.radialProfile = morph.radialProfile;
+            node.asymmetry = morph.asymmetry || 0;
+            node.logArea = morph.logArea;
 
-            if (cluster) {
-                node.clusterId = cluster.clusterId || 'R0';
-                node.clusterSize = cluster.clusterSize || 1;
-                node.isUnique = cluster.isUnique || false;
-                node.clusterSignature = cluster.clusterSignature || 'unknown';
+            if (cluster) {
+                node.clusterId = cluster.clusterId || 'R0';
+                node.clusterSize = cluster.clusterSize || 1;
+                node.isUnique = cluster.isUnique || false;
+                node.clusterSignature = cluster.clusterSignature || 'unknown';
 
-                if (clusterData.relations) {
-                    const rel = clusterData.relations.get(node.clusterId);
-                    node.neighborClusters = rel ? rel.neighborCount : 0;
-                }
-            } else {
-                node.clusterId = 'R0';
-                node.clusterSize = 1;
-                node.isUnique = false;
-                node.clusterSignature = 'unknown';
-                node.neighborClusters = 0;
-            }
+                if (clusterData.relations) {
+                    const rel = clusterData.relations.get(node.clusterId);
+                    node.neighborClusters = rel ? rel.neighborCount : 0;
+                }
+            } else {
+                node.clusterId = 'R0';
+                node.clusterSize = 1;
+                node.isUnique = false;
+                node.clusterSignature = 'unknown';
+                node.neighborClusters = 0;
+            }
 
-            node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
-            node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
-            node.gapPattern = patternData.gaps?.[nodeId] || '0';
+            node.patternType = patternData.patterns?.[nodeId]?.type || 'R';
+            node.patternFrequency = patternData.patterns?.[nodeId]?.frequency || 1;
+            node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
-             node.confirmationCount = 1;
+            node.confirmationCount = 1;
             node.addedFrom = 'original';
             node.addedAt = new Date();
            
-            // 🔥 НОВОЕ: Сохраняем контур в источник для визуализации
-            const morph = morphologyMap.get(nodeId);
+            // 🔥 ИСПРАВЛЕНО: Используем уже существующую переменную morph (без повторного объявления)
             if (morph && morph.hasContour && morph.contour) {
                 node.sourceContours = [{
                     points: morph.contour,
@@ -3687,7 +3686,7 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
             } else {
                 node.sourceContours = [];
             }
-        }
+        }
 
         const model = {
     id: modelId,
