@@ -4157,36 +4157,47 @@ generateStructureColors(structures) {
 }
 
     getModelInfo(modelId = null) {
-        const targetId = modelId || this.currentModelId;
-        if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
+    const targetId = modelId || this.currentModelId;
+    if (!targetId || !this.models.has(targetId)) return { error: 'Model not found' };
 
-        const model = this.models.get(targetId);
-        const graph = model.graph;
+    const model = this.models.get(targetId);
+   
+    // 🔥 ИСПРАВЛЕНО: используем points или перестраиваем граф
+    let nodes;
+    if (model.graph) {
+        nodes = model.graph.nodes;
+    } else if (model.points) {
+        // Строим временный граф для статистики
+        const tempGraph = this.graphBuilder.buildGraph(model.points, 'temp_info');
+        nodes = tempGraph.nodes;
+    } else {
+        return { error: 'No points in model' };
+    }
+   
+    const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
+    for (const node of nodes.values()) {
+        const count = node.confirmationCount || 0;
+        if (count >= 4) confirmations['4+']++;
+        else confirmations[count] = (confirmations[count] || 0) + 1;
+    }
 
-        const confirmations = { 1: 0, 2: 0, 3: 0, '4+': 0 };
-        for (const node of graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 4) confirmations['4+']++;
-            else confirmations[count] = (confirmations[count] || 0) + 1;
-        }
-
-        return {
-            id: model.id,
-            name: model.metadata.name,
-            stats: {
-                nodes: graph.nodes.size,
-                edges: graph.edges.size,
-                confirmed1: confirmations[1] || 0,
-                confirmed2: confirmations[2] || 0,
-                confirmed3: confirmations[3] || 0,
-                confirmed4plus: confirmations['4+'] || 0,
-                photosCount: model.metadata.photoCount || 0
-            },
-            metadata: model.metadata,
-            createdAt: model.metadata.createdAt,
-            lastUpdated: this.stats.lastUpdated
-        };
-    }
+    return {
+        id: model.id,
+        name: model.metadata?.name || 'Unknown',
+        stats: {
+            nodes: nodes.size,
+            edges: model.graph?.edges?.size || 0,
+            confirmed1: confirmations[1] || 0,
+            confirmed2: confirmations[2] || 0,
+            confirmed3: confirmations[3] || 0,
+            confirmed4plus: confirmations['4+'] || 0,
+            photosCount: model.metadata?.photoCount || 0
+        },
+        metadata: model.metadata,
+        createdAt: model.metadata?.createdAt,
+        lastUpdated: this.stats.lastUpdated
+    };
+}
 
     getStats() {
         return {
