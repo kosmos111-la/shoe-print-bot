@@ -459,7 +459,23 @@ class MorphologyEncoder {
             finalConfidence = Math.min(existingConf, newConfidence);
         }
 
-        const finalMorphology = this.computeMorphologyCode(finalContour);
+        // 🔥 ЗАЩИТА: проверяем, что finalContour существует и не пустой
+let finalMorphology;
+if (finalContour && Array.isArray(finalContour) && finalContour.length >= 3) {
+    finalMorphology = this.computeMorphologyCode(finalContour);
+} else {
+    console.log(`   ⚠️ finalContour повреждён, использую existing morphology`);
+    finalMorphology = existing.morphology || {
+        compactness: 4.0,
+        eccentricity: 0.5,
+        orientation: 0,
+        hasContour: false,
+        normalizedArea: 1.0,
+        radialProfile: [1, 1, 1, 1, 1, 1, 1, 1],
+        asymmetry: 0,
+        confidence: 0.5
+    };
+}
 
         return {
             finalContour,
