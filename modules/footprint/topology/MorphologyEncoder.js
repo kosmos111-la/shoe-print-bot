@@ -393,9 +393,20 @@ class MorphologyEncoder {
     /**
      * 🔥 ВЫБОР ЛУЧШЕГО КОНТУРА ИЛИ УСРЕДНЕНИЕ НА ОСНОВЕ УВЕРЕННОСТИ
      */
-    mergeContoursWithConfidence(existing, newData, transform) {
-        const existingContour = existing.morphology?.contour;
-        const newContourRaw = newData.morphology?.contour;
+   mergeContoursWithConfidence(existing, newData, transform) {
+    const existingContour = existing.morphology?.contour;
+    const newContourRaw = newData.morphology?.contour;
+   
+    // 🔥 ЗАЩИТА: если нет контура в новых данных
+    if (!newContourRaw || !Array.isArray(newContourRaw) || newContourRaw.length < 3) {
+        console.log(`   ⚠️ Новый контур отсутствует или повреждён`);
+        return {
+            finalContour: existingContour,
+            finalConfidence: existing.morphology?.confidence || 0.5,
+            finalMorphology: existing.morphology || {},
+            historyContours: existing.sourceContours || []
+        };
+    }
        
         const historyContours = existing.sourceContours || [];
         if (existingContour) {
