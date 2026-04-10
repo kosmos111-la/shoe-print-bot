@@ -2471,21 +2471,30 @@ return {
         }
 
         // Если это первое фото вообще - создаём первую модель
-        if (this.models.size === 0) {
-            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            // 🔥 Сохраняем граф в памяти модели для текущей сессии
-const model = this.models.get(result.modelId);
-if (model) {
-    model.graph = exactGraph;  // 🔥 ВАЖНО: сохраняем граф в памяти!
-    console.log(`   💾 Граф сохранён в модели: ${model.graph.nodes.size} узлов`);
+if (this.models.size === 0) {
+    console.log(`🆕 Первое фото в сессии, создаю первую модель`);
+   
+    // 🔥 ВАЖНО: вызываем createNewModel!
+    const createResult = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
+        ...options,
+        outlineContour: outlineContour
+    });
+   
+    // 🔥 Сохраняем граф в памяти модели для текущей сессии
+    const model = this.models.get(createResult.modelId);
+    if (model) {
+        model.graph = exactGraph;
+        console.log(`   💾 Граф сохранён в модели: ${model.graph.nodes.size} узлов`);
+    }
+   
+    this.photoToModel.set(photoId, createResult.modelId);
+   
+    return {
+        ...createResult,
+        isFirstModel: true,
+        totalModels: this.models.size
+    };
 }
-            this.photoToModel.set(photoId, result.modelId);
-            return {
-                ...result,
-                isFirstModel: true,
-                totalModels: this.models.size
-            };
-        }
 
         // Если быстрый путь не сработал - идем по стандартному пути
         if (this.debug) console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
@@ -2564,32 +2573,39 @@ if (model) {
                 };
             }
         }
-        // Если сходство ниже порога - создаём НОВУЮ модель
-        else {
-            console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
-            console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
+         // Если сходство ниже порога - создаём НОВУЮ модель
+        else {
+            console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
+            console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
 
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-                ...options,
-                comparedWith: bestMatch.modelId,
-                reason: 'different_footprint'
-            });
+            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
+                ...options,
+                comparedWith: bestMatch.modelId,
+                reason: 'different_footprint'
+            });
 
-            this.modelRelations.set(result.modelId, {
-                related: [bestMatch.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
+            this.modelRelations.set(result.modelId, {
+                related: [bestMatch.modelId],
+                type: 'different',
+                similarity: bestMatch.similarity
+            });
 
-            const existingRel = this.modelRelations.get(bestMatch.modelId);
-            this.modelRelations.set(bestMatch.modelId, {
-                related: [...(existingRel?.related || []), result.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
+            const existingRel = this.modelRelations.get(bestMatch.modelId);
+            this.modelRelations.set(bestMatch.modelId, {
+                related: [...(existingRel?.related || []), result.modelId],
+                type: 'different',
+                similarity: bestMatch.similarity
+            });
 
-            this.photoToModel.set(photoId, result.modelId);
-            this.stats.differentFootprintsDetected++;
+            this.photoToModel.set(photoId, result.modelId);
+            this.stats.differentFootprintsDetected++;
+
+            // 🔥 Сохраняем граф в памяти
+            const model = this.models.get(result.modelId);
+            if (model) {
+                model.graph = exactGraph;
+                console.log(`   💾 Граф сохранён в модели: ${model.graph.nodes.size} узлов`);
+            }
 
               if (this.models.has(modelIdHint)) {
     const model = this.models.get(modelIdHint);
