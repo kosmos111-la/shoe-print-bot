@@ -27,6 +27,9 @@ class MorphologyEncoder {
 
         console.log(`   Найдено ${contourMap.size} контуров с привязкой к точкам`);
 
+        let pointsWithContourCount = 0;
+        let pointsWithoutContourCount = 0;
+
         for (const point of points) {
             if (!point || !point.id) continue;
 
@@ -37,6 +40,11 @@ class MorphologyEncoder {
                 // Есть контур - вычисляем морфологию
                 const code = this.computeMorphologyCode(contour.points, point);
                 morphologyMap.set(point.id, code);
+                pointsWithContourCount++;
+               
+                if (this.debug && pointsWithContourCount <= 3) {
+                    console.log(`   📐 Точка ${point.id.substring(0,12)}: контур сохранён (${contour.points.length} точек)`);
+                }
             } else {
                 // Нет контура - ставим значения по умолчанию
                 morphologyMap.set(point.id, {
@@ -49,8 +57,15 @@ class MorphologyEncoder {
                     radialProfile: [1, 1, 1, 1, 1, 1, 1, 1],
                     asymmetry: 0
                 });
+                pointsWithoutContourCount++;
+               
+                if (this.debug && pointsWithoutContourCount <= 3) {
+                    console.log(`   ⚠️ Точка ${point.id.substring(0,12)}: контур НЕ НАЙДЕН`);
+                }
             }
         }
+       
+        console.log(`   📊 Итог encode: с контуром ${pointsWithContourCount}, без контура ${pointsWithoutContourCount}`);
 
         // Нормализуем площади относительно среднего геометрического
         this.normalizeAreas(morphologyMap);
@@ -374,7 +389,7 @@ class MorphologyEncoder {
      * @param {Object} transform - transform из нового фото в модель
      * @returns {Object} - { finalContour, finalConfidence, historyContours, finalMorphology }
      */
-    mergeContoursWithConfidence(existing, newData, transform) {
+     mergeContoursWithConfidence(existing, newData, transform) {
         const existingContour = existing.morphology?.contour;
         const newContourRaw = newData.morphology?.contour;
        
@@ -391,8 +406,8 @@ class MorphologyEncoder {
         if (!newContourRaw) {
             return {
                 finalContour: existingContour,
-                finalConfidence: existing.morphology?.confidence,
-                finalMorphology: existing.morphology,
+                finalConfidence: existing.morphology?.confidence || 0.5,
+                finalMorphology: existing.morphology || {},
                 historyContours
             };
         }
@@ -414,29 +429,21 @@ class MorphologyEncoder {
 
         // ЛОГИКА ВЫБОРА / УСРЕДНЕНИЯ
         const HIGH_CONFIDENCE = 0.85;
-        const LOW_CONFIDENCE = 0.6;
 
         const isExistingHigh = existingConf >= HIGH_CONFIDENCE;
         const isNewHigh = newConfidence >= HIGH_CONFIDENCE;
 
         if (isExistingHigh && !isNewHigh) {
-            // Модель уверена, новое фото плохое -> оставляем модель
             console.log(`   🛡️ Модель уверена (${(existingConf*100).toFixed(0)}%), игнорируем новый контур (${(newConfidence*100).toFixed(0)}%)`);
             finalContour = existingContour;
             finalConfidence = existingConf;
         } else if (isNewHigh && !isExistingHigh) {
-            // Новое фото уверенное, модель плохая -> заменяем на новое фото
             console.log(`   ⚡ Новый контур увереннее (${(newConfidence*100).toFixed(0)}%), заменяем старый (${(existingConf*100).toFixed(0)}%)`);
             finalContour = newContour;
             finalConfidence = newConfidence;
         } else {
-            // В остальных случаях усредняем
             console.log(`   🔄 Усреднение контуров (уверенности: ${(existingConf*100).toFixed(0)}% и ${(newConfidence*100).toFixed(0)}%)`);
-            finalContour = this.averageContoursInternal(
-                existingContour || newContour,
-                newContour
-            );
-            // Итоговая уверенность = минимальная из двух
+            finalContour = this.averageContoursInternal(existingContour || newContour, newContour);
             finalConfidence = Math.min(existingConf, newConfidence);
         }
 
@@ -452,37 +459,31 @@ class MorphologyEncoder {
     }
 
     /**
-     * Внутренний метод усреднения контуров (без transform, контуры уже в одной системе координат)
+     * Внутренний метод усреднения контуров (без transform)
      */
     averageContoursInternal(contourA, contourB) {
         if (!contourA || !contourB || contourA.length < 3 || contourB.length < 3) {
             return contourA || contourB || [];
         }
        
-        // Вычисляем площади
         const areaA = this.computePolygonArea(contourA);
         const areaB = this.computePolygonArea(contourB);
        
-        // Если разница площадей > 30% — берем больший контур
         const areaDiff = Math.abs(areaA - areaB) / Math.max(areaA, areaB);
         if (areaDiff > 0.3) {
             console.log(`      📐 Площади различаются на ${(areaDiff*100).toFixed(1)}%, беру больший контур`);
             return areaA > areaB ? contourA : contourB;
         }
 
-        // Находим центры масс
         const centerA = this.calculateCentroid(contourA);
         const centerB = this.calculateCentroid(contourB);
        
-        // Центрируем контуры
         const centeredA = contourA.map(p => ({ x: p.x - centerA.x, y: p.y - centerA.y }));
         const centeredB = contourB.map(p => ({ x: p.x - centerB.x, y: p.y - centerB.y }));
 
-        // Сортируем точки по углу
         const sortedA = this.sortPointsByAngle(centeredA);
         const sortedB = this.sortPointsByAngle(centeredB);
 
-        // Ресемплируем до одинакового количества точек
         const resampledA = this.resampleContour(sortedA, 30);
         const resampledB = this.resampleContour(sortedB, 30);
        
@@ -510,13 +511,6 @@ class MorphologyEncoder {
             return {
                 x: (point.x * cos - point.y * sin) * transform.scale + transform.translation.x,
                 y: (point.x * sin + point.y * cos) * transform.scale + transform.translation.y
-            };
-        }
-       
-        if (transform.a !== undefined) {
-            return {
-                x: transform.a * point.x + transform.b * point.y + transform.c,
-                y: transform.d * point.x + transform.e * point.y + transform.f
             };
         }
        
