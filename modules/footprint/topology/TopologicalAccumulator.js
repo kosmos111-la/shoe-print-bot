@@ -3731,55 +3731,55 @@ console.log(`🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК... 
         }
 
         // Извлекаем точки из графа с ВСЕМИ необходимыми полями
-const points = Array.from(exactGraph.nodes.values()).map(node => ({
-    id: node.id,
-    x: node.x,
-    y: node.y,
-    confirmationCount: node.confirmationCount || 1,
-   
-    // Морфология
-    morphology: node.morphology || null,
-   
-    // История контуров
-    sourceContours: node.sourceContours || [],
-   
-    // Метаданные
-    addedFrom: node.addedFrom || 'original',
-    addedAt: node.addedAt || new Date(),
-    originalPhotoId: node.originalPhotoId || null,
-   
-    // Дополнительные поля (для совместимости)
-    confidence: node.confidence || 0.5,
-    degree: 0,  // будет пересчитано при построении графа
-    triangles: 0 // будет пересчитано
-}));
+const modelPoints = Array.from(exactGraph.nodes.values()).map(node => ({
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            confirmationCount: node.confirmationCount || 1,
+           
+            // Морфология
+            morphology: node.morphology || null,
+           
+            // История контуров
+            sourceContours: node.sourceContours || [],
+           
+            // Метаданные
+            addedFrom: node.addedFrom || 'original',
+            addedAt: node.addedAt || new Date(),
+            originalPhotoId: node.originalPhotoId || null,
+           
+            // Дополнительные поля (для совместимости)
+            confidence: node.morphology?.confidence || 0.5,
+            degree: 0,  // будет пересчитано при построении графа
+            triangles: 0 // будет пересчитано
+        }));
 
-const model = {
-    id: modelId,
-    points: points,  // 🔥 ТОЛЬКО ТОЧКИ, БЕЗ ГРАФА
-    knnGraph: null,
-    knnFingerprints: knnFingerprints,
-    morphologyMap: morphologyMap,
-    originalPoints: originalPoints,
-    patternData: patternData,
-    clusterData: clusterData,
-    metadata: {
-        name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-        createdAt: new Date(),
-        pointsCount: originalPoints.length,
-        nodesCount: exactGraph.nodes.size,
-        edgesCount: exactGraph.edges.size,
-        photoCount: 1,
-        source: options.source || 'unknown',
-        outlineContour: options.outlineContour || null
-    },
-    history: [{
-        action: 'created',
-        timestamp: new Date(),
-        points: originalPoints.length,
-        nodes: exactGraph.nodes.size
-    }]
-};
+        const model = {
+            id: modelId,
+            points: modelPoints,  // 🔥 ТОЛЬКО ТОЧКИ, БЕЗ ГРАФА
+            knnGraph: null,
+            knnFingerprints: knnFingerprints,
+            morphologyMap: morphologyMap,
+            originalPoints: originalPoints,
+            patternData: patternData,
+            clusterData: clusterData,
+            metadata: {
+                name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
+                createdAt: new Date(),
+                pointsCount: originalPoints.length,
+                nodesCount: exactGraph.nodes.size,
+                edgesCount: exactGraph.edges.size,
+                photoCount: 1,
+                source: options.source || 'unknown',
+                outlineContour: options.outlineContour || null
+            },
+            history: [{
+                action: 'created',
+                timestamp: new Date(),
+                points: originalPoints.length,
+                nodes: exactGraph.nodes.size
+            }]
+        };
  // 🔥 СОХРАНЯЕМ КОНТУР В МОДЕЛЬ (если передан)
     if (options.outlineContour) {
         model.metadata.outlineContour = options.outlineContour;
