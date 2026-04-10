@@ -212,13 +212,41 @@ if (existingModel && existingModel.lastUniqueInPhoto) {
         metadata: { name: 'temp' }
     };
    
+    // 🔥 ПЕРЕД СРАВНЕНИЕМ: принудительно пересчитываем triangles в existingModel
+    if (existingModel.graph) {
+        console.log(`\n📐 ПЕРЕСЧЁТ TRIANGLES ПЕРЕД МАТЧЕРОМ...`);
+        const trianglesCount = this.countTriangles(existingModel.graph);
+       
+        let updatedCount = 0;
+        let bluePointsWithTriangles = 0;
+       
+        for (const [nodeId, count] of trianglesCount) {
+            const node = existingModel.graph.nodes.get(nodeId);
+            if (node) {
+                node.triangles = count;
+                updatedCount++;
+               
+                // Диагностика для синих точек
+                if (node.confirmationCount === 1 && count > 0) {
+                    bluePointsWithTriangles++;
+                    if (bluePointsWithTriangles <= 5) {
+                        console.log(`   🔵 Синяя точка ${nodeId.substring(0,12)}: triangles=${count}`);
+                    }
+                }
+            }
+        }
+       
+        console.log(`   ✅ Triangles обновлены для ${updatedCount} узлов`);
+        console.log(`   🔵 Синих точек с triangles > 0: ${bluePointsWithTriangles}`);
+    }
+   
     console.log(`\n🔍 ПЕРЕД ТРЕУГОЛЬНЫМ СРАВНЕНИЕМ В processPoints:`);
     console.log(`   existingModel.id = ${existingModel.id?.substring(0,20)}`);
     console.log(`   existingModel.nodes = ${existingModel.graph?.nodes?.size || 0}`);
     console.log(`   modelIdHint = ${modelIdHint?.substring(0,20)}`);
    
     console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
-const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+    const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
 
 // 🔥 ДИАГНОСТИКА ПОСЛЕ ТРЕУГОЛЬНОГО СРАВНЕНИЯ
 if (this.debug && triangleResult && triangleResult.matches) {
@@ -2789,33 +2817,51 @@ if (this.models.size === 0) {
         stats: result.stats
     };
 
-    // Диагностика: смотрим треугольники МОДЕЛИ (model2), а не из матчера
-if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-    const bluePointIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
-    let blueInModelTriangles = 0;
-    let bluePointsFound = new Set();
-   
-    // Берём треугольники из ГРАФА МОДЕЛИ (model2.graph)
-    const modelTriangles = this.extractTrianglesFromGraph(model2.graph);
-   
-    for (const tri of modelTriangles) {
-        if (bluePointIds.has(tri.p1.id)) bluePointsFound.add(tri.p1.id);
-        if (bluePointIds.has(tri.p2.id)) bluePointsFound.add(tri.p2.id);
-        if (bluePointIds.has(tri.p3.id)) bluePointsFound.add(tri.p3.id);
-        if (bluePointIds.has(tri.p1.id) || bluePointIds.has(tri.p2.id) || bluePointIds.has(tri.p3.id)) {
-            blueInModelTriangles++;
+     // Диагностика: смотрим треугольники МОДЕЛИ (model2), а не из матчера
+    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+        const bluePointIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
+        let blueInModelTriangles = 0;
+        let bluePointsFound = new Set();
+       
+        // 🔥 ДВА СПОСОБА ПРОВЕРКИ:
+       
+        // Способ 1: Из node.triangles (то, что видит матчер)
+        let blueWithTrianglesFromNode = 0;
+        for (const [nodeId, node] of model2.graph.nodes) {
+            if (bluePointIds.has(nodeId)) {
+                if (node.triangles > 0) {
+                    blueWithTrianglesFromNode++;
+                }
+            }
+        }
+       
+        // Способ 2: Из реальных треугольников графа (то, что показывает визуализация)
+        const modelTriangles = this.extractTrianglesFromGraph(model2.graph);
+       
+        for (const tri of modelTriangles) {
+            if (bluePointIds.has(tri.p1.id)) bluePointsFound.add(tri.p1.id);
+            if (bluePointIds.has(tri.p2.id)) bluePointsFound.add(tri.p2.id);
+            if (bluePointIds.has(tri.p3.id)) bluePointsFound.add(tri.p3.id);
+            if (bluePointIds.has(tri.p1.id) || bluePointIds.has(tri.p2.id) || bluePointIds.has(tri.p3.id)) {
+                blueInModelTriangles++;
+            }
+        }
+       
+        console.log(`\n🔵 ДИАГНОСТИКА МОДЕЛИ (перед матчером):`);
+        console.log(`   • Синих точек в модели: ${bluePointIds.size}`);
+        console.log(`   • Синих точек с node.triangles > 0: ${blueWithTrianglesFromNode}`);
+        console.log(`   • Синих точек в реальных треугольниках графа: ${bluePointsFound.size}`);
+        console.log(`   • Треугольников модели с синими точками: ${blueInModelTriangles}`);
+       
+        if (blueWithTrianglesFromNode === 0 && bluePointsFound.size > 0) {
+            console.log(`   ⚠️ КРИТИЧНО: node.triangles = 0, но реальные треугольники ЕСТЬ!`);
+            console.log(`   → Матчер не видит треугольники из-за устаревших node.triangles!`);
+        } else if (bluePointsFound.size === 0 && bluePointIds.size > 0) {
+            console.log(`   ⚠️ Синие точки действительно НЕ входят в треугольники модели!`);
+        } else if (blueWithTrianglesFromNode > 0) {
+            console.log(`   ✅ Синие точки имеют triangles > 0, матчер должен их найти!`);
         }
     }
-    console.log(`\n🔵 ДИАГНОСТИКА МОДЕЛИ (перед матчером):`);
-    console.log(`   • Синих точек в модели: ${bluePointIds.size}`);
-    console.log(`   • Синих точек в треугольниках МОДЕЛИ: ${bluePointsFound.size}`);
-    console.log(`   • Треугольников модели с синими точками: ${blueInModelTriangles}`);
-   
-    if (bluePointsFound.size === 0 && bluePointIds.size > 0) {
-        console.log(`   ⚠️ КРИТИЧНО: синие точки НЕ входят в треугольники модели!`);
-        console.log(`   → Они никогда не будут найдены матчером.`);
-    }
-}
 
     return finalResult;
 }
@@ -2825,40 +2871,55 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
     /**
      * Извлечение точек из модели
      */
-    extractPointsFromModel(model) {
-        const points = [];
-        const graph = model.graph;
-        const morphologyMap = model.morphologyMap || new Map();
+extractPointsFromModel(model) {
+        const points = [];
+        const graph = model.graph;
+        const morphologyMap = model.morphologyMap || new Map();
 
-        for (const [nodeId, node] of graph.nodes) {
-            const morph = morphologyMap.get(nodeId) || {};
+        let bluePointsCount = 0;
+        let bluePointsWithTriangles = 0;
+       
+        for (const [nodeId, node] of graph.nodes) {
+            const morph = morphologyMap.get(nodeId) || {};
 
-            points.push({
-                id: nodeId,
-                x: node.x,
-                y: node.y,
-                role: this.getNodeRoleSimple(nodeId, graph),
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
+            const triangles = node.triangles || 0;
+           
+            // Диагностика для синих точек
+            if (node.confirmationCount === 1) {
+                bluePointsCount++;
+                if (triangles > 0) {
+                    bluePointsWithTriangles++;
+                }
+            }
 
-                // МОРФОЛОГИЯ
-                compactness: morph.compactness || 0,
-                eccentricity: morph.eccentricity || 0,
-                normalizedArea: morph.normalizedArea || 1,
-                radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
-                orientation: morph.orientation || 0,
-                asymmetry: morph.asymmetry || 0,
+            points.push({
+                id: nodeId,
+                x: node.x,
+                y: node.y,
+                role: this.getNodeRoleSimple(nodeId, graph),
+                degree: node.degree || 0,
+                triangles: triangles,  // 🔥 Берём из node.triangles
 
-                // 🔥 КОНТУР (для новых признаков)
-                contour: morph.contour || null,
+                // МОРФОЛОГИЯ
+                compactness: morph.compactness || 0,
+                eccentricity: morph.eccentricity || 0,
+                normalizedArea: morph.normalizedArea || 1,
+                radialProfile: morph.radialProfile || [0,0,0,0,0,0,0,0],
+                orientation: morph.orientation || 0,
+                asymetry: morph.asymetry || 0,
 
-                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
-            });
-        }
+                contour: morph.contour || null,
 
-        if (this.debug) console.log(`📊 Извлечено ${points.length} точек из модели с морфологией`);
-        return points;
-    }
+                neighborRoles: this.getNeighborRolesForPoint(nodeId, graph)
+            });
+        }
+       
+        if (bluePointsCount > 0) {
+            console.log(`   📊 extractPointsFromModel: синих точек ${bluePointsCount}, из них с triangles > 0: ${bluePointsWithTriangles}`);
+        }
+
+        return points;
+    }
 
     /**
      * Строит matchMap для визуализации
