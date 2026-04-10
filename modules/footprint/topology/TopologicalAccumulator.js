@@ -3280,7 +3280,7 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
             }
         }
     }
-
+}
    // if (this.debug) {
         console.log(`\n📊 Результат обновления модели:`);
         console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
