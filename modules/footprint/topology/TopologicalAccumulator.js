@@ -2985,7 +2985,7 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null) {
+  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null, transform = null) {
       
     const model = this.models.get(modelId);
 
