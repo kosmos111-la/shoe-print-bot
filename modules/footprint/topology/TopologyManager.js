@@ -490,13 +490,16 @@ return {
         const models = [];
 
         for (const [modelId, model] of this.accumulator.models) {
-            const exportData = this.accumulator.exportModel(modelId);
-            models.push({
-                ...exportData,
-                patternData: this.patterns.get(modelId),
-                clusterData: this.clusters.get(modelId)
-            });
-        }
+    // 🔥 Экспортируем ТОЛЬКО points, без графа
+    models.push({
+        id: modelId,
+        points: model.points || Array.from(model.graph?.nodes?.values() || []),
+        metadata: model.metadata,
+        patternData: this.patterns.get(modelId),
+        clusterData: this.clusters.get(modelId),
+        exportedAt: new Date().toISOString()
+    });
+}
 
         return {
             userId: this.userId,
@@ -515,17 +518,38 @@ return {
         let importedCount = 0;
 
         for (const modelData of data.models) {
-            if (this.accumulator.importModel(modelData)) {
-                const modelId = modelData.id;
-                if (modelData.patternData) {
-                    this.patterns.set(modelId, modelData.patternData);
-                }
-                if (modelData.clusterData) {
-                    this.clusters.set(modelId, modelData.clusterData);
-                }
-                importedCount++;
-            }
-        }
+    // 🔥 Импортируем модель с точками
+    const modelId = modelData.id;
+   
+    // Строим граф из точек
+    const points = modelData.points || [];
+    const graph = points.length >= 3
+        ? this.accumulator.graphBuilder.buildGraph(points, 'imported_model')
+        : this.accumulator.graphBuilder.buildMinimalGraph(points);
+   
+    const model = {
+        id: modelId,
+        points: points,
+        graph: graph,
+        knnGraph: null,
+        knnFingerprints: new Map(),
+        morphologyMap: new Map(),
+        metadata: modelData.metadata || {},
+        patternData: modelData.patternData,
+        clusterData: modelData.clusterData,
+        history: []
+    };
+   
+    this.accumulator.models.set(modelId, model);
+   
+    if (modelData.patternData) {
+        this.patterns.set(modelId, modelData.patternData);
+    }
+    if (modelData.clusterData) {
+        this.clusters.set(modelId, modelData.clusterData);
+    }
+    importedCount++;
+}
 
         // Восстанавливаем связи след-модель
         if (data.linkedFootprints && Array.isArray(data.linkedFootprints)) {
