@@ -3383,23 +3383,32 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
         console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
         console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
   //  }
-    // 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ
-model.points = Array.from(model.graph.nodes.values()).map(node => ({
-    id: node.id,
-    x: node.x,
-    y: node.y,
-    confirmationCount: node.confirmationCount || 1,
-    morphology: node.morphology || null,
-    sourceContours: node.sourceContours || [],
-    addedFrom: node.addedFrom || 'updated',
-    addedAt: node.addedAt || new Date(),
-    originalPhotoId: node.originalPhotoId || null,
-    confidence: node.morphology?.confidence || 0.5
-}));
+    // 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ (с диагностикой)
+    const updatedModelPoints = Array.from(model.graph.nodes.values()).map(node => {
+        // 🔥 ДИАГНОСТИКА
+        const hasContour = node.morphology?.contour ? true : false;
+       
+        return {
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            confirmationCount: node.confirmationCount || 1,
+            morphology: node.morphology || null,
+            sourceContours: node.sourceContours || [],
+            addedFrom: node.addedFrom || 'updated',
+            addedAt: node.addedAt || new Date(),
+            originalPhotoId: node.originalPhotoId || null,
+            confidence: node.morphology?.confidence || 0.5
+        };
+    });
 
-console.log(`   💾 Обновлены points в модели: ${model.points.length} точек`);
+    // 🔥 ДИАГНОСТИКА
+    const pointsWithContour = updatedModelPoints.filter(p => p.morphology?.contour).length;
+    console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с контуром: ${pointsWithContour}`);
 
-return { confirmedExisting, newNodesAdded };
+    model.points = updatedModelPoints;
+
+    return { confirmedExisting, newNodesAdded };
     }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
