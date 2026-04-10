@@ -367,6 +367,224 @@ class MorphologyEncoder {
         return checks > 0 ? score / checks : 0.5;
     }
 
+    /**
+     * 🔥 ВЫБОР ЛУЧШЕГО КОНТУРА ИЛИ УСРЕДНЕНИЕ НА ОСНОВЕ УВЕРЕННОСТИ
+     * @param {Object} existing - данные точки в модели
+     * @param {Object} newData - данные новой точки
+     * @param {Object} transform - transform из нового фото в модель
+     * @returns {Object} - { finalContour, finalConfidence, historyContours, finalMorphology }
+     */
+    mergeContoursWithConfidence(existing, newData, transform) {
+        const existingContour = existing.morphology?.contour;
+        const newContourRaw = newData.morphology?.contour;
+       
+        // История для визуализации
+        const historyContours = existing.sourceContours || [];
+        if (existingContour) {
+            historyContours.push({
+                points: existingContour,
+                confidence: existing.morphology?.confidence || existing.confidence || 0.5,
+                type: 'model_existing'
+            });
+        }
+
+        if (!newContourRaw) {
+            return {
+                finalContour: existingContour,
+                finalConfidence: existing.morphology?.confidence,
+                finalMorphology: existing.morphology,
+                historyContours
+            };
+        }
+
+        // Трансформируем новый контур в координаты модели
+        const newContour = newContourRaw.map(p => this.applyTransform(p, transform));
+        const newConfidence = newData.morphology?.confidence || newData.confidence || 0.5;
+       
+        historyContours.push({
+            points: newContour,
+            confidence: newConfidence,
+            type: 'photo_new'
+        });
+
+        const existingConf = existing.morphology?.confidence || existing.confidence || 0.5;
+       
+        let finalContour;
+        let finalConfidence;
+
+        // ЛОГИКА ВЫБОРА / УСРЕДНЕНИЯ
+        const HIGH_CONFIDENCE = 0.85;
+        const LOW_CONFIDENCE = 0.6;
+
+        const isExistingHigh = existingConf >= HIGH_CONFIDENCE;
+        const isNewHigh = newConfidence >= HIGH_CONFIDENCE;
+
+        if (isExistingHigh && !isNewHigh) {
+            // Модель уверена, новое фото плохое -> оставляем модель
+            console.log(`   🛡️ Модель уверена (${(existingConf*100).toFixed(0)}%), игнорируем новый контур (${(newConfidence*100).toFixed(0)}%)`);
+            finalContour = existingContour;
+            finalConfidence = existingConf;
+        } else if (isNewHigh && !isExistingHigh) {
+            // Новое фото уверенное, модель плохая -> заменяем на новое фото
+            console.log(`   ⚡ Новый контур увереннее (${(newConfidence*100).toFixed(0)}%), заменяем старый (${(existingConf*100).toFixed(0)}%)`);
+            finalContour = newContour;
+            finalConfidence = newConfidence;
+        } else {
+            // В остальных случаях усредняем
+            console.log(`   🔄 Усреднение контуров (уверенности: ${(existingConf*100).toFixed(0)}% и ${(newConfidence*100).toFixed(0)}%)`);
+            finalContour = this.averageContoursInternal(
+                existingContour || newContour,
+                newContour
+            );
+            // Итоговая уверенность = минимальная из двух
+            finalConfidence = Math.min(existingConf, newConfidence);
+        }
+
+        // Пересчитываем морфологию на основе финального контура
+        const finalMorphology = this.computeMorphologyCode(finalContour);
+
+        return {
+            finalContour,
+            finalConfidence,
+            finalMorphology,
+            historyContours
+        };
+    }
+
+    /**
+     * Внутренний метод усреднения контуров (без transform, контуры уже в одной системе координат)
+     */
+    averageContoursInternal(contourA, contourB) {
+        if (!contourA || !contourB || contourA.length < 3 || contourB.length < 3) {
+            return contourA || contourB || [];
+        }
+       
+        // Вычисляем площади
+        const areaA = this.computePolygonArea(contourA);
+        const areaB = this.computePolygonArea(contourB);
+       
+        // Если разница площадей > 30% — берем больший контур
+        const areaDiff = Math.abs(areaA - areaB) / Math.max(areaA, areaB);
+        if (areaDiff > 0.3) {
+            console.log(`      📐 Площади различаются на ${(areaDiff*100).toFixed(1)}%, беру больший контур`);
+            return areaA > areaB ? contourA : contourB;
+        }
+
+        // Находим центры масс
+        const centerA = this.calculateCentroid(contourA);
+        const centerB = this.calculateCentroid(contourB);
+       
+        // Центрируем контуры
+        const centeredA = contourA.map(p => ({ x: p.x - centerA.x, y: p.y - centerA.y }));
+        const centeredB = contourB.map(p => ({ x: p.x - centerB.x, y: p.y - centerB.y }));
+
+        // Сортируем точки по углу
+        const sortedA = this.sortPointsByAngle(centeredA);
+        const sortedB = this.sortPointsByAngle(centeredB);
+
+        // Ресемплируем до одинакового количества точек
+        const resampledA = this.resampleContour(sortedA, 30);
+        const resampledB = this.resampleContour(sortedB, 30);
+       
+        const averaged = [];
+        const len = Math.min(resampledA.length, resampledB.length);
+        for (let i = 0; i < len; i++) {
+            averaged.push({
+                x: (resampledA[i].x + resampledB[i].x) / 2 + centerA.x,
+                y: (resampledA[i].y + resampledB[i].y) / 2 + centerA.y
+            });
+        }
+       
+        return averaged;
+    }
+
+    /**
+     * Применяет аффинное преобразование к точке
+     */
+    applyTransform(point, transform) {
+        if (!transform) return { x: point.x, y: point.y };
+       
+        if (transform.scale !== undefined && transform.rotation !== undefined) {
+            const cos = Math.cos(transform.rotation);
+            const sin = Math.sin(transform.rotation);
+            return {
+                x: (point.x * cos - point.y * sin) * transform.scale + transform.translation.x,
+                y: (point.x * sin + point.y * cos) * transform.scale + transform.translation.y
+            };
+        }
+       
+        if (transform.a !== undefined) {
+            return {
+                x: transform.a * point.x + transform.b * point.y + transform.c,
+                y: transform.d * point.x + transform.e * point.y + transform.f
+            };
+        }
+       
+        return { x: point.x, y: point.y };
+    }
+
+    /**
+     * Сортирует точки по полярному углу относительно центра (0,0)
+     */
+    sortPointsByAngle(points) {
+        return [...points].sort((a, b) => {
+            const angleA = Math.atan2(a.y, a.x);
+            const angleB = Math.atan2(b.y, b.x);
+            return angleA - angleB;
+        });
+    }
+
+    /**
+     * Ресемплирует контур до нужного количества точек
+     */
+    resampleContour(points, targetCount) {
+        if (points.length < 3) return points;
+       
+        const closed = [...points, points[0]];
+       
+        let lengths = [];
+        let totalLen = 0;
+        for (let i = 0; i < closed.length - 1; i++) {
+            const dx = closed[i+1].x - closed[i].x;
+            const dy = closed[i+1].y - closed[i].y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+            lengths.push(dist);
+            totalLen += dist;
+        }
+       
+        if (totalLen === 0) return points;
+       
+        const step = totalLen / targetCount;
+        const resampled = [];
+       
+        let currentLen = 0;
+        let segIdx = 0;
+        let segStart = 0;
+       
+        resampled.push(closed[0]);
+       
+        for (let i = 1; i < targetCount; i++) {
+            const targetLen = i * step;
+           
+            while (segIdx < lengths.length && segStart + lengths[segIdx] < targetLen) {
+                segStart += lengths[segIdx];
+                segIdx++;
+            }
+           
+            if (segIdx >= lengths.length) break;
+           
+            const t = (targetLen - segStart) / lengths[segIdx];
+            const p1 = closed[segIdx];
+            const p2 = closed[segIdx + 1];
+           
+            resampled.push({
+                x: p1.x + (p2.x - p1.x) * t,
+                y: p1.y + (p2.y - p1.y) * t
+            });
+        }
+       
+        return resampled;
+    }
     // ==================== СТАТИСТИКА ====================
 
     getStats() {
