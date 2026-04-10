@@ -578,19 +578,42 @@ if (triangles.length > 0) {
 }
 console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructure.size} записей`);
 
-const modelImagePath = await modelViz.createVisualization({
-    points: points,
-    photoPoints: [],
-    transform: transform,
-    matches: matchMap,
-    edges: edges,
-    triangles: triangles,
-    structures: structures,
-    pointToStructure: pointToStructure,
-    outputPath: outputPath,
-    width: 1200,
-    height: 1000
-});
+// 🔥 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ
+                console.log(`\n🔍 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ МОДЕЛИ:`);
+                console.log(`   points.length: ${points.length}`);
+
+                let hasContour = 0;
+                let hasHistory = 0;
+
+                for (const point of points) {
+                    if (point.morphology?.contour && point.morphology.contour.length > 0) {
+                        hasContour++;
+                    }
+                    if (point.sourceContours && point.sourceContours.length > 0) {
+                        hasHistory++;
+                    }
+                }
+
+                console.log(`   • Точек с morphology.contour: ${hasContour}`);
+                console.log(`   • Точек с sourceContours: ${hasHistory}`);
+
+                if (hasContour === 0) {
+                    console.log(`   ⚠️ ВНИМАНИЕ: НИ ОДНА ТОЧКА НЕ ИМЕЕТ КОНТУРА!`);
+                }
+
+                const modelImagePath = await modelViz.createVisualization({
+                    points: points,
+                    photoPoints: photoPoints,
+                    transform: transform,
+                    matches: matchMap,
+                    edges: edges,
+                    triangles: triangles,
+                    structures: structures,
+                    pointToStructure: pointToStructure,
+                    outputPath: outputPath,
+                    width: 1200,
+                    height: 1000
+                });;
 
 // ========== ДИАГНОСТИКА ПОСЛЕ ВИЗУАЛИЗАЦИИ ЧИСТОЙ МОДЕЛИ ==========
 console.log(`\n🔍 ПОСЛЕ визуализации чистой модели:`);
@@ -1165,6 +1188,28 @@ const result = {
         console.log(`   Контур следа: есть (${outlineContour.points.length} точек)`);
     } else {
         console.log(`   Контур следа: не найден`);
+    }
+
+    // 🔥 ДИАГНОСТИКА СВЯЗИ ТОЧЕК И КОНТУРОВ
+    console.log(`\n🔍 ДИАГНОСТИКА ИЗВЛЕЧЁННЫХ КОНТУРОВ:`);
+   
+    let pointsWithContour = 0;
+    for (const point of points) {
+        const hasContour = contours.some(c => c.pointId === point.id);
+        if (hasContour) pointsWithContour++;
+    }
+   
+    console.log(`   • Всего точек: ${points.length}`);
+    console.log(`   • Всего контуров (без outline): ${contours.filter(c => c.class !== 'Outline-trail').length}`);
+    console.log(`   • Точек с привязанным контуром: ${pointsWithContour}`);
+   
+    if (contours.length > 0) {
+        const protectorContour = contours.find(c => c.class === 'shoe-protector');
+        if (protectorContour) {
+            console.log(`   • Пример контура протектора: ${protectorContour.points?.length || 0} точек`);
+        }
+    } else {
+        console.log(`   ⚠️ КОНТУРЫ НЕ ИЗВЛЕЧЕНЫ ИЗ АНАЛИЗА!`);
     }
 
     return { points, contours };
