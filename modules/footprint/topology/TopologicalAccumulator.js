@@ -2681,16 +2681,86 @@ if (this.models.size === 0) {
     // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
 
     async compareByTriangleMatching(model1, model2, options = {}) {
-    const startTime = Date.now();
-
-    console.log(`\n🔍 СРАВНЕНИЕ МОДЕЛЕЙ В compareByTriangleMatching:`);
-    console.log(`   model1 (новое фото): узлов=${model1.graph?.nodes?.size || 0}`);
-    console.log(`   model2 (модель из базы): узлов=${model2.graph?.nodes?.size || 0}, id=${model2.id?.substring(0,20)}`);
-
-    if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
-
-    const points1 = this.extractPointsFromModel(model1);
-    const points2 = this.extractPointsFromModel(model2);
+        const startTime = Date.now();
+       
+        console.log(`\n🔍 СРАВНЕНИЕ МОДЕЛЕЙ В compareByTriangleMatching:`);
+        console.log(`   model1 (новое фото): узлов=${model1.graph?.nodes?.size || 0}`);
+        console.log(`   model2 (модель из базы): узлов=${model2.graph?.nodes?.size || 0}, id=${model2.id?.substring(0,20)}`);
+       
+        // 🔥 ДЕТАЛЬНАЯ ДИАГНОСТИКА ГРАФА ПЕРЕД ИЗВЛЕЧЕНИЕМ ТОЧЕК
+        console.log(`\n🔍 ДЕТАЛЬНАЯ ДИАГНОСТИКА ГРАФА В МАТЧЕРЕ:`);
+       
+        const graph = model2.graph;
+        console.log(`   • Тип edges: ${graph.edges.constructor.name}`);
+        console.log(`   • Размер edges: ${graph.edges.size || graph.edges.length}`);
+        console.log(`   • Всего узлов: ${graph.nodes.size}`);
+       
+        // Найдём синие точки
+        const bluePoints = Array.from(graph.nodes.values()).filter(n => n.confirmationCount === 1);
+        console.log(`   • Синих точек всего: ${bluePoints.length}`);
+       
+        // Проверим первые 5 синих точек на наличие рёбер
+        let blueWithEdges = 0;
+        let blueWithTriangles = 0;
+       
+        for (let i = 0; i < Math.min(5, bluePoints.length); i++) {
+            const bp = bluePoints[i];
+            const nodeId = bp.id;
+           
+            // Найдём все рёбра, содержащие эту точку
+            const connectedEdges = [];
+            for (const edge of graph.edges) {
+                const [a, b] = edge.split('--');
+                if (a === nodeId || b === nodeId) {
+                    connectedEdges.push(edge);
+                }
+            }
+           
+            if (connectedEdges.length > 0) {
+                blueWithEdges++;
+                console.log(`   • Синяя точка ${nodeId.substring(0,16)}: рёбер ${connectedEdges.length}`);
+                if (connectedEdges.length >= 2) {
+                    // Проверим, образуют ли соседи треугольник
+                    const neighbors = connectedEdges.map(e => {
+                        const [a, b] = e.split('--');
+                        return a === nodeId ? b : a;
+                    });
+                   
+                    let hasTriangle = false;
+                    for (let j = 0; j < neighbors.length; j++) {
+                        for (let k = j + 1; k < neighbors.length; k++) {
+                            const edgeId = [neighbors[j], neighbors[k]].sort().join('--');
+                            if (graph.edges.has(edgeId)) {
+                                hasTriangle = true;
+                                break;
+                            }
+                        }
+                        if (hasTriangle) break;
+                    }
+                   
+                    if (hasTriangle) {
+                        blueWithTriangles++;
+                        console.log(`      ✅ Есть треугольник!`);
+                    } else {
+                        console.log(`      ⚠️ Рёбра есть, но треугольника нет`);
+                    }
+                }
+            } else {
+                console.log(`   • Синяя точка ${nodeId.substring(0,16)}: рёбер 0`);
+            }
+        }
+       
+        console.log(`   📊 Синих с рёбрами: ${blueWithEdges} / ${Math.min(5, bluePoints.length)}`);
+        console.log(`   📊 Синих с треугольниками: ${blueWithTriangles} / ${Math.min(5, bluePoints.length)}`);
+       
+        // 🔥 Проверим формат edges
+        const edgesArray = Array.isArray(graph.edges) ? graph.edges : Array.from(graph.edges);
+        console.log(`   • Пример ребра: ${edgesArray[0] || 'нет рёбер'}`);
+       
+        if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
+       
+        const points1 = this.extractPointsFromModel(model1);
+        const points2 = this.extractPointsFromModel(model2);
 
     if (this.debug) console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
 
