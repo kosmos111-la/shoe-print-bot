@@ -3210,14 +3210,35 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
         const modelNode = model.graph.nodes.get(match.pointB);
         if (modelNode) {
             // Проверяем, не обновляли ли уже эту точку в этом фото
-            if (updatedThisPhoto && updatedThisPhoto.has(match.pointB)) {
-                console.log(`   ⏭️ Пропускаем (уже в Set): ${match.pointB.substring(0,12)}`);
-                // Всё равно добавляем в matchedPhotoIds для правильного учёта
-                matchedPhotoIds.add(match.pointA);
-                matchedModelIds.add(match.pointB);
-                updatedCount++;
-                continue;
-            }
+            const alreadyUpdated = updatedThisPhoto && updatedThisPhoto.has(match.pointB);
+
+if (alreadyUpdated) {
+    console.log(`   🔄 Точка ${match.pointB.substring(0,12)} уже обновлялась, но confirmationCount увеличится`);
+    // 🔥 НЕ делаем continue! Продолжаем выполнение
+}
+
+const oldCount = modelNode.confirmationCount || 1;
+const newCount = oldCount + 1;
+
+// Координаты обновляем ТОЛЬКО если точка ещё не обновлялась
+if (!alreadyUpdated) {
+    const photoPoint = newGraph.nodes.get(match.pointA);
+    if (photoPoint && transform) {
+        // ... обновление координат ...
+    }
+}
+
+// Морфологию обновляем ВСЕГДА
+// ... код обновления морфологии ...
+
+modelNode.confirmationCount = newCount;
+modelNode.lastConfirmed = new Date();
+confirmedExisting++;
+matchedPhotoIds.add(match.pointA);
+matchedModelIds.add(match.pointB);
+updatedCount++;
+
+if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
 
             const oldCount = modelNode.confirmationCount || 1;
             const newCount = oldCount + 1;
