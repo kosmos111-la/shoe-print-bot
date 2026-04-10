@@ -1502,10 +1502,25 @@ if (uniqueAddedCount > 0) {
    
     const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
    
-    // 🔥 ВАЖНО: Заменяем граф полностью
+    // 🔥 Копируем данные из старого графа в новый
+    for (const [nodeId, oldNode] of existingModel.graph.nodes) {
+        const newNode = newGraph.nodes.get(nodeId);
+        if (newNode) {
+            newNode.confirmationCount = oldNode.confirmationCount || 1;
+            newNode.morphology = oldNode.morphology || null;
+            newNode.sourceContours = oldNode.sourceContours || [];
+            newNode.addedFrom = oldNode.addedFrom || 'updated';
+            newNode.addedAt = oldNode.addedAt || new Date();
+            newNode.originalPhotoId = oldNode.originalPhotoId || null;
+        }
+    }
+   
     existingModel.graph = newGraph;
    
-    // 🔥 ВАЖНО: Обновляем points в модели
+    // 🔥 ПЕРЕСЧИТЫВАЕМ TRIANGLES
+    this.recalculateTriangles(existingModel.graph);
+   
+    // Обновляем points в модели
     existingModel.points = Array.from(newGraph.nodes.values()).map(node => ({
         id: node.id,
         x: node.x,
@@ -3084,26 +3099,20 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
         console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
     }
 
-    // 🔥 ДЕДУПЛИКАЦИЯ
-    const uniqueMatches = [];
-    const seenPairs = new Set();
+  // 🔥 ДЕДУПЛИКАЦИЯ ТОЛЬКО ПО POINTB (оставляем лучший match для каждой точки модели)
+    const uniqueByPointB = new Map();
     for (const match of matches) {
-        const key = `${match.pointA}|${match.pointB}`;
-        if (!seenPairs.has(key)) {
-            seenPairs.add(key);
-            uniqueMatches.push(match);
+        const pointB = match.pointB;
+        const existing = uniqueByPointB.get(pointB);
+        if (!existing || match.confidence > existing.confidence) {
+            uniqueByPointB.set(pointB, match);
         }
     }
-
-    // Дедупликация по pointB (точке модели) — оставляем только лучший match для каждой точки модели
-const uniqueByPointB = new Map();
-for (const match of uniqueMatches) {
-    const existing = uniqueByPointB.get(match.pointB);
-    if (!existing || match.confidence > existing.confidence) {
-        uniqueByPointB.set(match.pointB, match);
+    let finalMatches = Array.from(uniqueByPointB.values());
+   
+    if (this.debug && matches.length !== finalMatches.length) {
+        console.log(`   🔧 Дедупликация по pointB: ${matches.length} → ${finalMatches.length} matches`);
     }
-}
-let finalMatches = Array.from(uniqueByPointB.values());
 
 // ===== НОВОЕ: дополнительная защита — каждая точка модели получает максимум +1 за фото =====
 // Создаём Set уже обработанных pointB, чтобы случайно не обновить дважды
@@ -5307,10 +5316,8 @@ rebuildGraphFromPoints(points) {
         return this.graphBuilder.buildMinimalGraph(points);
     }
    
-    // Строим граф Делоне
     const graph = this.graphBuilder.buildGraph(points, 'model_rebuilt');
    
-    // Восстанавливаем дополнительные поля в узлах
     for (const point of points) {
         const node = graph.nodes.get(point.id);
         if (node) {
@@ -5323,44 +5330,88 @@ rebuildGraphFromPoints(points) {
         }
     }
    
+    // 🔥 ПЕРЕСЧИТЫВАЕМ TRIANGLES
+    this.recalculateTriangles(graph);
+   
     console.log(`✅ Граф перестроен: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
     return graph;
 }
-  
+  /**
+* 🔥 Пересчитывает triangles для всех узлов графа
+* @param {Object} graph - граф с nodes и edges
+*/
+recalculateTriangles(graph) {
+    if (!graph || !graph.nodes || !graph.edges) {
+        console.log(`   ⚠️ Невозможно пересчитать triangles: граф повреждён`);
+        return;
+    }
+   
+    const trianglesCount = this.countTriangles(graph);
+   
+    let updatedCount = 0;
+    let maxTriangles = 0;
+    let minTriangles = Infinity;
+    let totalTriangles = 0;
+   
+    for (const [nodeId, count] of trianglesCount) {
+        const node = graph.nodes.get(nodeId);
+        if (node) {
+            node.triangles = count;
+            updatedCount++;
+            totalTriangles += count;
+            if (count > maxTriangles) maxTriangles = count;
+            if (count < minTriangles) minTriangles = count;
+        }
+    }
+   
+    const avgTriangles = updatedCount > 0 ? (totalTriangles / updatedCount).toFixed(1) : 0;
+   
+    console.log(`   📐 Triangles пересчитаны для ${updatedCount} узлов`);
+    console.log(`   📊 Статистика triangles: среднее ${avgTriangles}, макс ${maxTriangles}, мин ${minTriangles}`);
+   
+    // 🔥 ДИАГНОСТИКА: сколько узлов имеют triangles > 0
+    const nodesWithTriangles = Array.from(graph.nodes.values()).filter(n => (n.triangles || 0) > 0).length;
+    console.log(`   📊 Узлов с triangles > 0: ${nodesWithTriangles} / ${graph.nodes.size}`);
+   
+    return trianglesCount;
+}
      /**
      * Подсчитывает количество треугольников для каждой точки графа
      */
     countTriangles(graph) {
-        const triangles = new Map();
-        const nodes = Array.from(graph.nodes.keys());
-        const edges = new Set(graph.edges);
-       
-        for (const nodeId of nodes) {
-            triangles.set(nodeId, 0);
-        }
-       
-        for (let i = 0; i < nodes.length; i++) {
-            const nodeId = nodes[i];
-            const neighbors = [];
-            for (const edge of edges) {
-                const [a, b] = edge.split('--');
-                if (a === nodeId) neighbors.push(b);
-                if (b === nodeId) neighbors.push(a);
-            }
-           
-            if (neighbors.length < 2) continue;
-           
-            let count = 0;
-            for (let j = 0; j < neighbors.length; j++) {
-                for (let k = j + 1; k < neighbors.length; k++) {
-                    const edgeId = [neighbors[j], neighbors[k]].sort().join('--');
-                    if (edges.has(edgeId)) count++;
-                }
-            }
-            triangles.set(nodeId, count);
-        }
-        return triangles;
+    const triangles = new Map();
+    const nodes = Array.from(graph.nodes.keys());
+   
+    // 🔥 Преобразуем edges в массив для единообразия (может быть Set или Array)
+    const edgesArray = Array.isArray(graph.edges) ? graph.edges : Array.from(graph.edges);
+    const edgesSet = graph.edges instanceof Set ? graph.edges : new Set(graph.edges);
+   
+    for (const nodeId of nodes) {
+        triangles.set(nodeId, 0);
     }
+   
+    for (let i = 0; i < nodes.length; i++) {
+        const nodeId = nodes[i];
+        const neighbors = [];
+        for (const edge of edgesArray) {
+            const [a, b] = edge.split('--');
+            if (a === nodeId) neighbors.push(b);
+            if (b === nodeId) neighbors.push(a);
+        }
+       
+        if (neighbors.length < 2) continue;
+       
+        let count = 0;
+        for (let j = 0; j < neighbors.length; j++) {
+            for (let k = j + 1; k < neighbors.length; k++) {
+                const edgeId = [neighbors[j], neighbors[k]].sort().join('--');
+                if (edgesSet.has(edgeId)) count++;
+            }
+        }
+        triangles.set(nodeId, count);
+    }
+    return triangles;
+}
 
     clear() {
         this.models.clear();
