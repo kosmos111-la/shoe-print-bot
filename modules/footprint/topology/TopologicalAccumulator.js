@@ -3115,325 +3115,339 @@ extractPointsFromModel(model) {
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
   updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null, transform = null) {
-      
-    const model = this.models.get(modelId);
+        const model = this.models.get(modelId);
 
-     // ========== НОВАЯ ДИАГНОСТИКА ==========
-    console.log(`\n🔍 [updateModelWithOptimalMatches] НАЧАЛО`);
-    console.log(`   matches.length: ${matches.length}`);
-   
-    let redBefore = 0, orangeBefore = 0, yellowBefore = 0, blueBefore = 0;
-    for (const node of model.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redBefore++;
-        else if (count === 3) orangeBefore++;
-        else if (count === 2) yellowBefore++;
-        else if (count === 1) blueBefore++;
-    }
-    console.log(`   ДО ОБНОВЛЕНИЯ: красных ${redBefore}, оранж ${orangeBefore}, жёлт ${yellowBefore}, син ${blueBefore}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-   
-    console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
-    }
+        // ========== НОВАЯ ДИАГНОСТИКА ==========
+        console.log(`\n🔍 [updateModelWithOptimalMatches] НАЧАЛО`);
+        console.log(`   matches.length: ${matches.length}`);
 
-  // 🔥 ДЕДУПЛИКАЦИЯ ТОЛЬКО ПО POINTB (оставляем лучший match для каждой точки модели)
-    const uniqueByPointB = new Map();
-    for (const match of matches) {
-        const pointB = match.pointB;
-        const existing = uniqueByPointB.get(pointB);
-        if (!existing || match.confidence > existing.confidence) {
-            uniqueByPointB.set(pointB, match);
+        let redBefore = 0, orangeBefore = 0, yellowBefore = 0, blueBefore = 0;
+        for (const node of model.graph.nodes.values()) {
+            const count = node.confirmationCount || 0;
+            if (count >= 4) redBefore++;
+            else if (count === 3) orangeBefore++;
+            else if (count === 2) yellowBefore++;
+            else if (count === 1) blueBefore++;
         }
-    }
-    let finalMatches = Array.from(uniqueByPointB.values());
-   
-    if (this.debug && matches.length !== finalMatches.length) {
-        console.log(`   🔧 Дедупликация по pointB: ${matches.length} → ${finalMatches.length} matches`);
-    }
+        console.log(`   ДО ОБНОВЛЕНИЯ: красных ${redBefore}, оранж ${orangeBefore}, жёлт ${yellowBefore}, син ${blueBefore}`);
+        // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
-// ===== НОВОЕ: дополнительная защита — каждая точка модели получает максимум +1 за фото =====
-// Создаём Set уже обработанных pointB, чтобы случайно не обновить дважды
-const processedPointB = new Set();
-const trulyUniqueMatches = [];
-for (const match of finalMatches) {
-    if (!processedPointB.has(match.pointB)) {
-        processedPointB.add(match.pointB);
-        trulyUniqueMatches.push(match);
-    }
-}
-if (finalMatches.length !== trulyUniqueMatches.length) {
-    console.log(`   ⚠️ ВНИМАНИЕ: обнаружены дубликаты pointB! Было ${finalMatches.length}, стало ${trulyUniqueMatches.length}`);
-}
-finalMatches = trulyUniqueMatches;
-
-    if (this.debug && matches.length !== finalMatches.length) {
-        console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
-    }
-
-// 🔥 ДИАГНОСТИКА: какие точки модели НЕ получили подтверждение
-if (this.debug && finalMatches.length > 0) {
-    const confirmedModelPoints = new Set(finalMatches.map(m => m.pointB));
-    const allModelPoints = Array.from(model.graph.nodes.keys());
-    const notConfirmed = allModelPoints.filter(id => !confirmedModelPoints.has(id));
-   
-    console.log(`   📊 Подтверждено точек модели: ${confirmedModelPoints.size} / ${model.graph.nodes.size}`);
-   
-    if (notConfirmed.length > 0) {
-        const sampleNotConfirmed = notConfirmed.slice(0, 10);
-        console.log(`   ⚠️ Не подтверждены (первые 10): ${sampleNotConfirmed.map(id => id.substring(0,12)).join(', ')}`);
-       
+        console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
         if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-    const lastUniqueIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
-    const blueNotConfirmed = notConfirmed.filter(id => lastUniqueIds.has(id));
-   
-    // 🔥 ДОПОЛНИТЕЛЬНАЯ ДИАГНОСТИКА: сколько синих точек вообще в модели
-    const blueInModel = Array.from(model.graph.nodes.keys()).filter(id => lastUniqueIds.has(id));
-    const blueConfirmed = blueInModel.filter(id => confirmedModelPoints.has(id));
-   
-    console.log(`   🔵 СИНИЕ точки в модели: ${blueInModel.length}`);
-    console.log(`   🔵 Из них подтверждены: ${blueConfirmed.length}`);
-    console.log(`   🔵 Не подтверждены: ${blueNotConfirmed.length}`);
-   
-    if (blueNotConfirmed.length > 0) {
-        const photoPointIds = new Set(newGraph.nodes.keys());
-        const missingInPhoto = blueNotConfirmed.filter(id => !photoPointIds.has(id));
-        const presentInPhoto = blueNotConfirmed.filter(id => photoPointIds.has(id));
+            console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
+        }
+
+        // 🔥 ДЕДУПЛИКАЦИЯ ПО ПАРАМ pointA|pointB
+        const uniqueMatches = [];
+        const seenPairs = new Set();
+        for (const match of matches) {
+            const key = `${match.pointA}|${match.pointB}`;
+            if (!seenPairs.has(key)) {
+                seenPairs.add(key);
+                uniqueMatches.push(match);
+            }
+        }
+
+        // 🔥 ДЕДУПЛИКАЦИЯ ПО pointB — НЕ ПЕРЕЗАПИСЫВАЕМ!
+        // Сортируем по confidence (по убыванию), чтобы лучшие match'и обрабатывались первыми
+        const sortedMatches = [...uniqueMatches].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
        
-        if (missingInPhoto.length > 0) {
-            console.log(`      ❌ Отсутствуют в текущем фото: ${missingInPhoto.length} шт`);
-        }
-        if (presentInPhoto.length > 0) {
-            console.log(`      ✅ Присутствуют в текущем фото, но не сопоставились: ${presentInPhoto.length} шт`);
-            // Покажем ID первых 5
-            console.log(`         ID: ${presentInPhoto.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
-        }
-    }
-}
-    }
-}
-   
-    // 🔥 ВЫВОД ПЕРВЫХ 5 matches
-    console.log(`\n🔍 ПЕРВЫЕ 5 matches (что сопоставил матчер):`);
-    for (let i = 0; i < Math.min(5, matches.length); i++) {
-        const m = matches[i];
-        console.log(`   ${i+1}: pointA=${m.pointA?.substring(0,12)}, pointB=${m.pointB?.substring(0,12)}, confidence=${m.confidence}`);
-    }
-   
-    let confirmedExisting = 0;
-let newNodesAdded = 0;
-
-const matchedPhotoIds = new Set();
-const matchedModelIds = new Set();
-
-// ===== НОВОЕ: дедупликация по pointB (точкам модели) =====
-// Каждая точка модели может получить максимум +1 подтверждение за фото
-const uniqueMatchesByModel = new Map(); // pointB -> match
-for (const match of finalMatches) {
-    const pointB = match.pointB;
-    const existing = uniqueMatchesByModel.get(pointB);
-    if (!existing || match.confidence > existing.confidence) {
-        uniqueMatchesByModel.set(pointB, match);
-    }
-}
-const deduplicatedMatches = Array.from(uniqueMatchesByModel.values());
-
-if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
-    console.log(`   🔧 Дедупликация по модели: ${finalMatches.length} → ${deduplicatedMatches.length} matches`);
-}
-
- // 1. Обновляем существующие точки (счётчик + координаты + морфология + контуры)
-    let updatedCount = 0;
-    let notFoundCount = 0;
-
-    // Диагностика: какие точки уже в Set
-    if (updatedThisPhoto && updatedThisPhoto.size > 0) {
-        console.log(`   📋 В Set уже ${updatedThisPhoto.size} точек:`);
-        const sample = Array.from(updatedThisPhoto).slice(0, 5);
-        sample.forEach(id => console.log(`      - ${id.substring(0,12)}`));
-    }
-
-    for (const match of deduplicatedMatches) {
-        const modelNode = model.graph.nodes.get(match.pointB);
-        if (modelNode) {
-            // Проверяем, не обновляли ли уже эту точку в этом фото
-            const alreadyUpdated = updatedThisPhoto && updatedThisPhoto.has(match.pointB);
-           
-            if (alreadyUpdated) {
-                console.log(`   🔄 Точка ${match.pointB.substring(0,12)} уже обновлялась, но confirmationCount увеличится`);
+        const uniqueByPointB = new Map();
+        const usedPointB = new Set();
+       
+        for (const match of sortedMatches) {
+            // Точка модели ещё не занята?
+            if (!usedPointB.has(match.pointB)) {
+                usedPointB.add(match.pointB);
+                uniqueByPointB.set(match.pointB, match);
             }
+            // 🔥 Если уже занята — ПРОПУСКАЕМ, не перезаписываем!
+        }
+        let finalMatches = Array.from(uniqueByPointB.values());
 
-            const oldCount = modelNode.confirmationCount || 1;
-            const newCount = oldCount + 1;
+        if (this.debug && matches.length !== finalMatches.length) {
+            console.log(`   🔧 Дедупликация по pointB: ${matches.length} → ${finalMatches.length} matches`);
+        }
 
-            // ========== ДИАГНОСТИКА ==========
-            if (newCount >= 4 && oldCount < 4) {
-                console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
-                console.log(`      от точки фото: ${match.pointA.substring(0,20)}`);
-            } else if (this.debug && newCount >= 2) {
-                console.log(`   🔄 Точка ${match.pointB.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
+        // ===== ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: каждая точка модели получает максимум +1 за фото =====
+        const processedPointB = new Set();
+        const trulyUniqueMatches = [];
+        for (const match of finalMatches) {
+            if (!processedPointB.has(match.pointB)) {
+                processedPointB.add(match.pointB);
+                trulyUniqueMatches.push(match);
             }
+        }
+        if (finalMatches.length !== trulyUniqueMatches.length) {
+            console.log(`   ⚠️ ВНИМАНИЕ: обнаружены дубликаты pointB! Было ${finalMatches.length}, стало ${trulyUniqueMatches.length}`);
+        }
+        finalMatches = trulyUniqueMatches;
+       
+        // 🔥 ИСПОЛЬЗУЕМ finalMatches ДАЛЕЕ (НЕ deduplicatedMatches!)
+        const deduplicatedMatches = finalMatches;
 
-            // ========== ОБНОВЛЕНИЕ КООРДИНАТ (только если ещё не обновляли) ==========
-            if (!alreadyUpdated) {
-                const photoPoint = newGraph.nodes.get(match.pointA);
-                if (photoPoint && transform) {
-                    const projected = this.applyTransform(photoPoint, transform);
-                    const oldX = modelNode.x;
-                    const oldY = modelNode.y;
-                    modelNode.x = (oldX * oldCount + projected.x) / newCount;
-                    modelNode.y = (oldY * oldCount + projected.y) / newCount;
+        // 🔥 ДИАГНОСТИКА: какие точки модели НЕ получили подтверждение
+        if (this.debug && finalMatches.length > 0) {
+            const confirmedModelPoints = new Set(finalMatches.map(m => m.pointB));
+            const allModelPoints = Array.from(model.graph.nodes.keys());
+            const notConfirmed = allModelPoints.filter(id => !confirmedModelPoints.has(id));
 
-                    if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
-                        console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)})`);
+            console.log(`   📊 Подтверждено точек модели: ${confirmedModelPoints.size} / ${model.graph.nodes.size}`);
+
+            if (notConfirmed.length > 0) {
+                const sampleNotConfirmed = notConfirmed.slice(0, 10);
+                console.log(`   ⚠️ Не подтверждены (первые 10): ${sampleNotConfirmed.map(id => id.substring(0,12)).join(', ')}`);
+
+                if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+                    const lastUniqueIds = new Set(this.lastUniqueInPhoto.map(p => p.id));
+                    const blueNotConfirmed = notConfirmed.filter(id => lastUniqueIds.has(id));
+
+                    const blueInModel = Array.from(model.graph.nodes.keys()).filter(id => lastUniqueIds.has(id));
+                    const blueConfirmed = blueInModel.filter(id => confirmedModelPoints.has(id));
+
+                    console.log(`   🔵 СИНИЕ точки в модели: ${blueInModel.length}`);
+                    console.log(`   🔵 Из них подтверждены: ${blueConfirmed.length}`);
+                    console.log(`   🔵 Не подтверждены: ${blueNotConfirmed.length}`);
+
+                    if (blueNotConfirmed.length > 0) {
+                        const photoPointIds = new Set(newGraph.nodes.keys());
+                        const missingInPhoto = blueNotConfirmed.filter(id => !photoPointIds.has(id));
+                        const presentInPhoto = blueNotConfirmed.filter(id => photoPointIds.has(id));
+
+                        if (missingInPhoto.length > 0) {
+                            console.log(`      ❌ Отсутствуют в текущем фото: ${missingInPhoto.length} шт`);
+                        }
+                        if (presentInPhoto.length > 0) {
+                            console.log(`      ✅ Присутствуют в текущем фото, но не сопоставились: ${presentInPhoto.length} шт`);
+                            console.log(`         ID: ${presentInPhoto.slice(0,5).map(id => id.substring(0,12)).join(', ')}`);
+                        }
                     }
                 }
             }
+        }
 
-            // ========== ОБНОВЛЕНИЕ МОРФОЛОГИИ И КОНТУРОВ ==========
-            const newMorph = newMorphology?.get(match.pointA);
-            if (newMorph && newMorph.hasContour) {
-                // ... существующий код обновления морфологии ...
-            } else if (newMorph) {
-                if (!modelNode.morphology) modelNode.morphology = {};
-                Object.assign(modelNode.morphology, newMorph);
-            }
+        // 🔥 ВЫВОД ПЕРВЫХ 5 matches
+        console.log(`\n🔍 ПЕРВЫЕ 5 matches (что сопоставил матчер):`);
+        for (let i = 0; i < Math.min(5, finalMatches.length); i++) {
+            const m = finalMatches[i];
+            console.log(`   ${i+1}: pointA=${m.pointA?.substring(0,12)}, pointB=${m.pointB?.substring(0,12)}, confidence=${m.confidence}`);
+        }
 
-            modelNode.confirmationCount = newCount;
-            modelNode.lastConfirmed = new Date();
-            confirmedExisting++;
-            matchedPhotoIds.add(match.pointA);
-            matchedModelIds.add(match.pointB);
-            updatedCount++;
+        let confirmedExisting = 0;
+        let newNodesAdded = 0;
 
-            if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
+        const matchedPhotoIds = new Set();
+        const matchedModelIds = new Set();
 
-            if (updatedCount <= 5) {
-                console.log(`   ✅ Обновлена точка ${match.pointB.substring(0,12)}: ${oldCount} → ${modelNode.confirmationCount}`);
-            }
-        } else {
-            notFoundCount++;
-            if (notFoundCount <= 5) {
-                console.log(`   ⚠️ Точка ${match.pointB?.substring(0,12)} НЕ НАЙДЕНА в модели!`);
+        // 1. Обновляем существующие точки (счётчик + координаты + морфология + контуры)
+        let updatedCount = 0;
+        let notFoundCount = 0;
+
+        // Диагностика: какие точки уже в Set
+        if (updatedThisPhoto && updatedThisPhoto.size > 0) {
+            console.log(`   📋 В Set уже ${updatedThisPhoto.size} точек:`);
+            const sample = Array.from(updatedThisPhoto).slice(0, 5);
+            sample.forEach(id => console.log(`      - ${id.substring(0,12)}`));
+        }
+
+        for (const match of deduplicatedMatches) {
+            const modelNode = model.graph.nodes.get(match.pointB);
+            if (modelNode) {
+                // Проверяем, не обновляли ли уже эту точку в этом фото
+                const alreadyUpdated = updatedThisPhoto && updatedThisPhoto.has(match.pointB);
+
+                if (alreadyUpdated) {
+                    console.log(`   🔄 Точка ${match.pointB.substring(0,12)} уже обновлялась, но confirmationCount увеличится`);
+                }
+
+                const oldCount = modelNode.confirmationCount || 1;
+                const newCount = oldCount + 1;
+
+                // ========== ДИАГНОСТИКА ==========
+                if (newCount >= 4 && oldCount < 4) {
+                    console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
+                    console.log(`      от точки фото: ${match.pointA.substring(0,20)}`);
+                } else if (this.debug && newCount >= 2) {
+                    console.log(`   🔄 Точка ${match.pointB.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
+                }
+
+                // ========== ОБНОВЛЕНИЕ КООРДИНАТ (только если ещё не обновляли) ==========
+                if (!alreadyUpdated) {
+                    const photoPoint = newGraph.nodes.get(match.pointA);
+                    if (photoPoint && transform) {
+                        const projected = this.applyTransform(photoPoint, transform);
+                        const oldX = modelNode.x;
+                        const oldY = modelNode.y;
+                        modelNode.x = (oldX * oldCount + projected.x) / newCount;
+                        modelNode.y = (oldY * oldCount + projected.y) / newCount;
+
+                        if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
+                            console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)})`);
+                        }
+                    }
+                }
+
+                // ========== ОБНОВЛЕНИЕ МОРФОЛОГИИ И КОНТУРОВ ==========
+                const newMorph = newMorphology?.get(match.pointA);
+                if (newMorph && newMorph.hasContour) {
+                    if (newMorph.confidence === undefined) {
+                        newMorph.confidence = match.confidence || 0.5;
+                    }
+                    const mergeResult = this.morphologyEncoder.mergeContoursWithConfidence(
+                        {
+                            morphology: modelNode.morphology,
+                            confirmationCount: modelNode.confirmationCount,
+                            confidence: modelNode.morphology?.confidence || match.confidence || 0.5,
+                            sourceContours: modelNode.sourceContours || []
+                        },
+                        {
+                            morphology: newMorph,
+                            confidence: match.confidence || newMorph.confidence || 0.5
+                        },
+                        transform
+                    );
+
+                    if (!modelNode.morphology) modelNode.morphology = {};
+                    Object.assign(modelNode.morphology, mergeResult.finalMorphology);
+                    modelNode.morphology.contour = mergeResult.finalContour;
+                    modelNode.morphology.confidence = mergeResult.finalConfidence;
+                    modelNode.morphology.hasContour = true;
+                    modelNode.sourceContours = mergeResult.historyContours;
+                } else if (newMorph) {
+                    if (!modelNode.morphology) modelNode.morphology = {};
+                    Object.assign(modelNode.morphology, newMorph);
+                }
+
+                modelNode.confirmationCount = newCount;
+                modelNode.lastConfirmed = new Date();
+                confirmedExisting++;
+                matchedPhotoIds.add(match.pointA);
+                matchedModelIds.add(match.pointB);
+                updatedCount++;
+
+                if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
+
+                if (updatedCount <= 5) {
+                    console.log(`   ✅ Обновлена точка ${match.pointB.substring(0,12)}: ${oldCount} → ${modelNode.confirmationCount}`);
+                }
+            } else {
+                notFoundCount++;
+                if (notFoundCount <= 5) {
+                    console.log(`   ⚠️ Точка ${match.pointB?.substring(0,12)} НЕ НАЙДЕНА в модели!`);
+                }
             }
         }
-    }
 
-    //if (this.debug) {
         console.log(`   📊 Обновлено точек: ${updatedCount}, не найдено: ${notFoundCount}`);
-    // }
-    // 2. Добавляем новые точки из фото (с инициализацией контуров)
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
 
-        for (const photoPoint of this.lastUniqueInPhoto) {
-            let isDuplicate = false;
-            for (const [modelId, modelNode] of model.graph.nodes) {
-                const dx = modelNode.x - photoPoint.x;
-                const dy = modelNode.y - photoPoint.y;
-                const dist = Math.sqrt(dx*dx + dy*dy);
-                if (dist < 5) {
-                    isDuplicate = true;
-                    break;
+        // 2. Добавляем новые точки из фото (с инициализацией контуров)
+        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+            if (this.debug) console.log(`\n📸 Добавляю ${this.lastUniqueInPhoto.length} новых точек из фото в модель`);
+
+            for (const photoPoint of this.lastUniqueInPhoto) {
+                let isDuplicate = false;
+                for (const [modelId, modelNode] of model.graph.nodes) {
+                    const dx = modelNode.x - photoPoint.x;
+                    const dy = modelNode.y - photoPoint.y;
+                    const dist = Math.sqrt(dx*dx + dy*dy);
+                    if (dist < 5) {
+                        isDuplicate = true;
+                        break;
+                    }
+                }
+
+                if (!isDuplicate) {
+                    const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+                    const newMorph = newMorphology?.get(photoPoint.id);
+
+                    model.graph.nodes.set(newNodeId, {
+                        id: newNodeId,
+                        x: photoPoint.x,
+                        y: photoPoint.y,
+                        degree: 0,
+                        triangles: 0,
+                        morphology: newMorph || {},
+                        confirmationCount: 1,
+                        addedFrom: 'new_photo_point',
+                        addedAt: new Date(),
+                        originalPhotoId: photoPoint.id,
+                        sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
+                            points: newMorph.contour,
+                            confidence: newMorph.confidence || 0.5,
+                            type: 'photo_new'
+                        }] : []
+                    });
+
+                    newNodesAdded++;
+                    if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+                }
+            }
+        }
+
+        // ========== 🔥 ДИАГНОСТИКА КОНТУРОВ ПОСЛЕ ОБНОВЛЕНИЯ ==========
+        console.log(`\n🔍 ДИАГНОСТИКА КОНТУРОВ В МОДЕЛИ ПОСЛЕ ОБНОВЛЕНИЯ:`);
+
+        let totalPoints = 0;
+        let pointsWithContour = 0;
+        let pointsWithHistory = 0;
+        let totalHistoryItems = 0;
+
+        for (const [nodeId, node] of model.graph.nodes) {
+            totalPoints++;
+
+            if (node.morphology?.contour && node.morphology.contour.length > 0) {
+                pointsWithContour++;
+                if (pointsWithContour <= 3) {
+                    console.log(`   ✅ Точка ${nodeId.substring(0,12)}: контур ЕСТЬ (${node.morphology.contour.length} точек)`);
                 }
             }
 
-            if (!isDuplicate) {
-                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-
-                // 🔥 НОВОЕ: Получаем морфологию и контур для новой точки
-                const newMorph = newMorphology?.get(photoPoint.id);
-
-                odel.graph.nodes.set(newNodeId, {
-                    id: newNodeId,
-                    x: photoPoint.x,
-                    y: photoPoint.y,
-                    degree: 0,
-                    triangles: 0,  // 🔥 ЯВНО УСТАНАВЛИВАЕМ
-                    morphology: newMorph || {},
-                    confirmationCount: 1,
-                    addedFrom: 'new_photo_point',
-                    addedAt: new Date(),
-                    originalPhotoId: photoPoint.id,
-                    sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
-                        points: newMorph.contour,
-                        confidence: newMorph.confidence || 0.5,
-                        type: 'photo_new'
-                    }] : []
-                });
-
-                newNodesAdded++;
-                if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+            if (node.sourceContours && node.sourceContours.length > 0) {
+                pointsWithHistory++;
+                totalHistoryItems += node.sourceContours.length;
+                if (pointsWithHistory <= 3) {
+                    console.log(`   📜 Точка ${nodeId.substring(0,12)}: история ${node.sourceContours.length} контуров`);
+                    const first = node.sourceContours[0];
+                    console.log(`      - тип: ${first.type}, уверенность: ${(first.confidence*100).toFixed(0)}%, точек: ${first.points?.length || 0}`);
+                }
             }
         }
-    }
-   // ========== 🔥 ДИАГНОСТИКА КОНТУРОВ ПОСЛЕ ОБНОВЛЕНИЯ ==========
-    console.log(`\n🔍 ДИАГНОСТИКА КОНТУРОВ В МОДЕЛИ ПОСЛЕ ОБНОВЛЕНИЯ:`);
-   
-    let totalPoints = 0;
-    let pointsWithContour = 0;
-    let pointsWithHistory = 0;
-    let totalHistoryItems = 0;
-   
-    for (const [nodeId, node] of model.graph.nodes) {
-        totalPoints++;
-       
-        if (node.morphology?.contour && node.morphology.contour.length > 0) {
-            pointsWithContour++;
-            if (pointsWithContour <= 3) {
-                console.log(`   ✅ Точка ${nodeId.substring(0,12)}: контур ЕСТЬ (${node.morphology.contour.length} точек)`);
-            }
-        }
-       
-        if (node.sourceContours && node.sourceContours.length > 0) {
-            pointsWithHistory++;
-            totalHistoryItems += node.sourceContours.length;
-            if (pointsWithHistory <= 3) {
-                console.log(`   📜 Точка ${nodeId.substring(0,12)}: история ${node.sourceContours.length} контуров`);
-                const first = node.sourceContours[0];
-                console.log(`      - тип: ${first.type}, уверенность: ${(first.confidence*100).toFixed(0)}%, точек: ${first.points?.length || 0}`);
-            }
-        }
-    }
-   
-    console.log(`\n📊 ИТОГ ДИАГНОСТИКИ КОНТУРОВ:`);
-    console.log(`   • Всего точек в модели: ${totalPoints}`);
-    console.log(`   • Точек с контуром: ${pointsWithContour}`);
-    console.log(`   • Точек с историей: ${pointsWithHistory}`);
-    console.log(`   • Всего элементов истории: ${totalHistoryItems}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
-   // if (this.debug) {
+        console.log(`\n📊 ИТОГ ДИАГНОСТИКИ КОНТУРОВ:`);
+        console.log(`   • Всего точек в модели: ${totalPoints}`);
+        console.log(`   • Точек с контуром: ${pointsWithContour}`);
+        console.log(`   • Точек с историей: ${pointsWithHistory}`);
+        console.log(`   • Всего элементов истории: ${totalHistoryItems}`);
+        // ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
         console.log(`\n📊 Результат обновления модели:`);
         console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
         console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
         console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
-  //  }
-    // 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ (с диагностикой)
-    const updatedModelPoints = Array.from(model.graph.nodes.values()).map(node => {
-        return {
-            id: node.id,
-            x: node.x,
-            y: node.y,
-            confirmationCount: node.confirmationCount || 1,
-            morphology: node.morphology || null,
-            sourceContours: node.sourceContours || [],
-            addedFrom: node.addedFrom || 'updated',
-            addedAt: node.addedAt || new Date(),
-            originalPhotoId: node.originalPhotoId || null,
-            confidence: node.morphology?.confidence || 0.5
-        };
-    });
 
-    // 🔥 ДИАГНОСТИКА (используем другое имя переменной)
-    const modelPointsWithContour = updatedModelPoints.filter(p => p.morphology?.contour).length;
-    console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с контуром: ${modelPointsWithContour}`);
+        // 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ (с диагностикой)
+        const updatedModelPoints = Array.from(model.graph.nodes.values()).map(node => {
+            return {
+                id: node.id,
+                x: node.x,
+                y: node.y,
+                confirmationCount: node.confirmationCount || 1,
+                morphology: node.morphology || null,
+                sourceContours: node.sourceContours || [],
+                addedFrom: node.addedFrom || 'updated',
+                addedAt: node.addedAt || new Date(),
+                originalPhotoId: node.originalPhotoId || null,
+                confidence: node.morphology?.confidence || 0.5
+            };
+        });
 
-    model.points = updatedModelPoints;
+        const modelPointsWithContour = updatedModelPoints.filter(p => p.morphology?.contour).length;
+        console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с контуром: ${modelPointsWithContour}`);
 
-    return { confirmedExisting, newNodesAdded };
-    }
+        model.points = updatedModelPoints;
+
+        return { confirmedExisting, newNodesAdded };
+    }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
     console.log(`\n🔍 enhanceExistingModel: НАЧАЛО, modelId=${modelId?.slice(0,12)}`);
