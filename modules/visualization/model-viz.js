@@ -498,8 +498,18 @@ class ModelVisualization {
         ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
         ctx.lineWidth = 1;
 
+        // 🔥 Защита от дубликатов
+        const drawnEdges = new Set();
         let drawn = 0;
+        let skipped = 0;
+       
         for (const edge of edges) {
+            if (drawnEdges.has(edge)) {
+                skipped++;
+                continue;
+            }
+            drawnEdges.add(edge);
+           
             const [id1, id2] = edge.split('--');
             const p1 = pointsMap.get(id1);
             const p2 = pointsMap.get(id2);
@@ -519,7 +529,7 @@ class ModelVisualization {
         }
        
         if (drawn > 0) {
-            console.log(`   🔗 Нарисовано рёбер: ${drawn}`);
+            console.log(`   🔗 Нарисовано рёбер: ${drawn}${skipped > 0 ? ` (пропущено дубликатов: ${skipped})` : ''}`);
         }
     }
 
