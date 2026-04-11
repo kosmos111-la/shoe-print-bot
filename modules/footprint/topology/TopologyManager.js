@@ -320,7 +320,16 @@ return {
             return null;
         }
 
-        const graph = model.graph;
+         const graph = model.graph;
+   
+    // 🔥 ПРОВЕРЯЕМ, ЧТО triangleList АКТУАЛЕН
+    if (!graph.triangleList || graph.triangleList.length === 0) {
+        console.log(`   ⚠️ triangleList пуст, пересчитываю...`);
+        this.accumulator.recalculateTriangles(graph);
+    }
+   
+    const triangles = graph.triangleList || [];
+    console.log(`   📊 getAccumulativeVisualizationData: triangles.length = ${triangles.length}`);
        
         // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ поля, включая morphology и sourceContours
         const points = Array.from(graph.nodes.values()).map(node => ({
