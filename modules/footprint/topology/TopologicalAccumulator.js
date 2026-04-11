@@ -4873,7 +4873,8 @@ recalculateTriangles(graph) {
         }
     }
    
-    graph.triangleList = triangleList;
+     graph.triangleList = triangleList;
+    console.log(`   📊 recalculateTriangles: ${triangleList.length} треугольников`);
    
     // Подсчёт треугольников для каждой точки
     for (const tri of triangleList) {
