@@ -1487,12 +1487,13 @@ existingModel.graph.nodes.set(newNodeId, {
     x: photoPoint.x,
     y: photoPoint.y,
     degree: 0,
+    triangles: 0,  // 🔥 ЯВНО УСТАНАВЛИВАЕМ
     morphology: morphologyMap.get(photoPoint.id),
     confirmationCount: 1,
     addedFrom: 'unique_photo_point',
     addedAt: new Date(),
     originalPhotoId: photoPoint.id
-});
+})
 uniqueAddedCount++;
 // Добавляем новую точку в Set, чтобы она не получила повторное подтверждение
 updatedModelPointsThisPhoto.add(newNodeId);
@@ -1528,6 +1529,8 @@ if (uniqueAddedCount > 0) {
         confidence: node.confirmationCount > 0 ? 0.8 : 0.5
     }));
 
+    console.log(`   📊 allPoints.length = ${allPoints.length} (должно быть ${existingModel.graph.nodes.size})`);
+
     const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
 
     // 🔥 Копируем данные из старого графа в новый
@@ -1545,7 +1548,7 @@ if (uniqueAddedCount > 0) {
 
     existingModel.graph = newGraph;
 
-    // 🔥 ОБЯЗАТЕЛЬНО ПЕРЕСЧИТЫВАЕМ TRIANGLES
+    // 🔥 ПРИНУДИТЕЛЬНО ПЕРЕСЧИТЫВАЕМ TRIANGLES
     this.recalculateTriangles(existingModel.graph);
 
     // Обновляем points в модели
@@ -1562,7 +1565,7 @@ if (uniqueAddedCount > 0) {
         confidence: node.morphology?.confidence || 0.5
     }));
 
-    console.log(`   ✅ Граф перестроен: ${newGraph.nodes.size} узлов, ${newGraph.edges.size} рёбер`);
+    console.log(`   ✅ Граф перестроен: ${newGraph.nodes.size} узлов, ${newGraph.edges.size} rёбер`);
     console.log(`   💾 model.points обновлены: ${existingModel.points.length} точек`);
 }
 
@@ -3342,17 +3345,17 @@ if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
                 // 🔥 НОВОЕ: Получаем морфологию и контур для новой точки
                 const newMorph = newMorphology?.get(photoPoint.id);
 
-                model.graph.nodes.set(newNodeId, {
+                odel.graph.nodes.set(newNodeId, {
                     id: newNodeId,
                     x: photoPoint.x,
                     y: photoPoint.y,
                     degree: 0,
+                    triangles: 0,  // 🔥 ЯВНО УСТАНАВЛИВАЕМ
                     morphology: newMorph || {},
                     confirmationCount: 1,
                     addedFrom: 'new_photo_point',
                     addedAt: new Date(),
                     originalPhotoId: photoPoint.id,
-                    // 🔥 НОВОЕ: Инициализируем историю контуров
                     sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
                         points: newMorph.contour,
                         confidence: newMorph.confidence || 0.5,
@@ -5378,38 +5381,67 @@ rebuildGraphFromPoints(points) {
 */
 recalculateTriangles(graph) {
     if (!graph || !graph.nodes || !graph.edges) {
-        console.log(`   ⚠️ Невозможно пересчитать triangles: граф повреждён`);
+        console.log('   ⚠️ recalculateTriangles: нет графа');
         return;
     }
    
-    const trianglesCount = this.countTriangles(graph);
+    console.log(`   📐 recalculateTriangles: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
    
-    let updatedCount = 0;
-    let maxTriangles = 0;
-    let minTriangles = Infinity;
-    let totalTriangles = 0;
+    // Сбрасываем triangles у всех узлов
+    for (const node of graph.nodes.values()) {
+        node.triangles = 0;
+    }
    
-    for (const [nodeId, count] of trianglesCount) {
-        const node = graph.nodes.get(nodeId);
-        if (node) {
-            node.triangles = count;
-            updatedCount++;
-            totalTriangles += count;
-            if (count > maxTriangles) maxTriangles = count;
-            if (count < minTriangles) minTriangles = count;
+    // Строим triangleList
+    const nodeIds = Array.from(graph.nodes.keys());
+    const edgesSet = graph.edges;
+    const triangleList = [];
+   
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
+               
+                const ab = [a, b].sort().join('--');
+                const bc = [b, c].sort().join('--');
+                const ca = [c, a].sort().join('--');
+               
+                if (edgesSet.has(ab) && edgesSet.has(bc) && edgesSet.has(ca)) {
+                    triangleList.push([a, b, c]);
+                }
+            }
         }
     }
    
-    const avgTriangles = updatedCount > 0 ? (totalTriangles / updatedCount).toFixed(1) : 0;
+    graph.triangleList = triangleList;
    
-    console.log(`   📐 Triangles пересчитаны для ${updatedCount} узлов`);
-    console.log(`   📊 Статистика triangles: среднее ${avgTriangles}, макс ${maxTriangles}, мин ${minTriangles}`);
+    // Подсчёт треугольников для каждой точки
+    for (const tri of triangleList) {
+        for (const v of tri) {
+            const node = graph.nodes.get(v);
+            if (node) {
+                node.triangles = (node.triangles || 0) + 1;
+            }
+        }
+    }
    
-    // 🔥 ДИАГНОСТИКА: сколько узлов имеют triangles > 0
-    const nodesWithTriangles = Array.from(graph.nodes.values()).filter(n => (n.triangles || 0) > 0).length;
+    // 🔥 ДИАГНОСТИКА
+    let nodesWithTriangles = 0;
+    let blueNodesWithTriangles = 0;
+    for (const node of graph.nodes.values()) {
+        if (node.triangles > 0) {
+            nodesWithTriangles++;
+            if (node.id && node.id.startsWith('node_')) {
+                blueNodesWithTriangles++;
+            }
+        }
+    }
+   
+    console.log(`   📊 recalculateTriangles: ${triangleList.length} треугольников`);
     console.log(`   📊 Узлов с triangles > 0: ${nodesWithTriangles} / ${graph.nodes.size}`);
-   
-    return trianglesCount;
+    console.log(`   📊 Синих (node_) с triangles > 0: ${blueNodesWithTriangles}`);
 }
      /**
      * Подсчитывает количество треугольников для каждой точки графа
