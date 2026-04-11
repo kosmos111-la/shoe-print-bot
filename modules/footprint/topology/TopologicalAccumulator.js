@@ -1520,16 +1520,16 @@ console.log(`   📊 ПОСЛЕ добавления (до перестрое�
 // 🔥 ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК — ПЕРЕСТРАИВАЕМ ГРАФ
 if (uniqueAddedCount > 0) {
     console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА ПОСЛЕ ДОБАВЛЕНИЯ ${uniqueAddedCount} НОВЫХ ТОЧЕК`);
-   
+
     const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
         id: node.id,
         x: node.x,
         y: node.y,
         confidence: node.confirmationCount > 0 ? 0.8 : 0.5
     }));
-   
+
     const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
-   
+
     // 🔥 Копируем данные из старого графа в новый
     for (const [nodeId, oldNode] of existingModel.graph.nodes) {
         const newNode = newGraph.nodes.get(nodeId);
@@ -1542,12 +1542,12 @@ if (uniqueAddedCount > 0) {
             newNode.originalPhotoId = oldNode.originalPhotoId || null;
         }
     }
-   
+
     existingModel.graph = newGraph;
-   
-    // 🔥 ПЕРЕСЧИТЫВАЕМ TRIANGLES
+
+    // 🔥 ОБЯЗАТЕЛЬНО ПЕРЕСЧИТЫВАЕМ TRIANGLES
     this.recalculateTriangles(existingModel.graph);
-   
+
     // Обновляем points в модели
     existingModel.points = Array.from(newGraph.nodes.values()).map(node => ({
         id: node.id,
@@ -1561,107 +1561,12 @@ if (uniqueAddedCount > 0) {
         originalPhotoId: node.originalPhotoId || null,
         confidence: node.morphology?.confidence || 0.5
     }));
-   
+
     console.log(`   ✅ Граф перестроен: ${newGraph.nodes.size} узлов, ${newGraph.edges.size} рёбер`);
     console.log(`   💾 model.points обновлены: ${existingModel.points.length} точек`);
 }
 
-// 🔥 ПЕРЕСТРАИВАЕМ ГРАФ ПОСЛЕ ДОБАВЛЕНИЯ НОВЫХ ТОЧЕК
-if (uniqueAddedCount > 0) {
-    if (this.debug) console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА после добавления ${uniqueAddedCount} точек...`);
-
-    // ========== ДИАГНОСТИКА ПЕРЕД ПЕРЕСТРОЕНИЕМ ==========
-    let redBeforeRebuild = 0, orangeBeforeRebuild = 0, yellowBeforeRebuild = 0, blueBeforeRebuild = 0;
-    for (const node of existingModel.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redBeforeRebuild++;
-        else if (count === 3) orangeBeforeRebuild++;
-        else if (count === 2) yellowBeforeRebuild++;
-        else if (count === 1) blueBeforeRebuild++;
-    }
-    console.log(`   📊 ПЕРЕД перестроением: красных ${redBeforeRebuild}, оранж ${orangeBeforeRebuild}, жёлт ${yellowBeforeRebuild}, син ${blueBeforeRebuild}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-
-    const allPoints = Array.from(existingModel.graph.nodes.values()).map(node => ({
-        id: node.id,
-        x: node.x,
-        y: node.y,
-        confidence: node.confirmationCount > 0 ? 0.8 : 0.5
-    }));
-
-    const newGraph = this.graphBuilder.buildGraph(allPoints, 'model_update');
-
-    // Обновляем рёбра
-    existingModel.graph.edges = newGraph.edges;
-
-    // Пересчитываем степени
-    for (const node of existingModel.graph.nodes.values()) {
-        node.degree = 0;
-        node.triangles = 0;
-    }
-
-    for (const edge of existingModel.graph.edges) {
-        const [a, b] = edge.split('--');
-        if (existingModel.graph.nodes.has(a)) existingModel.graph.nodes.get(a).degree++;
-        if (existingModel.graph.nodes.has(b)) existingModel.graph.nodes.get(b).degree++;
-    }
-
-    // ЯВНО ПЕРЕСТРАИВАЕМ triangleList ИЗ РЁБЕР
-    const nodeIds = Array.from(existingModel.graph.nodes.keys());
-    const edgesSet = existingModel.graph.edges;
-    const newTriangleList = [];
-
-    for (let i = 0; i < nodeIds.length; i++) {
-        for (let j = i + 1; j < nodeIds.length; j++) {
-            for (let k = j + 1; k < nodeIds.length; k++) {
-                const a = nodeIds[i];
-                const b = nodeIds[j];
-                const c = nodeIds[k];
-
-                const ab = [a, b].sort().join('--');
-                const bc = [b, c].sort().join('--');
-                const ca = [c, a].sort().join('--');
-
-                if (edgesSet.has(ab) && edgesSet.has(bc) && edgesSet.has(ca)) {
-                    newTriangleList.push([a, b, c]);
-                }
-            }
-        }
-    }
-
-    existingModel.graph.triangleList = newTriangleList;
-
-    // Подсчёт треугольников для каждой точки
-    const triangleCounts = new Map();
-    for (const nodeId of nodeIds) {
-        triangleCounts.set(nodeId, 0);
-    }
-
-    for (const tri of newTriangleList) {
-        for (const v of tri) {
-            triangleCounts.set(v, (triangleCounts.get(v) || 0) + 1);
-        }
-    }
-
-    for (const [nodeId, count] of triangleCounts) {
-        if (existingModel.graph.nodes.has(nodeId)) {
-            existingModel.graph.nodes.get(nodeId).triangles = count;
-        }
-    }
-
-    // ========== ДИАГНОСТИКА ПОСЛЕ ПЕРЕСТРОЕНИЯ ==========
-    let redAfterRebuild = 0, orangeAfterRebuild = 0, yellowAfterRebuild = 0, blueAfterRebuild = 0;
-    for (const node of existingModel.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redAfterRebuild++;
-        else if (count === 3) orangeAfterRebuild++;
-        else if (count === 2) yellowAfterRebuild++;
-        else if (count === 1) blueAfterRebuild++;
-    }
-    console.log(`   📊 ПОСЛЕ перестроения: красных ${redAfterRebuild}, оранж ${orangeAfterRebuild}, жёлт ${yellowAfterRebuild}, син ${blueAfterRebuild}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-}
-                 
+                
 // Сохраняем для диагностики (опционально)
 if (!this.lastUniqueInPhoto) {
     this.lastUniqueInPhoto = [];
