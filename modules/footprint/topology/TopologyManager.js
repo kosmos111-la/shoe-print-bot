@@ -371,7 +371,16 @@ console.log(`   📊 getAccumulativeVisualizationData: triangles.length = ${tr
         }
         console.log(`   📊 getAccumulativeVisualizationData: точек с контуром ${pointsWithContour}, с историей ${pointsWithHistory}`);
 
-        const edges = Array.from(graph.edges);
+        // 🔥 ПЕРЕСЧИТЫВАЕМ РЁБРА ИЗ ТРЕУГОЛЬНИКОВ (гарантия Делоне, без пересечений)
+        const edgesSet = new Set();
+        for (const tri of triangles) {
+            if (!tri || !tri.p1 || !tri.p2 || !tri.p3) continue;
+            edgesSet.add([tri.p1.id, tri.p2.id].sort().join('--'));
+            edgesSet.add([tri.p2.id, tri.p3.id].sort().join('--'));
+            edgesSet.add([tri.p3.id, tri.p1.id].sort().join('--'));
+        }
+        const edges = Array.from(edgesSet);
+        console.log(`   📊 Рёбра пересчитаны из треугольников: ${edges.length} (в графе было ${graph.edges?.size || 0})`);
        
         // Получаем структуры
         const structures = (model.structures || []).map(s => ({
