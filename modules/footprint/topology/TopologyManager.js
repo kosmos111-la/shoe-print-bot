@@ -328,8 +328,22 @@ return {
         this.accumulator.recalculateTriangles(graph);
     }
    
-    const triangles = graph.triangleList || [];
-    console.log(`   📊 getAccumulativeVisualizationData: triangles.length = ${triangles.length}`);
+    // 🔥 ПРЕОБРАЗУЕМ triangleList (массив [id1, id2, id3]) в объекты {p1, p2, p3}
+const triangles = (graph.triangleList || []).map(tri => {
+    if (!tri || tri.length < 3) return null;
+    const p1 = graph.nodes.get(tri[0]);
+    const p2 = graph.nodes.get(tri[1]);
+    const p3 = graph.nodes.get(tri[2]);
+   
+    if (!p1 || !p2 || !p3) {
+        console.log(`   ⚠️ Треугольник с несуществующими точками: ${tri[0]}, ${tri[1]}, ${tri[2]}`);
+        return null;
+    }
+   
+    return { p1, p2, p3 };
+}).filter(t => t !== null);
+
+console.log(`   📊 getAccumulativeVisualizationData: triangles.length = ${triangles.length}`);
        
         // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ поля, включая morphology и sourceContours
         const points = Array.from(graph.nodes.values()).map(node => ({
