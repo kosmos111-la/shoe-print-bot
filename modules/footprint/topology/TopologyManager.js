@@ -370,8 +370,8 @@ return {
             rays: s.rays || []
         }));
 
-        // Получаем треугольники
-        const triangles = this.accumulator.extractTrianglesFromGraph(graph);
+        // 🔥 ТРЕУГОЛЬНИКИ УЖЕ ПОЛУЧЕНЫ ВЫШЕ — ИСПОЛЬЗУЕМ ИХ
+        // const triangles = ... // УДАЛЕНО!
 
         // Получаем pointToStructure
         const pointToStructure = model.pointToStructure || new Map();
