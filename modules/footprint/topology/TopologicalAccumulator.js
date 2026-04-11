@@ -4893,7 +4893,23 @@ recalculateTriangles(graph) {
             nodesWithTriangles++;
         }
     }
+     console.log(`   📐 recalculateTriangles: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
+    console.log(`   📊 recalculateTriangles: ${triangleList.length} треугольников`);
     console.log(`   📊 Узлов с triangles > 0: ${nodesWithTriangles} / ${graph.nodes.size}`);
+   
+    // 🔥 ДИАГНОСТИКА: проверяем, что рёбра не дублируются
+    const edgeKeys = new Set();
+    let duplicateEdges = 0;
+    for (const edge of graph.edges) {
+        if (edgeKeys.has(edge)) {
+            duplicateEdges++;
+        } else {
+            edgeKeys.add(edge);
+        }
+    }
+    if (duplicateEdges > 0) {
+        console.log(`   ⚠️ Обнаружено ${duplicateEdges} дублирующихся рёбер!`);
+    }
 }
      /**
      * Подсчитывает количество треугольников для каждой точки графа
