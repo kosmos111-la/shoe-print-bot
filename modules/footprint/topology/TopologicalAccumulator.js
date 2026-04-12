@@ -1834,10 +1834,10 @@ if (this.debug && finalValidatedMatches && finalValidatedMatches.length > 0) {
                
                 // 3. Добавляем НОВЫЕ точки из фото (которые не нашли соответствий)
                 const matchedPhotoIds = new Set(finalValidatedMatches.map(m => m.pointA));
-                const unmatchedPhotoPoints = points.filter(p => !matchedPhotoIds.has(p.id));
+                const newUnmatchedPhotoPoints = points.filter(p => !matchedPhotoIds.has(p.id));
                
                 let newPointsAdded = 0;
-                for (const photoPoint of unmatchedPhotoPoints) {
+                for (const photoPoint of newUnmatchedPhotoPoints) {
                     // Применяем transform
                     const projected = finalTransform
                         ? this.applyTransform(photoPoint, finalTransform)
