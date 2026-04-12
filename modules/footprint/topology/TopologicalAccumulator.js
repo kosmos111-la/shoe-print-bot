@@ -2694,14 +2694,13 @@ extractPointsFromModel(model) {
             const modelNode = model.graph.nodes.get(match.pointB);
             if (modelNode) {
                 // 🔥 ФИЛЬТРАЦИЯ ПО МОРФОЛОГИИ (отсеиваем шумные точки)
-                const newMorph = newMorphology?.get(match.pointA);
+                const morphForFilter = newMorphology?.get(match.pointA);
                 const modelMorph = modelNode.morphology;
                
                 let skipDueToMorphology = false;
                
-                if (newMorph && modelMorph && newMorph.hasContour && modelMorph.hasContour) {
-                    // Проверка площади
-                    const newArea = newMorph.normalizedArea || 1;
+                if (morphForFilter && modelMorph && morphForFilter.hasContour && modelMorph.hasContour) {
+                    const newArea = morphForFilter.normalizedArea || 1;
                     const modelArea = modelMorph.normalizedArea || 1;
                     const areaRatio = newArea / modelArea;
                    
@@ -2710,9 +2709,8 @@ extractPointsFromModel(model) {
                         skipDueToMorphology = true;
                     }
                    
-                    // Проверка эксцентриситета (если не отклонён по площади)
                     if (!skipDueToMorphology) {
-                        const newEcc = newMorph.eccentricity || 0.5;
+                        const newEcc = morphForFilter.eccentricity || 0.5;
                         const modelEcc = modelMorph.eccentricity || 0.5;
                         const eccDiff = Math.abs(newEcc - modelEcc);
                        
@@ -2722,9 +2720,8 @@ extractPointsFromModel(model) {
                         }
                     }
                    
-                    // Проверка компактности (если не отклонён)
                     if (!skipDueToMorphology) {
-                        const newComp = newMorph.compactness || 1;
+                        const newComp = morphForFilter.compactness || 1;
                         const modelComp = modelMorph.compactness || 1;
                         const compRatio = newComp / modelComp;
                        
@@ -2736,7 +2733,7 @@ extractPointsFromModel(model) {
                 }
                
                 if (skipDueToMorphology) {
-                    continue;  // Пропускаем этот match полностью
+                    continue;
                 }
                
                 // Проверяем, не обновляли ли уже эту точку в этом фото
@@ -2748,7 +2745,8 @@ extractPointsFromModel(model) {
                
                 const oldCount = modelNode.confirmationCount || 1;
                 const newCount = oldCount + 1;
-
+               
+              
                 // ========== ДИАГНОСТИКА ==========
                 if (newCount >= 4 && oldCount < 4) {
                     console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
