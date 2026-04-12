@@ -1430,11 +1430,10 @@ if (this.debug && refinementIteration > 1) {
                             type: 'unique_in_model'
                         }));
 
-                    // Точки только во втором следе (фото)
-                  
-const uniqueInPhoto = points
+                    const uniqueInPhoto = points
     .filter(p => !matchedPointsA.has(p.id))
     .map(p => {
+        // Применяем transform
         const projected = {
             x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
                p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
@@ -1443,11 +1442,41 @@ const uniqueInPhoto = points
                p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
                finalTransform.translation.y
         };
+       
+        // 🔥 НОВОЕ: Ищем ближайшую точку в модели для усреднения
+        let bestMatch = null;
+        let bestDist = Infinity;
+       
+        for (const modelNode of existingModel.graph.nodes.values()) {
+            const dx = modelNode.x - projected.x;
+            const dy = modelNode.y - projected.y;
+            const dist = Math.sqrt(dx*dx + dy*dy);
+           
+            // Ищем точку в радиусе 15 пикселей
+            if (dist < bestDist && dist < 15) {
+                bestDist = dist;
+                bestMatch = modelNode;
+            }
+        }
+       
+        // Если нашли близкую точку — усредняем координаты
+        let finalX = projected.x;
+        let finalY = projected.y;
+       
+        if (bestMatch) {
+            // Усредняем с весом 0.5 (оба источника равнозначны)
+            finalX = (projected.x + bestMatch.x) / 2;
+            finalY = (projected.y + bestMatch.y) / 2;
+           
+            console.log(`   🔄 Усреднение новой точки с существующей: (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)}) + (${bestMatch.x.toFixed(1)}, ${bestMatch.y.toFixed(1)}) → (${finalX.toFixed(1)}, ${finalY.toFixed(1)}) (расст: ${bestDist.toFixed(1)}px)`);
+        }
+       
         return {
             id: p.id,
-            x: projected.x,
-            y: projected.y,
-            type: 'unique_in_photo'
+            x: finalX,
+            y: finalY,
+            type: 'unique_in_photo',
+            wasAveraged: !!bestMatch
         };
     });
 
@@ -2887,10 +2916,43 @@ if (morphForFilter && modelMorph) {
         console.log(`\n📸 Добавляю ${unmatchedPhotoPoints.length} новых точек из фото в модель`);
 
         for (const photoPoint of unmatchedPhotoPoints) {
+            // 🔥 Применяем transform к координатам фото
+            let finalX = photoPoint.x;
+            let finalY = photoPoint.y;
+           
+            if (transform) {
+                const projected = this.applyTransform(photoPoint, transform);
+                finalX = projected.x;
+                finalY = projected.y;
+            }
+           
+            // 🔥 Ищем ближайшую точку в модели для усреднения
+            let bestMatch = null;
+            let bestDist = Infinity;
+           
+            for (const modelNode of model.graph.nodes.values()) {
+                const dx = modelNode.x - finalX;
+                const dy = modelNode.y - finalY;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+               
+                if (dist < bestDist && dist < 15) {
+                    bestDist = dist;
+                    bestMatch = modelNode;
+                }
+            }
+           
+            // Если нашли близкую точку — усредняем
+            if (bestMatch) {
+                finalX = (finalX + bestMatch.x) / 2;
+                finalY = (finalY + bestMatch.y) / 2;
+                console.log(`   🔄 Усреднение новой точки: (${finalX.toFixed(1)}, ${finalY.toFixed(1)}) (расст: ${bestDist.toFixed(1)}px)`);
+            }
+           
+            // Проверка на дубликат с УСРЕДНЁННЫМИ координатами
             let isDuplicate = false;
             for (const modelNode of model.graph.nodes.values()) {
-                const dx = modelNode.x - photoPoint.x;
-                const dy = modelNode.y - photoPoint.y;
+                const dx = modelNode.x - finalX;
+                const dy = modelNode.y - finalY;
                 const dist = Math.sqrt(dx*dx + dy*dy);
                 if (dist < 5) {
                     isDuplicate = true;
@@ -2899,14 +2961,13 @@ if (morphForFilter && modelMorph) {
             }
 
             if (!isDuplicate) {
-                // 🔥 НОВЫЙ ФОРМАТ ID — без node_, все точки равны
                 const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
                 const newMorph = newMorphology?.get(photoPoint.id);
 
                 model.graph.nodes.set(newNodeId, {
                     id: newNodeId,
-                    x: photoPoint.x,
-                    y: photoPoint.y,
+                    x: finalX,  // 🔥 УСРЕДНЁННЫЕ КООРДИНАТЫ
+                    y: finalY,
                     degree: 0,
                     triangles: 0,
                     morphology: newMorph || {},
@@ -2922,7 +2983,7 @@ if (morphForFilter && modelMorph) {
                 });
 
                 newNodesAdded++;
-                if (this.debug) console.log(`      ✅ Добавлена новая точка (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+                if (this.debug) console.log(`      ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
             }
         }
     }
