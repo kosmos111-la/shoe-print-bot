@@ -2693,13 +2693,59 @@ extractPointsFromModel(model) {
         for (const match of deduplicatedMatches) {
             const modelNode = model.graph.nodes.get(match.pointB);
             if (modelNode) {
+                // 🔥 ФИЛЬТРАЦИЯ ПО МОРФОЛОГИИ (отсеиваем шумные точки)
+                const newMorph = newMorphology?.get(match.pointA);
+                const modelMorph = modelNode.morphology;
+               
+                let skipDueToMorphology = false;
+               
+                if (newMorph && modelMorph && newMorph.hasContour && modelMorph.hasContour) {
+                    // Проверка площади
+                    const newArea = newMorph.normalizedArea || 1;
+                    const modelArea = modelMorph.normalizedArea || 1;
+                    const areaRatio = newArea / modelArea;
+                   
+                    if (areaRatio > 2.5 || areaRatio < 0.4) {
+                        console.log(`   🚫 Отклонён match (площадь ${areaRatio.toFixed(2)}x): ${match.pointA?.substring(0,12)} → ${match.pointB?.substring(0,12)}`);
+                        skipDueToMorphology = true;
+                    }
+                   
+                    // Проверка эксцентриситета (если не отклонён по площади)
+                    if (!skipDueToMorphology) {
+                        const newEcc = newMorph.eccentricity || 0.5;
+                        const modelEcc = modelMorph.eccentricity || 0.5;
+                        const eccDiff = Math.abs(newEcc - modelEcc);
+                       
+                        if (eccDiff > 0.4) {
+                            console.log(`   🚫 Отклонён match (эксцентриситет ${eccDiff.toFixed(2)}): ${match.pointA?.substring(0,12)} → ${match.pointB?.substring(0,12)}`);
+                            skipDueToMorphology = true;
+                        }
+                    }
+                   
+                    // Проверка компактности (если не отклонён)
+                    if (!skipDueToMorphology) {
+                        const newComp = newMorph.compactness || 1;
+                        const modelComp = modelMorph.compactness || 1;
+                        const compRatio = newComp / modelComp;
+                       
+                        if (compRatio > 3.0 || compRatio < 0.33) {
+                            console.log(`   🚫 Отклонён match (компактность ${compRatio.toFixed(2)}x): ${match.pointA?.substring(0,12)} → ${match.pointB?.substring(0,12)}`);
+                            skipDueToMorphology = true;
+                        }
+                    }
+                }
+               
+                if (skipDueToMorphology) {
+                    continue;  // Пропускаем этот match полностью
+                }
+               
                 // Проверяем, не обновляли ли уже эту точку в этом фото
                 const alreadyUpdated = updatedThisPhoto && updatedThisPhoto.has(match.pointB);
-
+               
                 if (alreadyUpdated) {
                     console.log(`   🔄 Точка ${match.pointB.substring(0,12)} уже обновлялась, но confirmationCount увеличится`);
                 }
-
+               
                 const oldCount = modelNode.confirmationCount || 1;
                 const newCount = oldCount + 1;
 
