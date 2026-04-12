@@ -2611,6 +2611,26 @@ extractPointsFromModel(model) {
         }
     }
 
+    // 🔥 ДИАГНОСТИКА: синие точки, для которых НЕ БЫЛО match'ей
+    const blueWithoutMatches = [];
+    for (const node of model.graph.nodes.values()) {
+        if (node.confirmationCount === 1) {
+            const hasMatch = allMatchesBeforeDedup.some(m => m.pointB === node.id);
+            if (!hasMatch) {
+                blueWithoutMatches.push(node.id);
+            }
+        }
+    }
+    console.log(`\n🔵 СИНИЕ ТОЧКИ БЕЗ MATCH'ЕЙ (${blueWithoutMatches.length}):`);
+    if (blueWithoutMatches.length > 0) {
+        const maxToShow = Math.min(blueWithoutMatches.length, 10);
+        for (let i = 0; i < maxToShow; i++) {
+            console.log(`   • ${blueWithoutMatches[i]}`);
+        }
+    } else {
+        console.log(`   ✅ Все синие точки имеют match'и!`);
+    }
+
     // 🔥 ДЕДУПЛИКАЦИЯ ПО pointB — НЕ ПЕРЕЗАПИСЫВАЕМ!
     // Сортируем по confidence (по убыванию), чтобы лучшие match'и обрабатывались первыми
     const sortedMatches = [...uniqueMatches].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
