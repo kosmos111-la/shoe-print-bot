@@ -2699,34 +2699,24 @@ extractPointsFromModel(model) {
                
                 let skipDueToMorphology = false;
                
-                if (morphForFilter && modelMorph && morphForFilter.hasContour && modelMorph.hasContour) {
-                    const newArea = morphForFilter.normalizedArea || 1;
-                    const modelArea = modelMorph.normalizedArea || 1;
-                    const areaRatio = newArea / modelArea;
+if (morphForFilter && modelMorph) {
+                    // 🔥 ДИАГНОСТИКА
+                    const hasContour1 = morphForFilter.hasContour;
+                    const hasContour2 = modelMorph.hasContour;
+                    const area1 = morphForFilter.normalizedArea;
+                    const area2 = modelMorph.normalizedArea;
                    
-                    if (areaRatio > 2.5 || areaRatio < 0.4) {
-                        console.log(`   🚫 Отклонён match (площадь ${areaRatio.toFixed(2)}x): ${match.pointA?.substring(0,12)} → ${match.pointB?.substring(0,12)}`);
-                        skipDueToMorphology = true;
-                    }
-                   
-                    if (!skipDueToMorphology) {
-                        const newEcc = morphForFilter.eccentricity || 0.5;
-                        const modelEcc = modelMorph.eccentricity || 0.5;
-                        const eccDiff = Math.abs(newEcc - modelEcc);
+                    if (!hasContour1 || !hasContour2) {
+                        console.log(`   🔍 Фильтр пропущен: hasContour1=${hasContour1}, hasContour2=${hasContour2}`);
+                    } else {
+                        const newArea = area1 || 1;
+                        const modelArea = area2 || 1;
+                        const areaRatio = newArea / modelArea;
                        
-                        if (eccDiff > 0.4) {
-                            console.log(`   🚫 Отклонён match (эксцентриситет ${eccDiff.toFixed(2)}): ${match.pointA?.substring(0,12)} → ${match.pointB?.substring(0,12)}`);
-                            skipDueToMorphology = true;
-                        }
-                    }
-                   
-                    if (!skipDueToMorphology) {
-                        const newComp = morphForFilter.compactness || 1;
-                        const modelComp = modelMorph.compactness || 1;
-                        const compRatio = newComp / modelComp;
+                        console.log(`   🔍 Проверка морфологии: area1=${newArea.toFixed(2)}, area2=${modelArea.toFixed(2)}, ratio=${areaRatio.toFixed(2)}`);
                        
-                        if (compRatio > 3.0 || compRatio < 0.33) {
-                            console.log(`   🚫 Отклонён match (компактность ${compRatio.toFixed(2)}x): ${match.pointA?.substring(0,12)} → ${match.pointB?.substring(0,12)}`);
+                        if (areaRatio > 2.5 || areaRatio < 0.4) {
+                            console.log(`   🚫 Отклонён match (площадь ${areaRatio.toFixed(2)}x): ${match.pointA?.substring(0,12)} → ${match.pointB?.substring(0,12)}`);
                             skipDueToMorphology = true;
                         }
                     }
