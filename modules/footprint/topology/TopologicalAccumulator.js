@@ -1753,14 +1753,177 @@ if (this.debug && finalValidatedMatches && finalValidatedMatches.length > 0) {
     console.log(`   Примеры pointA из matches: ${samplePhotoIds.join(', ')}`);
 }
 
-const updateResult = this.updateModelWithOptimalMatches(
-    modelIdHint,
-    exactGraph,
-    finalValidatedMatches || [],
-    morphologyMap,
-    updatedModelPointsThisPhoto,
-    finalTransform // 🔥 ДОБАВЛЕНО
-);
+// 🔥 ВМЕСТО updateModelWithOptimalMatches — ПОЛНАЯ ПЕРЕСТРОЙКА МОДЕЛИ
+                console.log(`\n🏗️ ПОЛНАЯ ПЕРЕСТРОЙКА МОДЕЛИ...`);
+               
+                // 1. Собираем все точки из старой модели
+                const allPointsMap = new Map();
+               
+                for (const node of existingModel.graph.nodes.values()) {
+                    allPointsMap.set(node.id, {
+                        id: node.id,
+                        x: node.x,
+                        y: node.y,
+                        confirmationCount: node.confirmationCount || 1,
+                        appearances: node.appearances || [node.addedFrom || 'unknown'],
+                        morphology: node.morphology || null,
+                        sourceContours: node.sourceContours || [],
+                        addedFrom: node.addedFrom || 'unknown',
+                        addedAt: node.addedAt || new Date()
+                    });
+                }
+               
+                // 2. Обновляем точки, которые нашли соответствия
+                let updatedCount = 0;
+                const matchedModelIds = new Set();
+               
+                for (const match of finalValidatedMatches) {
+                    const modelPoint = allPointsMap.get(match.pointB);
+                    const photoPoint = exactGraph.nodes.get(match.pointA);
+                   
+                    if (modelPoint && photoPoint) {
+                        matchedModelIds.add(match.pointB);
+                       
+                        // Применяем transform к точке фото
+                        const projected = finalTransform
+                            ? this.applyTransform(photoPoint, finalTransform)
+                            : { x: photoPoint.x, y: photoPoint.y };
+                       
+                        // Усредняем координаты
+                        const oldCount = modelPoint.confirmationCount;
+                        const newCount = oldCount + 1;
+                       
+                        modelPoint.x = (modelPoint.x * oldCount + projected.x) / newCount;
+                        modelPoint.y = (modelPoint.y * oldCount + projected.y) / newCount;
+                        modelPoint.confirmationCount = newCount;
+                        modelPoint.appearances.push(`photo_${Date.now()}`);
+                       
+                        // Обновляем морфологию и контуры
+                        const newMorph = morphologyMap.get(match.pointA);
+                        if (newMorph && newMorph.hasContour) {
+                            // Инициализируем morphology если нет
+                            if (!modelPoint.morphology) {
+                                modelPoint.morphology = {};
+                            }
+                           
+                            const mergeResult = this.morphologyEncoder.mergeContoursWithConfidence(
+                                {
+                                    morphology: modelPoint.morphology,
+                                    confirmationCount: oldCount,
+                                    confidence: modelPoint.morphology.confidence || 0.5,
+                                    sourceContours: modelPoint.sourceContours || []
+                                },
+                                {
+                                    morphology: newMorph,
+                                    confidence: match.confidence || newMorph.confidence || 0.5
+                                },
+                                finalTransform
+                            );
+                           
+                            Object.assign(modelPoint.morphology, mergeResult.finalMorphology);
+                            modelPoint.morphology.contour = mergeResult.finalContour;
+                            modelPoint.morphology.confidence = mergeResult.finalConfidence;
+                            modelPoint.morphology.hasContour = true;
+                            modelPoint.sourceContours = mergeResult.historyContours;
+                        }
+                       
+                        updatedCount++;
+                    }
+                }
+                console.log(`   ✅ Обновлено точек: ${updatedCount}`);
+               
+                // 3. Добавляем НОВЫЕ точки из фото (которые не нашли соответствий)
+                const matchedPhotoIds = new Set(finalValidatedMatches.map(m => m.pointA));
+                const unmatchedPhotoPoints = points.filter(p => !matchedPhotoIds.has(p.id));
+               
+                let newPointsAdded = 0;
+                for (const photoPoint of unmatchedPhotoPoints) {
+                    // Применяем transform
+                    const projected = finalTransform
+                        ? this.applyTransform(photoPoint, finalTransform)
+                        : { x: photoPoint.x, y: photoPoint.y };
+                   
+                    // Проверяем, нет ли уже такой точки рядом
+                    let isDuplicate = false;
+                    for (const existingPoint of allPointsMap.values()) {
+                        const dx = existingPoint.x - projected.x;
+                        const dy = existingPoint.y - projected.y;
+                        const dist = Math.sqrt(dx*dx + dy*dy);
+                        if (dist < 10) {
+                            isDuplicate = true;
+                            break;
+                        }
+                    }
+                   
+                    if (!isDuplicate) {
+                        const newId = `pt_${Date.now()}_${newPointsAdded}`;
+                        const newMorph = morphologyMap.get(photoPoint.id);
+                       
+                        allPointsMap.set(newId, {
+                            id: newId,
+                            x: projected.x,
+                            y: projected.y,
+                            confirmationCount: 1,
+                            appearances: [`photo_${Date.now()}`],
+                            morphology: newMorph || {},
+                            sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
+                                points: newMorph.contour,
+                                confidence: newMorph.confidence || 0.5,
+                                type: 'photo_new'
+                            }] : [],
+                            addedFrom: `photo_${Date.now()}`,
+                            addedAt: new Date()
+                        });
+                       
+                        newPointsAdded++;
+                       
+                        if (this.debug && newPointsAdded <= 5) {
+                            console.log(`   🆕 Новая точка: ${newId} (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)})`);
+                        }
+                    }
+                }
+                console.log(`   ✅ Добавлено новых точек: ${newPointsAdded}`);
+               
+                // 4. Строим НОВЫЙ граф из всех точек
+                const allPointsArray = Array.from(allPointsMap.values());
+                const newGraph = this.graphBuilder.buildGraph(allPointsArray, 'rebuilt_model');
+               
+                // 5. Копируем дополнительные данные в узлы графа
+                for (const point of allPointsArray) {
+                    const node = newGraph.nodes.get(point.id);
+                    if (node) {
+                        node.confirmationCount = point.confirmationCount;
+                        node.morphology = point.morphology;
+                        node.sourceContours = point.sourceContours;
+                        node.appearances = point.appearances;
+                        node.addedFrom = point.addedFrom;
+                        node.addedAt = point.addedAt;
+                    }
+                }
+               
+                // 6. Заменяем граф в модели
+                existingModel.graph = newGraph;
+                existingModel.points = allPointsArray;
+               
+                // 7. Пересчитываем треугольники
+                this.recalculateTriangles(existingModel.graph);
+               
+                // 8. Статистика по цветам
+                let red = 0, orange = 0, yellow = 0, blue = 0;
+                for (const node of existingModel.graph.nodes.values()) {
+                    const count = node.confirmationCount || 0;
+                    if (count >= 4) red++;
+                    else if (count === 3) orange++;
+                    else if (count === 2) yellow++;
+                    else if (count === 1) blue++;
+                }
+                console.log(`   📊 После перестроения: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
+                console.log(`   ✅ Модель перестроена: ${newGraph.nodes.size} узлов, ${newGraph.edges.size} рёбер`);
+               
+                const updateResult = {
+                    confirmedExisting: updatedCount,
+                    newNodesAdded: newPointsAdded
+                };
 
 // Диагностика после updateModelWithOptimalMatches
 // if (this.debug) {
