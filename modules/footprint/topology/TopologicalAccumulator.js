@@ -2924,7 +2924,21 @@ if (morphForFilter && modelMorph) {
 
         model.points = updatedModelPoints;
 
-        return { confirmedExisting, newNodesAdded };
+       // 🔥 ДИАГНОСТИКА: какие синие точки не получили подтверждение
+    const blueNotConfirmed = [];
+    for (const node of model.graph.nodes.values()) {
+        if (node.confirmationCount === 1 && !matchedModelIds.has(node.id)) {
+            blueNotConfirmed.push(node.id);
+        }
+    }
+    if (blueNotConfirmed.length > 0) {
+        console.log(`\n🔵 СИНИЕ ТОЧКИ БЕЗ ПОДТВЕРЖДЕНИЯ (${blueNotConfirmed.length}):`);
+        for (const id of blueNotConfirmed.slice) {
+            console.log(`   • ${id}`);
+        }
+    }
+   
+    return { confirmedExisting, newNodesAdded };
     }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
