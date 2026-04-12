@@ -2577,20 +2577,43 @@ extractPointsFromModel(model) {
             console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
         }
 
-        // 🔥 ДЕДУПЛИКАЦИЯ ПО ПАРАМ pointA|pointB
-        const uniqueMatches = [];
-        const seenPairs = new Set();
-        for (const match of matches) {
-            const key = `${match.pointA}|${match.pointB}`;
-            if (!seenPairs.has(key)) {
-                seenPairs.add(key);
-                uniqueMatches.push(match);
-            }
+         // 🔥 ДЕДУПЛИКАЦИЯ ПО ПАРАМ pointA|pointB
+    const uniqueMatches = [];
+    const seenPairs = new Set();
+    for (const match of matches) {
+        const key = `${match.pointA}|${match.pointB}`;
+        if (!seenPairs.has(key)) {
+            seenPairs.add(key);
+            uniqueMatches.push(match);
         }
+    }
 
-        // 🔥 ДЕДУПЛИКАЦИЯ ПО pointB — НЕ ПЕРЕЗАПИСЫВАЕМ!
-        // Сортируем по confidence (по убыванию), чтобы лучшие match'и обрабатывались первыми
-        const sortedMatches = [...uniqueMatches].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
+    // 🔥 ДИАГНОСТИКА: сохраняем ВСЕ match'и до дедупликации
+    const allMatchesBeforeDedup = [...uniqueMatches];
+    console.log(`\n📋 ВСЕГО MATCH'ЕЙ ДО ДЕДУПЛИКАЦИИ: ${allMatchesBeforeDedup.length}`);
+   
+    // Собираем ID синих точек модели (confirmationCount === 1)
+    const blueModelPointIds = new Set();
+    for (const node of model.graph.nodes.values()) {
+        if (node.confirmationCount === 1) {
+            blueModelPointIds.add(node.id);
+        }
+    }
+    console.log(`📋 Синих точек в модели: ${blueModelPointIds.size}`);
+   
+    const matchesForBlueBefore = allMatchesBeforeDedup.filter(m => blueModelPointIds.has(m.pointB));
+    console.log(`📋 Match'ей для СИНИХ точек ДО дедупликации: ${matchesForBlueBefore.length}`);
+    if (matchesForBlueBefore.length > 0) {
+        console.log(`   Примеры (первые 5):`);
+        for (let i = 0; i < Math.min(matchesForBlueBefore.length, 5); i++) {
+            const m = matchesForBlueBefore[i];
+            console.log(`   • ${m.pointA?.substring(0,12)} → ${m.pointB?.substring(0,12)} (conf: ${m.confidence?.toFixed(3)})`);
+        }
+    }
+
+    // 🔥 ДЕДУПЛИКАЦИЯ ПО pointB — НЕ ПЕРЕЗАПИСЫВАЕМ!
+    // Сортируем по confidence (по убыванию), чтобы лучшие match'и обрабатывались первыми
+    const sortedMatches = [...uniqueMatches].sort((a, b) => (b.confidence || 0) - (a.confidence || 0));
        
         const uniqueByPointB = new Map();
         const usedPointB = new Set();
@@ -2609,19 +2632,41 @@ extractPointsFromModel(model) {
             console.log(`   🔧 Дедупликация по pointB: ${matches.length} → ${finalMatches.length} matches`);
         }
 
-        // ===== ДОПОЛНИТЕЛЬНАЯ ЗАЩИТА: каждая точка модели получает максимум +1 за фото =====
-        const processedPointB = new Set();
-        const trulyUniqueMatches = [];
-        for (const match of finalMatches) {
-            if (!processedPointB.has(match.pointB)) {
-                processedPointB.add(match.pointB);
-                trulyUniqueMatches.push(match);
-            }
+         // Дополнительная защита — каждая точка модели получает максимум +1 за фото
+    const processedPointB = new Set();
+    const trulyUniqueMatches = [];
+    for (const match of finalMatches) {
+        if (!processedPointB.has(match.pointB)) {
+            processedPointB.add(match.pointB);
+            trulyUniqueMatches.push(match);
         }
-        if (finalMatches.length !== trulyUniqueMatches.length) {
-            console.log(`   ⚠️ ВНИМАНИЕ: обнаружены дубликаты pointB! Было ${finalMatches.length}, стало ${trulyUniqueMatches.length}`);
+    }
+    if (finalMatches.length !== trulyUniqueMatches.length) {
+        console.log(`   ⚠️ ВНИМАНИЕ: обнаружены дубликаты pointB! Было ${finalMatches.length}, стало ${trulyUniqueMatches.length}`);
+    }
+    finalMatches = trulyUniqueMatches;
+
+    // 🔥 ДИАГНОСТИКА: сколько match'ей для синих точек ОСТАЛОСЬ после дедупликации
+    const matchesForBlueAfter = finalMatches.filter(m => blueModelPointIds.has(m.pointB));
+    console.log(`\n📋 Match'ей для СИНИХ точек ПОСЛЕ дедупликации: ${matchesForBlueAfter.length}`);
+    if (matchesForBlueAfter.length > 0) {
+        console.log(`   Оставшиеся:`);
+        for (let i = 0; i < Math.min(matchesForBlueAfter.length, 5); i++) {
+            const m = matchesForBlueAfter[i];
+            console.log(`   • ${m.pointA?.substring(0,12)} → ${m.pointB?.substring(0,12)} (conf: ${m.confidence?.toFixed(3)})`);
         }
-        finalMatches = trulyUniqueMatches;
+    }
+   
+    // 🔥 ДИАГНОСТИКА: какие синие точки ПОТЕРЯЛИ свои match'и
+    const lostBlueMatches = matchesForBlueBefore.filter(m => !finalMatches.some(fm => fm.pointB === m.pointB));
+    if (lostBlueMatches.length > 0) {
+        console.log(`\n❌ ПОТЕРЯНО match'ей для синих точек: ${lostBlueMatches.length}`);
+        console.log(`   Примеры:`);
+        for (let i = 0; i < Math.min(lostBlueMatches.length, 5); i++) {
+            const m = lostBlueMatches[i];
+            console.log(`   • ${m.pointA?.substring(0,12)} → ${m.pointB?.substring(0,12)} (conf: ${m.confidence?.toFixed(3)})`);
+        }
+    }
        
         // 🔥 ИСПОЛЬЗУЕМ finalMatches ДАЛЕЕ (НЕ deduplicatedMatches!)
         const deduplicatedMatches = finalMatches;
@@ -2924,7 +2969,7 @@ if (morphForFilter && modelMorph) {
 
         model.points = updatedModelPoints;
 
-       // 🔥 ДИАГНОСТИКА: какие синие точки не получили подтверждение
+       // 🔥 ДИАГНОСТИКА: какие синие точки не получили подтверждение
     const blueNotConfirmed = [];
     for (const node of model.graph.nodes.values()) {
         if (node.confirmationCount === 1 && !matchedModelIds.has(node.id)) {
@@ -2933,8 +2978,9 @@ if (morphForFilter && modelMorph) {
     }
     if (blueNotConfirmed.length > 0) {
         console.log(`\n🔵 СИНИЕ ТОЧКИ БЕЗ ПОДТВЕРЖДЕНИЯ (${blueNotConfirmed.length}):`);
-        for (const id of blueNotConfirmed.slice) {
-            console.log(`   • ${id}`);
+        const maxToShow = Math.min(blueNotConfirmed.length, 10);
+        for (let i = 0; i < maxToShow; i++) {
+            console.log(`   • ${blueNotConfirmed[i]}`);
         }
     }
    
