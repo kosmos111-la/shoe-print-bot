@@ -904,7 +904,6 @@ const magneticPull = async (matches, photoGraph, modelGraph, transform, threshol
 
     // 🔥 ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЛОКАЛЬНОГО TRANSFORM
 const getLocalTransform = (photoPoint, anchors, photoGraph, modelGraph) => {
-    // Находим 3 ближайших якоря к точке фото
     const distances = [];
     for (const [photoId, match] of anchors) {
         const anchorPoint = photoGraph?.nodes?.get(photoId);
@@ -917,24 +916,95 @@ const getLocalTransform = (photoPoint, anchors, photoGraph, modelGraph) => {
     }
    
     distances.sort((a, b) => a.dist - b.dist);
-    const nearest3 = distances.slice(0, 3);
    
-    if (nearest3.length < 3) {
-        return null; // недостаточно якорей, используем глобальный
+    // Пробуем 3 якоря
+    let nearest = distances.slice(0, 3);
+   
+    if (nearest.length >= 3) {
+        // 3 якоря — стандартный transform
+        const localAnchors = nearest.map(d => ({
+            pointA: d.match.pointA,
+            pointB: d.match.modelId,
+            confidence: d.match.confidence || 0.8
+        }));
+       
+        const localTransform = this.validator.calculateTransform(
+            localAnchors, photoGraph, modelGraph
+        );
+       
+        if (localTransform) {
+            if (this.debug && Math.random() < 0.05) {
+                console.log(`   🔧 Локальный transform (3 якоря) для ${photoPoint.id.substring(0,12)}`);
+            }
+            return localTransform;
+        }
     }
    
-    // Вычисляем локальный transform по 3 ближайшим якорям
-    const localAnchors = nearest3.map(d => ({
-        pointA: d.match.pointA,
-        pointB: d.match.modelId,
-        confidence: d.match.confidence || 0.8
-    }));
+    // 2 якоря — интерполяция
+    if (nearest.length >= 2) {
+        const a1 = nearest[0];
+        const a2 = nearest[1];
+       
+        // Вычисляем веса (обратно пропорционально расстоянию)
+        const totalDist = a1.dist + a2.dist;
+        const w1 = (totalDist - a1.dist) / totalDist;
+        const w2 = (totalDist - a2.dist) / totalDist;
+       
+        // Получаем точки
+        const pA1 = photoGraph.nodes.get(a1.match.pointA);
+        const pB1 = modelGraph.nodes.get(a1.match.modelId);
+        const pA2 = photoGraph.nodes.get(a2.match.pointA);
+        const pB2 = modelGraph.nodes.get(a2.match.modelId);
+       
+        if (pA1 && pB1 && pA2 && pB2) {
+            // Вычисляем расстояние между якорями в фото и модели
+            const distPhoto = this.calcDistance(pA1, pA2);
+            const distModel = this.calcDistance(pB1, pB2);
+           
+            // Масштаб (если расстояние > 0)
+            const scale = distPhoto > 0.001 ? distModel / distPhoto : 1.0;
+           
+            // Поворот
+            const anglePhoto = Math.atan2(pA2.y - pA1.y, pA2.x - pA1.x);
+            const angleModel = Math.atan2(pB2.y - pB1.y, pB2.x - pB1.x);
+            const rotation = angleModel - anglePhoto;
+           
+            // Сдвиг (взвешенное среднее)
+            const translation = {
+                x: (pB1.x - (pA1.x * scale * Math.cos(rotation) - pA1.y * scale * Math.sin(rotation))) * w1 +
+                   (pB2.x - (pA2.x * scale * Math.cos(rotation) - pA2.y * scale * Math.sin(rotation))) * w2,
+                y: (pB1.y - (pA1.x * scale * Math.sin(rotation) + pA1.y * scale * Math.cos(rotation))) * w1 +
+                   (pB2.y - (pA2.x * scale * Math.sin(rotation) + pA2.y * scale * Math.cos(rotation))) * w2
+            };
+           
+            if (this.debug && Math.random() < 0.1) {
+                console.log(`   🔧 Интерполированный transform (2 якоря, dist=${a1.dist.toFixed(1)}/${a2.dist.toFixed(1)}) для ${photoPoint.id.substring(0,12)}`);
+            }
+           
+            return { scale, rotation, translation };
+        }
+    }
    
-    const localTransform = this.validator.calculateTransform(
-        localAnchors, photoGraph, modelGraph
-    );
+    // 1 якорь — только сдвиг
+    if (nearest.length >= 1) {
+        const a1 = nearest[0];
+        const pA = photoGraph.nodes.get(a1.match.pointA);
+        const pB = modelGraph.nodes.get(a1.match.modelId);
+       
+        if (pA && pB) {
+            if (this.debug && Math.random() < 0.2) {
+                console.log(`   🔧 Только сдвиг (1 якорь) для ${photoPoint.id.substring(0,12)}`);
+            }
+            return {
+                scale: 1.0,
+                rotation: 0,
+                translation: { x: pB.x - pA.x, y: pB.y - pA.y }
+            };
+        }
+    }
    
-    return localTransform;
+    // Fallback на глобальный transform
+    return null;
 };
 
 for (const match of sortedMatches) {
