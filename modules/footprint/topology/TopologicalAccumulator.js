@@ -5343,14 +5343,57 @@ points[i].confirmationCount = Math.max(points[i].confirmationCount || 1, points[
 */
 rebuildGraphFromPoints(points) {
     console.log(`\n🔧 ПЕРЕСТРОЕНИЕ ГРАФА ИЗ ${points.length} ТОЧЕК`);
-   
+
     if (!points || points.length < 3) {
         console.log('⚠️ Слишком мало точек для построения графа');
         return this.graphBuilder.buildMinimalGraph(points);
     }
-   
+
     const graph = this.graphBuilder.buildGraph(points, 'model_rebuilt');
+
+    // 🔥 НОВОЕ: соединяем изолированные точки
+    const isolatedPoints = [];
+    for (const [nodeId, node] of graph.nodes) {
+        if (node.degree === 0) {
+            isolatedPoints.push(node);
+        }
+    }
    
+    if (isolatedPoints.length > 0) {
+        console.log(`   🔗 Соединяю ${isolatedPoints.length} изолированных точек с ближайшими соседями`);
+       
+        for (const isolated of isolatedPoints) {
+            const distances = [];
+            for (const [otherId, other] of graph.nodes) {
+                if (otherId === isolated.id) continue;
+                const dx = isolated.x - other.x;
+                const dy = isolated.y - other.y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+                distances.push({ id: otherId, dist });
+            }
+            distances.sort((a, b) => a.dist - b.dist);
+           
+            // Добавляем рёбра к 3 ближайшим точкам
+            for (let i = 0; i < Math.min(3, distances.length); i++) {
+                const edge = [isolated.id, distances[i].id].sort().join('--');
+                graph.edges.add(edge);
+            }
+        }
+       
+        // Пересчитываем степени
+        for (const node of graph.nodes.values()) node.degree = 0;
+        for (const edge of graph.edges) {
+            const [a, b] = edge.split('--');
+            if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+            if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+        }
+       
+        // Пересчитываем треугольники
+        this.recalculateTriangles(graph);
+       
+        console.log(`   ✅ После соединения: изолированных ${Array.from(graph.nodes.values()).filter(n => n.degree === 0).length}, рёбер ${graph.edges.size}`);
+    }
+
     for (const point of points) {
         const node = graph.nodes.get(point.id);
         if (node) {
@@ -5362,10 +5405,10 @@ rebuildGraphFromPoints(points) {
             node.originalPhotoId = point.originalPhotoId || null;
         }
     }
-   
+
     // 🔥 ПЕРЕСЧИТЫВАЕМ TRIANGLES
     this.recalculateTriangles(graph);
-   
+
     console.log(`✅ Граф перестроен: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
     return graph;
 }
