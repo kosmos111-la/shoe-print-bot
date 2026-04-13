@@ -5351,6 +5351,13 @@ rebuildGraphFromPoints(points) {
 
     const graph = this.graphBuilder.buildGraph(points, 'model_rebuilt');
 
+    // 🔥 ДИАГНОСТИКА: сколько точек с degree=0
+    let isolatedCount = 0;
+    for (const [nodeId, node] of graph.nodes) {
+        if (node.degree === 0) isolatedCount++;
+    }
+    console.log(`   📊 Изолированных точек после построения: ${isolatedCount}`);
+
     // 🔥 НОВОЕ: соединяем изолированные точки
     const isolatedPoints = [];
     for (const [nodeId, node] of graph.nodes) {
@@ -5391,7 +5398,12 @@ rebuildGraphFromPoints(points) {
         // Пересчитываем треугольники
         this.recalculateTriangles(graph);
        
-        console.log(`   ✅ После соединения: изолированных ${Array.from(graph.nodes.values()).filter(n => n.degree === 0).length}, рёбер ${graph.edges.size}`);
+        // Финальная диагностика
+        let finalIsolated = 0;
+        for (const node of graph.nodes.values()) {
+            if (node.degree === 0) finalIsolated++;
+        }
+        console.log(`   ✅ После соединения: изолированных ${finalIsolated}, рёбер ${graph.edges.size}`);
     }
 
     for (const point of points) {
