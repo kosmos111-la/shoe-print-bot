@@ -630,7 +630,7 @@ console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructu
 
                 const modelImagePath = await modelViz.createVisualization({
     points: points,
-    photoPoints: photoPoints,
+    photoPoints: [],           // ✅ пустой массив для чистой модели
     transform: transform,
     matches: matchMap,
     edges: edges,
