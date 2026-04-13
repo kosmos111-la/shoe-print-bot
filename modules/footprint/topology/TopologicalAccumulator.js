@@ -12,6 +12,7 @@ const TriangleMatcher = require('../matching/TriangleMatcher');
 const PatternAnalyzer = require('../analysis/PatternAnalyzer');
 const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
 const ValidationModule = require('../validation/ValidationModule');
+const { UncertaintyPointManager } = require('./UncertaintyPointManager');
 const StructureManager = require('./StructureManager');
 const AffineRefiner = require('./AffineRefiner');
 
@@ -3125,25 +3126,32 @@ if (morphForFilter && modelMorph) {
 
             if (!isDuplicate) {
                 const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-                const newMorph = newMorphology?.get(photoPoint.id);
 
-                model.graph.nodes.set(newNodeId, {
-                    id: newNodeId,
-                    x: finalX,  // 🔥 УСРЕДНЁННЫЕ КООРДИНАТЫ
-                    y: finalY,
-                    degree: 0,
-                    triangles: 0,
-                    morphology: newMorph || {},
-                    confirmationCount: 1,
-                    addedFrom: 'new_photo_point',
-                    addedAt: new Date(),
-                    originalPhotoId: photoPoint.id,
-                    sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
-                        points: newMorph.contour,
-                        confidence: newMorph.confidence || 0.5,
-                        type: 'photo_new'
-                    }] : []
-                });
+// 🔥 НОВОЕ: добавляем через uncertaintyManager
+model.uncertaintyManager.addObservation(
+    newNodeId, finalX, finalY, newMorph?.confidence || 0.5
+);
+
+const uncertaintyPoint = model.uncertaintyManager.getPoint(newNodeId);
+
+model.graph.nodes.set(newNodeId, {
+    id: newNodeId,
+    x: uncertaintyPoint.x,
+    y: uncertaintyPoint.y,
+    radius: uncertaintyPoint.radius,
+    degree: 0,
+    triangles: 0,
+    morphology: newMorph || {},
+    confirmationCount: 1,
+    addedFrom: 'new_photo_point',
+    addedAt: new Date(),
+    originalPhotoId: photoPoint.id,
+    sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
+        points: newMorph.contour,
+        confidence: newMorph.confidence || 0.5,
+        type: 'photo_new'
+    }] : []
+});
 
                 newNodesAdded++;
                 if (this.debug) console.log(`      ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
@@ -3614,31 +3622,41 @@ const modelPoints = Array.from(exactGraph.nodes.values()).map(node => ({
         }));
 
         const model = {
-            id: modelId,
-            points: modelPoints,  // 🔥 ТОЛЬКО ТОЧКИ, БЕЗ ГРАФА
-            knnGraph: null,
-            knnFingerprints: knnFingerprints,
-            morphologyMap: morphologyMap,
-            originalPoints: originalPoints,
-            patternData: patternData,
-            clusterData: clusterData,
-            metadata: {
-                name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
-                createdAt: new Date(),
-                pointsCount: originalPoints.length,
-                nodesCount: exactGraph.nodes.size,
-                edgesCount: exactGraph.edges.size,
-                photoCount: 1,
-                source: options.source || 'unknown',
-                outlineContour: options.outlineContour || null
-            },
-            history: [{
-                action: 'created',
-                timestamp: new Date(),
-                points: originalPoints.length,
-                nodes: exactGraph.nodes.size
-            }]
-        };
+    id: modelId,
+    points: modelPoints,
+    graph: null,
+    knnGraph: null,
+    knnFingerprints: knnFingerprints,
+    morphologyMap: morphologyMap,
+    originalPoints: originalPoints,
+    patternData: patternData,
+    clusterData: clusterData,
+    // 🔥 НОВОЕ: менеджер облачных точек
+    uncertaintyManager: new UncertaintyPointManager({ debug: this.debug }),
+    metadata: {
+        name: options.name || `Модель_${new Date().toLocaleTimeString('ru-RU')}`,
+        createdAt: new Date(),
+        pointsCount: originalPoints.length,
+        nodesCount: exactGraph.nodes.size,
+        edgesCount: exactGraph.edges.size,
+        photoCount: 1,
+        source: options.source || 'unknown',
+        outlineContour: options.outlineContour || null
+    },
+    history: [{
+        action: 'created',
+        timestamp: new Date(),
+        points: originalPoints.length,
+        nodes: exactGraph.nodes.size
+    }]
+};
+
+// 🔥 НОВОЕ: добавляем точки в uncertaintyManager
+for (const point of modelPoints) {
+    model.uncertaintyManager.addObservation(
+        point.id, point.x, point.y, point.confidence || 0.5
+    );
+}
  // 🔥 СОХРАНЯЕМ КОНТУР В МОДЕЛЬ (если передан)
     if (options.outlineContour) {
         model.metadata.outlineContour = options.outlineContour;
