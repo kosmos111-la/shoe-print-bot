@@ -513,9 +513,14 @@ if (finalContour && Array.isArray(finalContour) && finalContour.length >= 3) {
     }
 
     /**
-     * Внутренний метод усреднения контуров
-     */
-    averageContoursInternal(contourA, contourB) {averageContoursInternal(contourA, contourB, confA = 0.5, confB = 0.5) {
+* Внутренний метод усреднения контуров
+* @param {Array} contourA - первый контур
+* @param {Array} contourB - второй контур 
+* @param {number} confA - уверенность первого контура (0-1)
+* @param {number} confB - уверенность второго контура (0-1)
+* @returns {Array} - результирующий контур
+*/
+averageContoursInternal(contourA, contourB, confA = 0.5, confB = 0.5) {
     if (!contourA || !contourB || contourA.length < 3 || contourB.length < 3) {
         return contourA || contourB || [];
     }
@@ -536,30 +541,31 @@ if (finalContour && Array.isArray(finalContour) && finalContour.length >= 3) {
             return contourB;
         }
     }
-
-        const centerA = this.calculateCentroid(contourA);
-        const centerB = this.calculateCentroid(contourB);
-       
-        const centeredA = contourA.map(p => ({ x: p.x - centerA.x, y: p.y - centerA.y }));
-        const centeredB = contourB.map(p => ({ x: p.x - centerB.x, y: p.y - centerB.y }));
-
-        const sortedA = this.sortPointsByAngle(centeredA);
-        const sortedB = this.sortPointsByAngle(centeredB);
-
-        const resampledA = this.resampleContour(sortedA, 30);
-        const resampledB = this.resampleContour(sortedB, 30);
-       
-        const averaged = [];
-        const len = Math.min(resampledA.length, resampledB.length);
-        for (let i = 0; i < len; i++) {
-            averaged.push({
-                x: (resampledA[i].x + resampledB[i].x) / 2 + centerA.x,
-                y: (resampledA[i].y + resampledB[i].y) / 2 + centerA.y
-            });
-        }
-       
-        return averaged;
+   
+    // Если площади похожи - усредняем
+    const centerA = this.calculateCentroid(contourA);
+    const centerB = this.calculateCentroid(contourB);
+   
+    const centeredA = contourA.map(p => ({ x: p.x - centerA.x, y: p.y - centerA.y }));
+    const centeredB = contourB.map(p => ({ x: p.x - centerB.x, y: p.y - centerB.y }));
+   
+    const sortedA = this.sortPointsByAngle(centeredA);
+    const sortedB = this.sortPointsByAngle(centeredB);
+   
+    const resampledA = this.resampleContour(sortedA, 30);
+    const resampledB = this.resampleContour(sortedB, 30);
+   
+    const averaged = [];
+    const len = Math.min(resampledA.length, resampledB.length);
+    for (let i = 0; i < len; i++) {
+        averaged.push({
+            x: (resampledA[i].x + resampledB[i].x) / 2 + centerA.x,
+            y: (resampledA[i].y + resampledB[i].y) / 2 + centerA.y
+        });
     }
+   
+    return averaged;
+}
 
     /**
      * Применяет аффинное преобразование к точке
