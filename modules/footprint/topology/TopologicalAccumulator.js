@@ -1015,40 +1015,49 @@ for (const match of sortedMatches) {
 
     // 🔥 НОВОЕ: пытаемся получить ЛОКАЛЬНЫЙ transform для этой точки
     let localTransform = getLocalTransform(photoPoint, matchedPhotoMap, photoGraph, modelGraph);
-   
-    let projected;
-    if (localTransform) {
-        // Используем локальный transform
-        projected = {
-            x: photoPoint.x * localTransform.scale * Math.cos(localTransform.rotation) -
-               photoPoint.y * localTransform.scale * Math.sin(localTransform.rotation) +
-               localTransform.translation.x,
-            y: photoPoint.x * localTransform.scale * Math.sin(localTransform.rotation) +
-               photoPoint.y * localTransform.scale * Math.cos(localTransform.rotation) +
-               localTransform.translation.y
-        };
-        if (this.debug && Math.random() < 0.1) {
-            console.log(`   🔧 Локальный transform для точки ${photoPoint.id.substring(0,12)}: масштаб ${localTransform.scale.toFixed(3)}`);
-        }
-    } else {
-        // Fallback на глобальный transform
-        projected = {
-            x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
-               photoPoint.y * transform.scale * Math.sin(transform.rotation) +
-               transform.translation.x,
-            y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
-               photoPoint.y * transform.scale * Math.cos(transform.rotation) +
-               transform.translation.y
-        };
-    }
 
-    // Вычисляем расстояние до точки модели
-    const dx = projected.x - modelPoint.x;
-    const dy = projected.y - modelPoint.y;
-    const dist = Math.sqrt(dx*dx + dy*dy);
+let projected;
+let searchRadiusMultiplier = 1.0;
+
+if (localTransform) {
+    projected = {
+        x: photoPoint.x * localTransform.scale * Math.cos(localTransform.rotation) -
+           photoPoint.y * localTransform.scale * Math.sin(localTransform.rotation) +
+           localTransform.translation.x,
+        y: photoPoint.x * localTransform.scale * Math.sin(localTransform.rotation) +
+           photoPoint.y * localTransform.scale * Math.cos(localTransform.rotation) +
+           localTransform.translation.y
+    };
+    if (this.debug && Math.random() < 0.1) {
+        console.log(`   🔧 Локальный transform для точки ${photoPoint.id.substring(0,12)}: масштаб ${localTransform.scale.toFixed(3)}`);
+    }
+} else {
+    // Fallback на глобальный transform
+    projected = {
+        x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
+           photoPoint.y * transform.scale * Math.sin(transform.rotation) +
+           transform.translation.x,
+        y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
+           photoPoint.y * transform.scale * Math.cos(transform.rotation) +
+           transform.translation.y
+    };
+    // Для глобального transform увеличиваем радиус поиска
+    searchRadiusMultiplier = 1.5;
+    if (this.debug && Math.random() < 0.2) {
+        console.log(`   🌍 Глобальный transform для точки ${photoPoint.id.substring(0,12)} (радиус x${searchRadiusMultiplier})`);
+    }
+}
+
+// Вычисляем расстояние до точки модели
+const dx = projected.x - modelPoint.x;
+const dy = projected.y - modelPoint.y;
+const dist = Math.sqrt(dx*dx + dy*dy);
+
+// 🔥 НОВОЕ: используем увеличенный радиус для глобального transform
+const effectiveThreshold = threshold * searchRadiusMultiplier;
 
         // 🔥 Если точка уже близко — просто сохраняем
-        if (dist < threshold && dist > 0.5) {
+        if (dist < effectiveThreshold && dist > 0.5) {
 
             // Усредняем позицию (взвешенно по уверенности)
             const weight = match.confidence || 0.5;
@@ -1115,7 +1124,7 @@ for (const match of sortedMatches) {
 
             // 🔥 Если у точки нет сопоставленных соседей — не можем проверить топологию, пропускаем
             if (matchedNeighbors.length < 2) {
-                if (this.debug && dist > threshold * 2) {
+                if (this.debug && dist > effectiveThreshold * 2) {
                     console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - мало соседей для проверки`);
                 }
                 pulledMatches.push(match);
@@ -1133,7 +1142,7 @@ for (const match of sortedMatches) {
                 const candidateDy = projected.y - candidatePoint.y;
                 const candidateDist = Math.sqrt(candidateDx*candidateDx + candidateDy*candidateDy);
 
-                if (candidateDist < threshold * 2) { // радиус поиска в 2 раза больше
+                if (candidateDist < effectiveThreshold * 2) { // радиус поиска в 2 раза больше
                     candidates.push({ id: candidateId, point: candidatePoint, dist: candidateDist });
                 }
             }
@@ -1203,7 +1212,7 @@ for (const match of sortedMatches) {
             } else {
                 // Не нашли подходящего кандидата — оставляем как есть
                 topologyRejectedCount++;
-                if (this.debug && dist > threshold * 2) {
+                if (this.debug && dist > effectiveThreshold * 2) {
                     console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - нет подходящего кандидата`);
                 }
                 pulledMatches.push(match);
