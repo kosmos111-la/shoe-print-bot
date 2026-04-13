@@ -525,9 +525,15 @@ if (finalContour && Array.isArray(finalContour) && finalContour.length >= 3) {
        
         const areaDiff = Math.abs(areaA - areaB) / Math.max(areaA, areaB);
         if (areaDiff > 0.3) {
-            console.log(`      📐 Площади различаются на ${(areaDiff*100).toFixed(1)}%, беру больший контур`);
-            return areaA > areaB ? contourA : contourB;
-        }
+    console.log(`      ⚠️ Площади различаются на ${(areaDiff*100).toFixed(1)}% — ЭТО РАЗНЫЕ ТИПЫ ОБЪЕКТОВ!`);
+    // Не усредняем и не берём больший!
+    // Возвращаем тот, у которого выше confidence
+    if (confA > confB) {
+        return { finalContour: contourA, finalConfidence: confA };
+    } else {
+        return { finalContour: contourB, finalConfidence: confB };
+    }
+}
 
         const centerA = this.calculateCentroid(contourA);
         const centerB = this.calculateCentroid(contourB);
