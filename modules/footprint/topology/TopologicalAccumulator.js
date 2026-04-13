@@ -3004,20 +3004,39 @@ if (morphForFilter && modelMorph) {
                 }
 
                 // ========== ОБНОВЛЕНИЕ КООРДИНАТ (только если ещё не обновляли) ==========
-                if (!alreadyUpdated) {
-                    const photoPoint = newGraph.nodes.get(match.pointA);
-                    if (photoPoint && transform) {
-                        const projected = this.applyTransform(photoPoint, transform);
-                        const oldX = modelNode.x;
-                        const oldY = modelNode.y;
-                        modelNode.x = (oldX * oldCount + projected.x) / newCount;
-                        modelNode.y = (oldY * oldCount + projected.y) / newCount;
-
-                        if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
-                            console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)})`);
-                        }
-                    }
-                }
+if (!alreadyUpdated) {
+    const photoPoint = newGraph.nodes.get(match.pointA);
+    if (photoPoint && transform) {
+        const projected = this.applyTransform(photoPoint, transform);
+       
+        // 🔥 НОВОЕ: обновляем через uncertaintyManager
+        const uncertaintyPoint = model.uncertaintyManager?.getPoint(match.pointB);
+        if (uncertaintyPoint) {
+            uncertaintyPoint.updateWithObservation(
+                projected.x, projected.y, match.confidence || 0.5
+            );
+           
+            // Синхронизируем координаты и радиус в modelNode
+            modelNode.x = uncertaintyPoint.x;
+            modelNode.y = uncertaintyPoint.y;
+            modelNode.radius = uncertaintyPoint.radius;
+           
+            if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
+                console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)}) [радиус ${modelNode.radius.toFixed(1)}px]`);
+            }
+        } else {
+            // Fallback: старый метод (на случай, если uncertaintyManager ещё не создан)
+            const oldX = modelNode.x;
+            const oldY = modelNode.y;
+            modelNode.x = (oldX * oldCount + projected.x) / newCount;
+            modelNode.y = (oldY * oldCount + projected.y) / newCount;
+           
+            if (this.debug && (Math.abs(modelNode.x - oldX) > 0.5 || Math.abs(modelNode.y - oldY) > 0.5)) {
+                console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)}) [fallback]`);
+            }
+        }
+    }
+}
 
                 // ========== ОБНОВЛЕНИЕ МОРФОЛОГИИ И КОНТУРОВ ==========
                 const newMorph = newMorphology?.get(match.pointA);
