@@ -629,21 +629,20 @@ console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructu
                 }
 
                 const modelImagePath = await modelViz.createVisualization({
-                    points: points,
-                    photoPoints: [], // 🔥 ИСПРАВЛЕНО: пустой массив вместо неопределённой переменной
-                    transform: null,
-                    matches: matchMap,
-                    edges: edges,
-                    triangles: triangles,
-                    structures: structures,
-                    pointToStructure: pointToStructure,
-                    outlineContour: visualizationData?.outlineContour,
-                    photoOutlineContour: null,
-                    outputPath: outputPath,
-                    width: 1200,
-                    height: 1000
-                });
-
+    points: points,
+    photoPoints: photoPoints,
+    transform: transform,
+    matches: matchMap,
+    edges: edges,
+    triangles: visualizationData?.triangles || [],      // ← ДОБАВИТЬ
+    structures: visualizationData?.structures || [],    // ← ДОБАВИТЬ
+    pointToStructure: visualizationData?.pointToStructure || new Map(),  // ← ДОБАВИТЬ
+    outlineContour: visualizationData?.outlineContour,
+    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'),
+    outputPath: outputPath,
+    width: 1200,
+    height: 1000
+});
 // ========== ДИАГНОСТИКА ПОСЛЕ ВИЗУАЛИЗАЦИИ ЧИСТОЙ МОДЕЛИ ==========
 console.log(`\n🔍 ПОСЛЕ визуализации чистой модели:`);
 const modelAfterCleanViz = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
