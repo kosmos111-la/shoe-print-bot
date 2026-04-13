@@ -3009,6 +3009,10 @@ if (!alreadyUpdated) {
     if (photoPoint && transform) {
         const projected = this.applyTransform(photoPoint, transform);
        
+        // 🔥 ВАЖНО: сохраняем старые координаты ДО обновления
+        const oldX = modelNode.x;
+        const oldY = modelNode.y;
+       
         // 🔥 НОВОЕ: обновляем через uncertaintyManager
         const uncertaintyPoint = model.uncertaintyManager?.getPoint(match.pointB);
         if (uncertaintyPoint) {
@@ -3025,9 +3029,7 @@ if (!alreadyUpdated) {
                 console.log(`   📍 Сдвиг точки ${modelNode.id.substring(0,12)}: (${oldX.toFixed(1)},${oldY.toFixed(1)}) → (${modelNode.x.toFixed(1)},${modelNode.y.toFixed(1)}) [радиус ${modelNode.radius.toFixed(1)}px]`);
             }
         } else {
-            // Fallback: старый метод (на случай, если uncertaintyManager ещё не создан)
-            const oldX = modelNode.x;
-            const oldY = modelNode.y;
+            // Fallback: старый метод
             modelNode.x = (oldX * oldCount + projected.x) / newCount;
             modelNode.y = (oldY * oldCount + projected.y) / newCount;
            
@@ -3901,109 +3903,100 @@ getVisualizationData(modelId = null, reliablePhotoIds = []) {
     const graph = model.graph;
 
     // ========== ДИАГНОСТИКА СОСТОЯНИЯ МОДЕЛИ ==========
-    let redCount = 0, orangeCount = 0, yellowCount = 0, blueCount = 0, grayCount = 0;
-    for (const node of graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) redCount++;
-        else if (count === 3) orangeCount++;
-        else if (count === 2) yellowCount++;
-        else if (count === 1) blueCount++;
-        else grayCount++;
-    }
-    console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,20)}`);
-    console.log(`   Статистика ИЗ МОДЕЛИ: красных ${redCount}, оранж ${orangeCount}, жёлт ${yellowCount}, син ${blueCount}, сер ${grayCount}`);
-    console.log(`   Всего узлов: ${graph.nodes.size}`);
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-  
-   // 🔥 ПОЛУЧАЕМ КОНТУР (ОДИН РАЗ)
+let redCount = 0, orangeCount = 0, yellowCount = 0, blueCount = 0, grayCount = 0;
+for (const node of graph.nodes.values()) {
+    const count = node.confirmationCount || 0;
+    if (count >= 4) redCount++;
+    else if (count === 3) orangeCount++;
+    else if (count === 2) yellowCount++;
+    else if (count === 1) blueCount++;
+    else grayCount++;
+}
+console.log(`\n🔍 getVisualizationData: модель ${targetId.substring(0,20)}`);
+console.log(`   Статистика ИЗ МОДЕЛИ: красных ${redCount}, оранж ${orangeCount}, жёлт ${yellowCount}, син ${blueCount}, сер ${grayCount}`);
+console.log(`   Всего узлов: ${graph.nodes.size}`);
+// ========== КОНЕЦ ДИАГНОСТИКИ ==========
+
     const outlineContour = model.metadata?.outlineContour || null;
 
-   // if (this.debug) {
-        console.log(`\n🔍 getVisualizationData: контур из метаданных:`);
-        console.log(`   outlineContour: ${outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
-        if (outlineContour) {
-            console.log(`   points: ${outlineContour.points?.length || 0}`);
+    const rawStructures = model.structures || [];
+    const pointToStructure = model.pointToStructure || new Map();
+    const structureColors = this.generateStructureColors(rawStructures);
+
+    const structures = rawStructures.filter(s => s && s.id).map(s => ({
+        id: s.id,
+        pointCount: s.pointIds ? s.pointIds.length : 0,
+        pointIds: s.pointIds || [],
+        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
+        transform: s.transform || null,
+        confidence: s.confidence || 0,
+        color: structureColors.get(s.id) || '#CCCCCC',
+        rays: s.rays || [],
+        triangles: s.triangles || []
+    }));
+
+    // 🔥 ИЗМЕНЕНО: явно добавляем radius
+    const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
+        ...node,
+        structureId: pointToStructure.get(node.id) || null,
+        structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null,
+        radius: node.radius || 0  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+    }));
+
+    const pointsByConfirmation = {
+        confirmed3: pointsWithStructure.filter(p => p.confirmationCount >= 3),
+        confirmed2: pointsWithStructure.filter(p => p.confirmationCount === 2),
+        confirmed1: pointsWithStructure.filter(p => p.confirmationCount === 1),
+        confirmed0: pointsWithStructure.filter(p => !p.confirmationCount)
+    };
+
+    const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
+
+    let reliableNodeIds = new Set(reliablePhotoIds);
+    if (reliableNodeIds.size === 0) {
+        for (const [nodeId, node] of graph.nodes) {
+            if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
         }
- //   }
+    }
 
-    const rawStructures = model.structures || [];
-    const pointToStructure = model.pointToStructure || new Map();
-    const structureColors = this.generateStructureColors(rawStructures);
+    const modelTriangles = this.extractTrianglesFromGraph(graph);
 
-    const structures = rawStructures.filter(s => s && s.id).map(s => ({
-        id: s.id,
-        pointCount: s.pointIds ? s.pointIds.length : 0,
-        pointIds: s.pointIds || [],
-        triangleCount: s.triangleIds ? s.triangleIds.length : 0,
-        transform: s.transform || null,
-        confidence: s.confidence || 0,
-        color: structureColors.get(s.id) || '#CCCCCC',
-        rays: s.rays || [],
-        triangles: s.triangles || []
-    }));
+    let confirmedPointsCount = 0;
+    for (const node of graph.nodes.values()) {
+        if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
+    }
+    const stability = graph.nodes.size > 0 ? (confirmedPointsCount / graph.nodes.size * 100).toFixed(1) : 0;
 
-    const pointsWithStructure = Array.from(graph.nodes.values()).map(node => ({
-        ...node,
-        structureId: pointToStructure.get(node.id) || null,
-        structureColor: pointToStructure.has(node.id) ? structureColors.get(pointToStructure.get(node.id)) : null
-    }));
-
-    const pointsByConfirmation = {
-        confirmed3: pointsWithStructure.filter(p => p.confirmationCount >= 3),
-        confirmed2: pointsWithStructure.filter(p => p.confirmationCount === 2),
-        confirmed1: pointsWithStructure.filter(p => p.confirmationCount === 1),
-        confirmed0: pointsWithStructure.filter(p => !p.confirmationCount)
-    };
-
-    const modelMatchMapFromModel = model.lastTriangleResult?.modelMatchMap || new Map();
-
-    let reliableNodeIds = new Set(reliablePhotoIds);
-    if (reliableNodeIds.size === 0) {
-        for (const [nodeId, node] of graph.nodes) {
-            if (node.confirmationCount >= 2) reliableNodeIds.add(nodeId);
-        }
-    }
-
-    const modelTriangles = this.extractTrianglesFromGraph(graph);
-
-   // 🔥 НОВОЕ: считаем подтверждённые точки для метрики (ДО return)
-let confirmedPointsCount = 0;
-for (const node of graph.nodes.values()) {
-    if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
-}
-const stability = graph.nodes.size > 0 ? (confirmedPointsCount / graph.nodes.size * 100).toFixed(1) : 0;
-
-return {
-    modelId: targetId,
-    modelName: model.metadata.name,
-    points: pointsWithStructure,
-    edges: Array.from(graph.edges),
-    structures: structures,
-    triangles: modelTriangles,
-    pointToStructure: pointToStructure,
-    outlineContour: outlineContour,
-    stats: {
-        totalNodes: graph.nodes.size,
-        totalEdges: graph.edges.size,
-        confirmed3: pointsByConfirmation.confirmed3.length,
-        confirmed2: pointsByConfirmation.confirmed2.length,
-        confirmed1: pointsByConfirmation.confirmed1.length,
-        confirmed0: pointsByConfirmation.confirmed0.length,
-        structureCount: structures.length,
-        reliableNodes: reliableNodeIds.size,
-        // 🔥 НОВЫЕ ПОЛЯ
-        uniquePoints: graph.nodes.size,
-        confirmedPoints: confirmedPointsCount,
-        stability: stability
-    },
-    pointsByConfirmation: pointsByConfirmation,
-    metadata: model.metadata,
-    allModels: this.getAllModels(),
-    currentModelId: this.currentModelId,
-    modelMatchMap: modelMatchMapFromModel,
-    transform: model.transform,
-    uniquePoints: model.uniquePoints
-};
+    return {
+        modelId: targetId,
+        modelName: model.metadata.name,
+        points: pointsWithStructure,  // ← теперь points содержат radius
+        edges: Array.from(graph.edges),
+        structures: structures,
+        triangles: modelTriangles,
+        pointToStructure: pointToStructure,
+        outlineContour: outlineContour,
+        stats: {
+            totalNodes: graph.nodes.size,
+            totalEdges: graph.edges.size,
+            confirmed3: pointsByConfirmation.confirmed3.length,
+            confirmed2: pointsByConfirmation.confirmed2.length,
+            confirmed1: pointsByConfirmation.confirmed1.length,
+            confirmed0: pointsByConfirmation.confirmed0.length,
+            structureCount: structures.length,
+            reliableNodes: reliableNodeIds.size,
+            uniquePoints: graph.nodes.size,
+            confirmedPoints: confirmedPointsCount,
+            stability: stability
+        },
+        pointsByConfirmation: pointsByConfirmation,
+        metadata: model.metadata,
+        allModels: this.getAllModels(),
+        currentModelId: this.currentModelId,
+        modelMatchMap: modelMatchMapFromModel,
+        transform: model.transform,
+        uniquePoints: model.uniquePoints
+    };
 }
 
 generateStructureColors(structures) {
