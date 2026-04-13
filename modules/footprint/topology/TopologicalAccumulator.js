@@ -902,14 +902,67 @@ const magneticPull = async (matches, photoGraph, modelGraph, transform, threshol
         matchedModelMap.set(match.pointB, match.pointA);
     }
 
-    for (const match of sortedMatches) {
-        const photoPoint = photoGraph?.nodes?.get(match.pointA);
-        const modelPoint = modelGraph?.nodes?.get(match.pointB);
+    // 🔥 ВСПОМОГАТЕЛЬНАЯ ФУНКЦИЯ ДЛЯ ЛОКАЛЬНОГО TRANSFORM
+const getLocalTransform = (photoPoint, anchors, photoGraph, modelGraph) => {
+    // Находим 3 ближайших якоря к точке фото
+    const distances = [];
+    for (const [photoId, match] of anchors) {
+        const anchorPoint = photoGraph?.nodes?.get(photoId);
+        if (!anchorPoint) continue;
+       
+        const dx = anchorPoint.x - photoPoint.x;
+        const dy = anchorPoint.y - photoPoint.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+        distances.push({ dist, match, anchorPoint });
+    }
+   
+    distances.sort((a, b) => a.dist - b.dist);
+    const nearest3 = distances.slice(0, 3);
+   
+    if (nearest3.length < 3) {
+        return null; // недостаточно якорей, используем глобальный
+    }
+   
+    // Вычисляем локальный transform по 3 ближайшим якорям
+    const localAnchors = nearest3.map(d => ({
+        pointA: d.match.pointA,
+        pointB: d.match.modelId,
+        confidence: d.match.confidence || 0.8
+    }));
+   
+    const localTransform = this.validator.calculateTransform(
+        localAnchors, photoGraph, modelGraph
+    );
+   
+    return localTransform;
+};
 
-        if (!photoPoint || !modelPoint) continue;
+for (const match of sortedMatches) {
+    const photoPoint = photoGraph?.nodes?.get(match.pointA);
+    const modelPoint = modelGraph?.nodes?.get(match.pointB);
 
-        // Проецируем точку фото в пространство модели
-        const projected = {
+    if (!photoPoint || !modelPoint) continue;
+
+    // 🔥 НОВОЕ: пытаемся получить ЛОКАЛЬНЫЙ transform для этой точки
+    let localTransform = getLocalTransform(photoPoint, matchedPhotoMap, photoGraph, modelGraph);
+   
+    let projected;
+    if (localTransform) {
+        // Используем локальный transform
+        projected = {
+            x: photoPoint.x * localTransform.scale * Math.cos(localTransform.rotation) -
+               photoPoint.y * localTransform.scale * Math.sin(localTransform.rotation) +
+               localTransform.translation.x,
+            y: photoPoint.x * localTransform.scale * Math.sin(localTransform.rotation) +
+               photoPoint.y * localTransform.scale * Math.cos(localTransform.rotation) +
+               localTransform.translation.y
+        };
+        if (this.debug && Math.random() < 0.1) {
+            console.log(`   🔧 Локальный transform для точки ${photoPoint.id.substring(0,12)}: масштаб ${localTransform.scale.toFixed(3)}`);
+        }
+    } else {
+        // Fallback на глобальный transform
+        projected = {
             x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
                photoPoint.y * transform.scale * Math.sin(transform.rotation) +
                transform.translation.x,
@@ -917,11 +970,12 @@ const magneticPull = async (matches, photoGraph, modelGraph, transform, threshol
                photoPoint.y * transform.scale * Math.cos(transform.rotation) +
                transform.translation.y
         };
+    }
 
-        // Вычисляем расстояние до точки модели
-        const dx = projected.x - modelPoint.x;
-        const dy = projected.y - modelPoint.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
+    // Вычисляем расстояние до точки модели
+    const dx = projected.x - modelPoint.x;
+    const dy = projected.y - modelPoint.y;
+    const dist = Math.sqrt(dx*dx + dy*dy);
 
         // 🔥 Если точка уже близко — просто сохраняем
         if (dist < threshold && dist > 0.5) {
