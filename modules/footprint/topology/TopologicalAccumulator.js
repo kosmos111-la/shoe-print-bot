@@ -3453,6 +3453,20 @@ console.log(`   • Средняя: ${(sumConf / model.graph.nodes.size).toFix
 console.log(`   • Макс: ${maxConf}, Мин: ${minConf}`);
 console.log(`   • Всего узлов: ${model.graph.nodes.size}`);
 
+// 🔥 ДИАГНОСТИКА АНОМАЛЬНЫХ ТОЧЕК ПО ПЛОЩАДИ
+console.log(`\n⚠️ ДИАГНОСТИКА АНОМАЛЬНЫХ ТОЧЕК (площадь > 5.0):`);
+let anomalyCount = 0;
+for (const node of model.graph.nodes.values()) {
+    const area = node.morphology?.normalizedArea;
+    if (area && area > 5.0) {
+        anomalyCount++;
+        console.log(`   ⚠️ ${anomalyCount}. ${node.id.substring(0,20)}: площадь=${area.toFixed(2)}, подтверждений=${node.confirmationCount}, addedFrom=${node.addedFrom || 'unknown'}`);
+    }
+}
+if (anomalyCount === 0) {
+    console.log(`   ✅ Аномальных точек (площадь > 5.0) не найдено`);
+}
+
 return { confirmedExisting, newNodesAdded };
     }
 
