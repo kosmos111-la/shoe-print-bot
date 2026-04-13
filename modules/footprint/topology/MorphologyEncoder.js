@@ -475,7 +475,7 @@ class MorphologyEncoder {
             console.log(`      ⚠️ newContour повреждён, беру existing`);
             finalContour = existingContour;
         } else {
-            finalContour = this.averageContoursInternal(existingContour, newContour, existingConf, newConf);
+            finalContour = this.averageContoursInternal(existingContour, newContour, existingConf, newConfidence);
         }
         finalConfidence = Math.min(existingConf, newConfidence);
     }
