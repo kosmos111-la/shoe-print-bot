@@ -3412,6 +3412,19 @@ console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с
 
 model.points = updatedModelPoints;
 
+// 🔥 ПРОСТАЯ ДИАГНОСТИКА СИНИХ ТОЧЕК
+let blueCount = 0;
+console.log(`\n🔵 ДИАГНОСТИКА СИНИХ ТОЧЕК В МОДЕЛИ:`);
+for (const node of model.graph.nodes.values()) {
+    if (node.confirmationCount === 1) {
+        blueCount++;
+        if (blueCount <= 10) {
+            console.log(`   🔵 ${blueCount}. ${node.id.substring(0,20)}: (${node.x.toFixed(1)},${node.y.toFixed(1)}), triangles=${node.triangles}, degree=${node.degree}, addedFrom=${node.addedFrom || 'unknown'}`);
+        }
+    }
+}
+console.log(`   📊 ИТОГО СИНИХ ТОЧЕК В МОДЕЛИ: ${blueCount}`);
+
 return { confirmedExisting, newNodesAdded };
     }
 
