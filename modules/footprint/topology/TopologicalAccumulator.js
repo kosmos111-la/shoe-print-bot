@@ -3363,48 +3363,56 @@ model.graph.nodes.set(newNodeId, {
         console.log(`   • Всего элементов истории: ${totalHistoryItems}`);
         // ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
-        console.log(`\n📊 Результат обновления модели:`);
-        console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
-        console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
-        console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
+       console.log(`\n📊 Результат обновления модели:`);
+console.log(`   • Подтверждено существующих: ${confirmedExisting}`);
+console.log(`   • Новых точек добавлено: ${newNodesAdded}`);
+console.log(`   • Всего узлов в модели: ${model.graph.nodes.size}`);
 
-        // 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ (с диагностикой)
-        const updatedModelPoints = Array.from(model.graph.nodes.values()).map(node => {
-            return {
-                id: node.id,
-                x: node.x,
-                y: node.y,
-                confirmationCount: node.confirmationCount || 1,
-                morphology: node.morphology || null,
-                sourceContours: node.sourceContours || [],
-                addedFrom: node.addedFrom || 'updated',
-                addedAt: node.addedAt || new Date(),
-                originalPhotoId: node.originalPhotoId || null,
-                confidence: node.morphology?.confidence || 0.5
-            };
+// 🔥 ФИНАЛЬНАЯ ДИАГНОСТИКА ПОСЛЕ ВСЕХ ОБНОВЛЕНИЙ
+const finalUnmatchedBlue = [];
+for (const node of model.graph.nodes.values()) {
+    if (node.confirmationCount === 1) {
+        finalUnmatchedBlue.push({
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            triangles: node.triangles,
+            degree: node.degree,
+            area: node.morphology?.normalizedArea,
+            confidence: node.morphology?.confidence,
+            addedFrom: node.addedFrom
         });
-
-        const modelPointsWithContour = updatedModelPoints.filter(p => p.morphology?.contour).length;
-        console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с контуром: ${modelPointsWithContour}`);
-
-        model.points = updatedModelPoints;
-
-       // 🔥 ДИАГНОСТИКА: какие синие точки не получили подтверждение
-    const blueNotConfirmed = [];
-    for (const node of model.graph.nodes.values()) {
-        if (node.confirmationCount === 1 && !matchedModelIds.has(node.id)) {
-            blueNotConfirmed.push(node.id);
-        }
     }
-    if (blueNotConfirmed.length > 0) {
-        console.log(`\n🔵 СИНИЕ ТОЧКИ БЕЗ ПОДТВЕРЖДЕНИЯ (${blueNotConfirmed.length}):`);
-        const maxToShow = Math.min(blueNotConfirmed.length, 10);
-        for (let i = 0; i < maxToShow; i++) {
-            console.log(`   • ${blueNotConfirmed[i]}`);
-        }
+}
+if (finalUnmatchedBlue.length > 0) {
+    console.log(`\n🔵 ФИНАЛЬНЫЕ СИНИЕ ТОЧКИ В МОДЕЛИ (${finalUnmatchedBlue.length}):`);
+    for (const ub of finalUnmatchedBlue) {
+        console.log(`   • ${ub.id.substring(0,20)}: (${ub.x.toFixed(1)},${ub.y.toFixed(1)}), triangles=${ub.triangles}, degree=${ub.degree}, area=${ub.area?.toFixed(2)}, conf=${ub.confidence?.toFixed(2)}, addedFrom=${ub.addedFrom}`);
     }
-   
-    return { confirmedExisting, newNodesAdded };
+}
+
+// 🔥 ОБНОВЛЯЕМ points В МОДЕЛИ (с диагностикой)
+const updatedModelPoints = Array.from(model.graph.nodes.values()).map(node => {
+    return {
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        confirmationCount: node.confirmationCount || 1,
+        morphology: node.morphology || null,
+        sourceContours: node.sourceContours || [],
+        addedFrom: node.addedFrom || 'updated',
+        addedAt: node.addedAt || new Date(),
+        originalPhotoId: node.originalPhotoId || null,
+        confidence: node.morphology?.confidence || 0.5
+    };
+});
+
+const modelPointsWithContour = updatedModelPoints.filter(p => p.morphology?.contour).length;
+console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с контуром: ${modelPointsWithContour}`);
+
+model.points = updatedModelPoints;
+
+return { confirmedExisting, newNodesAdded };
     }
 
     async enhanceExistingModel(modelId, newExactGraph, newKNNGraph, newKnnFingerprints, newMorphology, options) {
