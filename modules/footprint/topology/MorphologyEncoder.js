@@ -475,7 +475,7 @@ class MorphologyEncoder {
             console.log(`      ⚠️ newContour повреждён, беру existing`);
             finalContour = existingContour;
         } else {
-            finalContour = this.averageContoursInternal(existingContour, newContour);
+            finalContour = this.averageContoursInternal(existingContour, newContour, existingConf, newConf);
         }
         finalConfidence = Math.min(existingConf, newConfidence);
     }
@@ -515,25 +515,27 @@ if (finalContour && Array.isArray(finalContour) && finalContour.length >= 3) {
     /**
      * Внутренний метод усреднения контуров
      */
-    averageContoursInternal(contourA, contourB) {
-        if (!contourA || !contourB || contourA.length < 3 || contourB.length < 3) {
-            return contourA || contourB || [];
-        }
-       
-        const areaA = this.computePolygonArea(contourA);
-        const areaB = this.computePolygonArea(contourB);
-       
-        const areaDiff = Math.abs(areaA - areaB) / Math.max(areaA, areaB);
-        if (areaDiff > 0.3) {
-    console.log(`      ⚠️ Площади различаются на ${(areaDiff*100).toFixed(1)}% — ЭТО РАЗНЫЕ ТИПЫ ОБЪЕКТОВ!`);
-    // Не усредняем и не берём больший!
-    // Возвращаем тот, у которого выше confidence
-    if (confA > confB) {
-        return { finalContour: contourA, finalConfidence: confA };
-    } else {
-        return { finalContour: contourB, finalConfidence: confB };
+    averageContoursInternal(contourA, contourB) {averageContoursInternal(contourA, contourB, confA = 0.5, confB = 0.5) {
+    if (!contourA || !contourB || contourA.length < 3 || contourB.length < 3) {
+        return contourA || contourB || [];
     }
-}
+   
+    const areaA = this.computePolygonArea(contourA);
+    const areaB = this.computePolygonArea(contourB);
+    const areaDiff = Math.abs(areaA - areaB) / Math.max(areaA, areaB);
+   
+    // 🔥 НОВАЯ ЛОГИКА: большая разница в площади = разные объекты
+    if (areaDiff > 0.35) {  // порог 35%
+        console.log(`      ⚠️ Площади различаются на ${(areaDiff*100).toFixed(1)}% — ЭТО РАЗНЫЕ ТИПЫ ОБЪЕКТОВ!`);
+        // Возвращаем тот, у которого выше уверенность
+        if (confA >= confB) {
+            console.log(`         Беру контур A (уверенность ${(confA*100).toFixed(0)}%)`);
+            return contourA;
+        } else {
+            console.log(`         Беру контур B (уверенность ${(confB*100).toFixed(0)}%)`);
+            return contourB;
+        }
+    }
 
         const centerA = this.calculateCentroid(contourA);
         const centerB = this.calculateCentroid(contourB);
