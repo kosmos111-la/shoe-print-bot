@@ -3412,18 +3412,21 @@ console.log(`   💾 model.points: ${updatedModelPoints.length} точек, с
 
 model.points = updatedModelPoints;
 
-// 🔥 ПРОСТАЯ ДИАГНОСТИКА СИНИХ ТОЧЕК
-let blueCount = 0;
-console.log(`\n🔵 ДИАГНОСТИКА СИНИХ ТОЧЕК В МОДЕЛИ:`);
+// 🔥 ДИАГНОСТИКА СУММЫ ПОДТВЕРЖДЕНИЙ
+let sumConf = 0;
+let maxConf = 0;
+let minConf = Infinity;
 for (const node of model.graph.nodes.values()) {
-    if (node.confirmationCount === 1) {
-        blueCount++;
-        if (blueCount <= 10) {
-            console.log(`   🔵 ${blueCount}. ${node.id.substring(0,20)}: (${node.x.toFixed(1)},${node.y.toFixed(1)}), triangles=${node.triangles}, degree=${node.degree}, addedFrom=${node.addedFrom || 'unknown'}`);
-        }
-    }
+    const cnt = node.confirmationCount || 0;
+    sumConf += cnt;
+    maxConf = Math.max(maxConf, cnt);
+    minConf = Math.min(minConf, cnt);
 }
-console.log(`   📊 ИТОГО СИНИХ ТОЧЕК В МОДЕЛИ: ${blueCount}`);
+console.log(`\n📊 ДИАГНОСТИКА ПОДТВЕРЖДЕНИЙ В МОДЕЛИ:`);
+console.log(`   • Сумма confirmationCount: ${sumConf}`);
+console.log(`   • Средняя: ${(sumConf / model.graph.nodes.size).toFixed(1)}`);
+console.log(`   • Макс: ${maxConf}, Мин: ${minConf}`);
+console.log(`   • Всего узлов: ${model.graph.nodes.size}`);
 
 return { confirmedExisting, newNodesAdded };
     }
@@ -5407,16 +5410,31 @@ rebuildGraphFromPoints(points) {
     }
 
     for (const point of points) {
-        const node = graph.nodes.get(point.id);
-        if (node) {
-            node.confirmationCount = point.confirmationCount || 1;
-            node.morphology = point.morphology || null;
-            node.sourceContours = point.sourceContours || [];
-            node.addedFrom = point.addedFrom || 'original';
-            node.addedAt = point.addedAt ? new Date(point.addedAt) : new Date();
-            node.originalPhotoId = point.originalPhotoId || null;
-        }
+    const node = graph.nodes.get(point.id);
+    if (node) {
+        // 🔥 ВАЖНО: НЕ УМЕНЬШАЕМ confirmationCount
+        const newCount = point.confirmationCount || 1;
+        node.confirmationCount = Math.max(node.confirmationCount || 1, newCount);
+       
+        node.morphology = point.morphology || null;
+        node.sourceContours = point.sourceContours || [];
+        node.addedFrom = point.addedFrom || 'original';
+        node.addedAt = point.addedAt ? new Date(point.addedAt) : new Date();
+        node.originalPhotoId = point.originalPhotoId || null;
     }
+}
+
+// 🔥 ДИАГНОСТИКА: проверяем, не потерялись ли подтверждения
+let maxCount = 0;
+let minCount = Infinity;
+let totalCount = 0;
+for (const node of graph.nodes.values()) {
+    const cnt = node.confirmationCount || 0;
+    maxCount = Math.max(maxCount, cnt);
+    minCount = Math.min(minCount, cnt);
+    totalCount += cnt;
+}
+console.log(`   📊 confirmationCount в новом графе: min=${minCount}, max=${maxCount}, avg=${(totalCount / graph.nodes.size).toFixed(1)}`);
 
     // 🔥 ПЕРЕСЧИТЫВАЕМ TRIANGLES
     this.recalculateTriangles(graph);
