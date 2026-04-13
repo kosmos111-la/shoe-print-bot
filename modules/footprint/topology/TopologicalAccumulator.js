@@ -3116,16 +3116,32 @@ if (morphForFilter && modelMorph) {
                 }
                
                 const oldCount = modelNode.confirmationCount || 1;
-                const newCount = oldCount + 1;
-               
-              
-                // ========== ДИАГНОСТИКА ==========
-                if (newCount >= 4 && oldCount < 4) {
-                    console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
-                    console.log(`      от точки фото: ${match.pointA.substring(0,20)}`);
-                } else if (this.debug && newCount >= 2) {
-                    console.log(`   🔄 Точка ${match.pointB.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
-                }
+const newCount = oldCount + 1;
+
+// 🔥 ЗАЩИТА ОТ ШУМНЫХ ТОЧЕК (аномальная площадь)
+let skipDueToAreaAnomaly = false;
+if (oldCount >= 1) { // только для точек, которые уже имеют подтверждения
+    const avgArea = this.calculateAverageArea(model);
+    const nodeArea = modelNode.morphology?.normalizedArea || 1;
+    const areaRatio = nodeArea / avgArea;
+   
+    if (areaRatio > 2.5 || areaRatio < 0.4) {
+        console.log(`   🚫 Шумная точка ${match.pointB.substring(0,12)}: площадь ${areaRatio.toFixed(1)}x от средней (${nodeArea.toFixed(2)} vs ${avgArea.toFixed(2)}) — НЕ ПОДТВЕРЖДАЕМ`);
+        skipDueToAreaAnomaly = true;
+    }
+}
+
+if (skipDueToAreaAnomaly) {
+    continue; // пропускаем обновление этой точки
+}
+
+// ========== ДИАГНОСТИКА ==========
+if (newCount >= 4 && oldCount < 4) {
+    console.log(`   ⚠️⚠️⚠️ Точка ${match.pointB.substring(0,20)} получает ${oldCount} → ${newCount} (СТАНОВИТСЯ КРАСНОЙ!)`);
+    console.log(`      от точки фото: ${match.pointA.substring(0,20)}`);
+} else if (this.debug && newCount >= 2) {
+    console.log(`   🔄 Точка ${match.pointB.substring(0,20)}: было ${oldCount}, станет ${newCount} (+1)`);
+}
 
                 // ========== ОБНОВЛЕНИЕ КООРДИНАТ (только если ещё не обновляли) ==========
 if (!alreadyUpdated) {
@@ -3292,38 +3308,47 @@ const unmatchedPhotoPoints = Array.from(newGraph.nodes.values())
                 }
             }
 
-            if (!isDuplicate) {
-                const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-
-// 🔥 НОВОЕ: добавляем через uncertaintyManager
-model.uncertaintyManager.addObservation(
-    newNodeId, finalX, finalY, newMorph?.confidence || 0.5
-);
-
-const uncertaintyPoint = model.uncertaintyManager.getPoint(newNodeId);
-
-model.graph.nodes.set(newNodeId, {
-    id: newNodeId,
-    x: uncertaintyPoint.x,
-    y: uncertaintyPoint.y,
-    radius: uncertaintyPoint.radius,
-    degree: 0,
-    triangles: 0,
-    morphology: newMorph || {},
-    confirmationCount: 1,
-    addedFrom: 'new_photo_point',
-    addedAt: new Date(),
-    originalPhotoId: photoPoint.id,
-    sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
-        points: newMorph.contour,
-        confidence: newMorph.confidence || 0.5,
-        type: 'photo_new'
-    }] : []
-});
-
-                newNodesAdded++;
-                if (this.debug) console.log(`      ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
-            }
+if (!isDuplicate) {
+    // 🔥 ПРОВЕРКА: не является ли новая точка шумной (аномальная площадь)
+    const avgArea = this.calculateAverageArea(model);
+    const newArea = newMorph?.normalizedArea || 1;
+    const areaRatio = newArea / avgArea;
+   
+    let isAnomaly = false;
+    if (avgArea > 0.1 && (areaRatio > 3.0 || areaRatio < 0.33)) {
+        console.log(`   🚫 Новая точка ${photoPoint.id.substring(0,12)}: площадь ${areaRatio.toFixed(1)}x от средней — НЕ ДОБАВЛЯЕМ (шум)`);
+        isAnomaly = true;
+    }
+   
+    if (!isAnomaly) {
+        const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+       
+        model.uncertaintyManager.addObservation(newNodeId, finalX, finalY, newMorph?.confidence || 0.5);
+        const uncertaintyPoint = model.uncertaintyManager.getPoint(newNodeId);
+       
+        model.graph.nodes.set(newNodeId, {
+            id: newNodeId,
+            x: uncertaintyPoint.x,
+            y: uncertaintyPoint.y,
+            radius: uncertaintyPoint.radius,
+            degree: 0,
+            triangles: 0,
+            morphology: newMorph || {},
+            confirmationCount: 1,
+            addedFrom: 'new_photo_point',
+            addedAt: new Date(),
+            originalPhotoId: photoPoint.id,
+            sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
+                points: newMorph.contour,
+                confidence: newMorph.confidence || 0.5,
+                type: 'photo_new'
+            }] : []
+        });
+       
+        newNodesAdded++;
+        if (this.debug) console.log(`      ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
+    }
+}
         }
     }
 
@@ -4997,6 +5022,27 @@ findModelPointForPhoto(photoPointId, structure) {
     const anchors = structure.getAnchors();
     const anchor = anchors.find(a => a.pointA === photoPointId);
     return anchor ? anchor.pointB : null;
+}
+
+/**
+* Вычисляет среднюю нормализованную площадь точек модели (отсекая аномалии)
+*/
+calculateAverageArea(model) {
+    let sum = 0;
+    let count = 0;
+    for (const node of model.graph.nodes.values()) {
+        const area = node.morphology?.normalizedArea;
+        // Отсекаем аномалии (слишком маленькие или слишком большие)
+        if (area && area > 0.1 && area < 10) {
+            sum += area;
+            count++;
+        }
+    }
+    const avg = count > 0 ? sum / count : 1.0;
+    if (this.debug) {
+        console.log(`   📊 Средняя площадь в модели: ${avg.toFixed(2)} (по ${count} точкам)`);
+    }
+    return avg;
 }
 
 /**
