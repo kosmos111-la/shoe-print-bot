@@ -716,7 +716,7 @@ findBluePointMatches(pointsA, pointsB, existingMatches, transform = null) {
     console.log(`   • Свободных точек в фото: ${unmatchedPhoto.length}`);
    
     const newMatches = [];
-    const searchRadius = 40; // было 25
+    const searchRadius = 25; // было 25
    
     for (const bluePoint of unmatchedBlue) {
         let bestMatch = null;
