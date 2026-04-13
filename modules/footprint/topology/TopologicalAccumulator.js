@@ -3217,9 +3217,32 @@ if (!alreadyUpdated) {
 
         console.log(`   📊 Обновлено точек: ${updatedCount}, не найдено: ${notFoundCount}`);
 
+// 🔥 ДИАГНОСТИКА: неподтверждённые синие точки
+const unmatchedBlue = [];
+for (const node of model.graph.nodes.values()) {
+    if (node.confirmationCount === 1 && !matchedModelIds.has(node.id)) {
+        unmatchedBlue.push({
+            id: node.id,
+            x: node.x,
+            y: node.y,
+            triangles: node.triangles,
+            degree: node.degree,
+            area: node.morphology?.normalizedArea,
+            confidence: node.morphology?.confidence,
+            addedFrom: node.addedFrom
+        });
+    }
+}
+if (unmatchedBlue.length > 0) {
+    console.log(`\n🔵 НЕПОДТВЕРЖДЁННЫЕ СИНИЕ ТОЧКИ (${unmatchedBlue.length}):`);
+    for (const ub of unmatchedBlue) {
+        console.log(`   • ${ub.id.substring(0,20)}: (${ub.x.toFixed(1)},${ub.y.toFixed(1)}), triangles=${ub.triangles}, degree=${ub.degree}, area=${ub.area?.toFixed(2)}, conf=${ub.confidence?.toFixed(2)}, addedFrom=${ub.addedFrom}`);
+    }
+}
+
 // 2. Добавляем новые точки из фото (которые не были сопоставлены)
-    const unmatchedPhotoPoints = Array.from(newGraph.nodes.values())
-        .filter(p => !matchedPhotoIds.has(p.id));
+const unmatchedPhotoPoints = Array.from(newGraph.nodes.values())
+    .filter(p => !matchedPhotoIds.has(p.id));
    
     if (unmatchedPhotoPoints.length > 0) {
         console.log(`\n📸 Добавляю ${unmatchedPhotoPoints.length} новых точек из фото в модель`);
