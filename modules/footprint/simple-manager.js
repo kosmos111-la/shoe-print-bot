@@ -811,34 +811,6 @@ console.log(`   🔍 Точки перед overlay визуализацией:
 console.log(`      - с morphology.contour: ${pointsWithContourBefore}`);
 console.log(`      - с sourceContours: ${pointsWithHistoryBefore}`);
 
-// 🔥 ПОДГОТАВЛИВАЕМ ТРАНСФОРМИРОВАННЫЕ КОНТУРЫ ПРОТЕКТОРОВ ИЗ ФОТО
-let transformedPhotoContours = [];
-if (topologicalResult?.photoContours && transform) {
-    for (const contour of topologicalResult.photoContours) {
-        // Пропускаем outline (он передаётся отдельно)
-        if (contour.class === 'Outline-trail') continue;
-       
-        if (contour.points && contour.points.length >= 3) {
-            const transformedPoints = contour.points.map(p => ({
-                x: p.x * transform.scale * Math.cos(transform.rotation) -
-                   p.y * transform.scale * Math.sin(transform.rotation) +
-                   transform.translation.x,
-                y: p.x * transform.scale * Math.sin(transform.rotation) +
-                   p.y * transform.scale * Math.cos(transform.rotation) +
-                   transform.translation.y
-            }));
-            transformedPhotoContours.push({
-                pointId: contour.pointId,
-                points: transformedPoints,
-                class: contour.class,
-                confidence: contour.confidence,
-                transformed: true
-            });
-        }
-    }
-    console.log(`   🔄 Трансформировано контуров фото: ${transformedPhotoContours.length}`);
-}
-
 const modelImagePath = await modelViz.createVisualization({
     points: points,
     photoPoints: photoPoints,
@@ -847,7 +819,6 @@ const modelImagePath = await modelViz.createVisualization({
     edges: edges,
     outlineContour: visualizationData?.outlineContour,
     photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'),
-    photoProtectorContours: transformedPhotoContours,  // ← НОВЫЙ ПАРАМЕТР
     outputPath: outputPath,
     width: 1200,
     height: 1000
