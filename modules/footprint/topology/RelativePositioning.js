@@ -26,11 +26,11 @@ class RelativePositioning {
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     positionPoints(photoGraph, modelGraph, anchorMatches, photoMorphology, modelMorphology, options = {}) {
-    const confidenceThreshold = options.confidenceThreshold || this.confidenceThreshold;
-    const updatedPointsThisPhoto = options.updatedPointsThisPhoto; // ← ПОЛУЧАЕМ SET
-    console.log(`\n🧩 Достраиваю точки относительно ${anchorMatches.size} опорных...`);
-    console.log(`   🔧 Порог уверенности: ${(confidenceThreshold * 100).toFixed(0)}%`);
-    console.log(`   🔧 Проверка по признакам: включена`);
+        const confidenceThreshold = options.confidenceThreshold || this.confidenceThreshold;
+        console.log(`\n🧩 Достраиваю точки относительно ${anchorMatches.size} опорных...`);
+        console.log(`   🔧 Порог уверенности: ${(confidenceThreshold * 100).toFixed(0)}%`);
+        console.log(`   🔧 Проверка по признакам: включена`);
+
         const photoToModel = new Map(); // photoId -> { modelId, confidence, path }
         const modelToPhoto = new Map(); // modelId -> photoId
 
@@ -185,31 +185,18 @@ class RelativePositioning {
 
         // Назначаем финальных кандидатов
         for (const cand of finalCandidates) {
-    // 🔥 ПРОВЕРКА: не обновляли ли уже эту точку модели в текущем фото
-    if (updatedPointsThisPhoto && updatedPointsThisPhoto.has(cand.modelId)) {
-        if (this.debug) {
-            console.log(`   ⏭️ positionPoints: пропускаем повторное обновление точки модели ${cand.modelId.substring(0,12)} (уже обновлена в этом фото)`);
+            photoToModel.set(cand.photoId, {
+                modelId: cand.modelId,
+                confidence: cand.score,
+                source: 'relative'
+            });
+            modelToPhoto.set(cand.modelId, cand.photoId);
+            matched++;
+           
+            if (this.debug && matched <= 5) {
+                console.log(`   ✅ Сопоставлено: ${cand.photoId.substring(0,12)}... ↔ ${cand.modelId.substring(0,12)}... (${(cand.score*100).toFixed(0)}%)`);
+            }
         }
-        continue;
-    }
-
-    // Добавляем в Set, чтобы не обновить повторно
-    if (updatedPointsThisPhoto) {
-        updatedPointsThisPhoto.add(cand.modelId);
-    }
-
-    photoToModel.set(cand.photoId, {
-        modelId: cand.modelId,
-        confidence: cand.score,
-        source: 'relative'
-    });
-    modelToPhoto.set(cand.modelId, cand.photoId);
-    matched++;
-
-    if (this.debug && matched <= 5) {
-        console.log(`   ✅ Сопоставлено: ${cand.photoId.substring(0,12)}... ↔ ${cand.modelId.substring(0,12)}... (${(cand.score*100).toFixed(0)}%)`);
-    }
-}
 
         console.log(`   ✅ Сопоставлено: ${matched}/${totalPoints} точек (уверенность ≥${(confidenceThreshold*100).toFixed(0)}%)`);
         console.log(`   ⚠️ Низкая уверенность/конфликты: ${lowConfidence} точек (кандидаты на новые)`);
@@ -385,14 +372,10 @@ return deduplicatedMap;
 
     // ==================== ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ====================
 
-    iterativeStabilization(photoGraph, modelGraph, initialAnchors, photoMorphology, modelMorphology, options = {}) {
-    const updatedPointsThisPhoto = options.updatedPointsThisPhoto;
-    console.log(`\n🔍 iterativeStabilization: НАЧАЛО`);
-    const startTime = Date.now();  // ← ДОБАВИТЬ ЭТУ СТРОКУ!
-   
-    console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК...`);
-   
-    let currentAnchors = new Map(initialAnchors);
+    iterativeStabilization(photoGraph, modelGraph, initialAnchors, photoMorphology, modelMorphology) {
+        console.log(`\n🔄 ИТЕРАТИВНАЯ СТАБИЛИЗАЦИЯ ТОЧЕК...`);
+       
+        let currentAnchors = new Map(initialAnchors);
         let allMatches = new Map(initialAnchors);
         let iteration = 0;
         let newAnchorsAdded = 0;
@@ -527,30 +510,17 @@ for (const cand of candidates) {
 const deduplicatedCandidates = Array.from(uniqueByModelId.values());
 
 for (const cand of deduplicatedCandidates) {
-    // 🔥 ПРОВЕРКА: не обновляли ли уже эту точку модели в текущем фото
-    if (updatedPointsThisPhoto && updatedPointsThisPhoto.has(cand.modelId)) {
-      //  if (this.debug) {
-            console.log(`   ⏭️ Пропускаем повторное обновление точки модели ${cand.modelId.substring(0,12)} (уже обновлена в этом фото)`);
-     //   }
-        continue;
-    }
-
-    // Добавляем в Set, чтобы не обновить повторно
-    if (updatedPointsThisPhoto) {
-        updatedPointsThisPhoto.add(cand.modelId);
-    }
-
     allMatches.set(cand.photoId, {
         modelId: cand.modelId,
         confidence: cand.score,
         source: 'iterative'
     });
-
+   
     currentAnchors.set(cand.photoId, {
         modelId: cand.modelId,
         confidence: cand.score
     });
-
+   
     modelToPhoto.set(cand.modelId, cand.photoId);
     newAnchorsAdded++;
 }
@@ -581,10 +551,8 @@ for (const cand of deduplicatedCandidates) {
             console.log(`   🔧 Финальная дедупликация iterativeStabilization: ${allMatches.size} → ${deduplicatedAllMatches.size}`);
         }
 
-    // В конце метода, перед return:
-    console.log(`\n🔍 iterativeStabilization: КОНЕЦ, время ${Date.now() - startTime}ms`);
-    return deduplicatedAllMatches;
-}
+        return deduplicatedAllMatches;
+    }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
 
