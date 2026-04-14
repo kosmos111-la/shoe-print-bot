@@ -938,27 +938,27 @@ if (existingModel) {
         }
        
         // Сохраняем текущий transform для следующего сравнения
-        existingModel.lastTransform = finalTransform ? { ...finalTransform } : null;
+        existingModel.lastTransform = { ...finalTransform };
         existingModel.transform = finalTransform;
     }
-   
-    // 🔥 Сохраняем контур в существующую модель
-    if (outlineContour && !existingModel.metadata.outlineContour) {
-        existingModel.metadata.outlineContour = outlineContour;
-        console.log(`💾 Контур следа сохранён в существующую модель ${modelIdHint.substring(0,12)}`);
-        console.log(`   точек в контуре: ${outlineContour.points.length}`);
-    } else if (outlineContour && existingModel.metadata.outlineContour) {
-        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
-    } else if (!outlineContour) {
-        console.log(`⚠️ Нет контура для сохранения`);
-    }
+                    }
+                  // 🔥 СОХРАНЯЕМ КОНТУР В СУЩЕСТВУЮЩУЮ МОДЕЛЬ
+    if (outlineContour && !existingModel.metadata.outlineContour) {
+        existingModel.metadata.outlineContour = outlineContour;
+        console.log(`💾 Контур следа сохранён в существующую модель ${modelIdHint.substring(0,12)}`);
+        console.log(`   точек в контуре: ${outlineContour.points.length}`);
+    } else if (outlineContour && existingModel.metadata.outlineContour) {
+        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
+    } else if (!outlineContour) {
+        console.log(`⚠️ Нет контура для сохранения`);
+    }
 
-   // if (this.debug) {
-        console.log(`\n💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
-        console.log(`   • Масштаб: ${finalTransform?.scale.toFixed(3) || 'нет'}`);
-        console.log(`   • Поворот: ${finalTransform ? (finalTransform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`);
-        console.log(`   • Сдвиг: ${finalTransform ? `(${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})` : 'нет'}`);
-   // }
+                    if (this.debug) {
+                        console.log(`\n💾 ФИНАЛЬНЫЙ TRANSFORM СОХРАНЁН В МОДЕЛЬ:`);
+                        console.log(`   • Масштаб: ${finalTransform?.scale.toFixed(3) || 'нет'}`);
+                        console.log(`   • Поворот: ${finalTransform ? (finalTransform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`);
+                        console.log(`   • Сдвиг: ${finalTransform ? `(${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})` : 'нет'}`);
+                    }
 
                     // 🔥 Формируем финальный список matches (ОДИН РАЗ!)
                     let finalValidatedMatches = [];
@@ -2341,7 +2341,6 @@ return {
             } else {
                 if (this.debug) console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
             }
-          
         } else {
             if (this.debug) {
                 console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
