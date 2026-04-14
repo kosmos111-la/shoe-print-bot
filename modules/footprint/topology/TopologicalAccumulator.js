@@ -3322,75 +3322,75 @@ if (!isDuplicate) {
     const avgArea = this.calculateAverageArea(model);
     const newArea = newMorph?.normalizedArea || 1;
     const areaRatio = newArea / avgArea;
-   
+
     let isAnomaly = false;
     if (avgArea > 0.1 && (areaRatio > 3.0 || areaRatio < 0.33)) {
         console.log(`   🚫 Новая точка ${photoPoint.id.substring(0,12)}: площадь ${areaRatio.toFixed(1)}x от средней — НЕ ДОБАВЛЯЕМ (шум)`);
         isAnomaly = true;
     }
-   
+
     if (!isAnomaly) {
-        const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-       
-        model.uncertaintyManager.addObservation(newNodeId, finalX, finalY, newMorph?.confidence || 0.5);
-        const uncertaintyPoint = model.uncertaintyManager.getPoint(newNodeId);
-       
- const newMorph = newMorphology?.get(photoPoint.id);
-           
-            // ✅ ТРАНСФОРМИРУЕМ КОНТУР, если он есть
-            let transformedMorph = null;
-            let transformedSourceContours = [];
-           
-            if (newMorph && newMorph.hasContour && newMorph.contour && transform) {
-                const transformedContour = newMorph.contour.map(p => this.applyTransform(p, transform));
-                transformedMorph = {
-                    ...newMorph,
-                    contour: transformedContour,
-                    center: this.calculateCentroid(transformedContour)
-                };
+        // ✅ УДАЛЯЕМ ПОВТОРНОЕ ОБЪЯВЛЕНИЕ newMorph (оно уже есть выше)
+        // const newMorph = newMorphology?.get(photoPoint.id);  // ← УДАЛИТЬ ЭТУ СТРОКУ
+
+        // ✅ ТРАНСФОРМИРУЕМ КОНТУР, если он есть
+        let transformedMorph = null;
+        let transformedSourceContours = [];
+
+        if (newMorph && newMorph.hasContour && newMorph.contour && transform) {
+            const transformedContour = newMorph.contour.map(p => this.applyTransform(p, transform));
+            transformedMorph = {
+                ...newMorph,
+                contour: transformedContour,
+                center: this.calculateCentroid(transformedContour)
+            };
+            transformedSourceContours = [{
+                points: transformedContour,
+                confidence: newMorph.confidence || 0.5,
+                type: 'photo_new',
+                transformed: true
+            }];
+            if (this.debug) {
+                console.log(`   🔄 Контур точки ${photoPoint.id.substring(0,12)} трансформирован (${newMorph.contour.length} точек)`);
+            }
+        } else if (newMorph) {
+            transformedMorph = newMorph;
+            if (newMorph.contour) {
                 transformedSourceContours = [{
-                    points: transformedContour,
+                    points: newMorph.contour,
                     confidence: newMorph.confidence || 0.5,
                     type: 'photo_new',
-                    transformed: true
+                    transformed: false
                 }];
-                if (this.debug) {
-                    console.log(`   🔄 Контур точки ${photoPoint.id.substring(0,12)} трансформирован (${newMorph.contour.length} точек)`);
-                }
-            } else if (newMorph) {
-                transformedMorph = newMorph;
-                if (newMorph.contour) {
-                    transformedSourceContours = [{
-                        points: newMorph.contour,
-                        confidence: newMorph.confidence || 0.5,
-                        type: 'photo_new',
-                        transformed: false
-                    }];
-                }
-            }
-           
-            const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-           
-            model.graph.nodes.set(newNodeId, {
-                id: newNodeId,
-                x: finalX,
-                y: finalY,
-                degree: 0,
-                triangles: 0,
-                morphology: transformedMorph || {},
-                confirmationCount: 1,
-                addedFrom: 'new_photo_point',
-                addedAt: new Date(),
-                originalPhotoId: photoPoint.id,
-                sourceContours: transformedSourceContours
-            });
-           
-            newNodesAdded++;
-            if (this.debug) {
-                console.log(`   ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)}) с контуром: ${transformedMorph?.contour?.length || 0} точек`);
             }
         }
+
+        // ✅ ТОЛЬКО ОДНО ОБЪЯВЛЕНИЕ newNodeId
+        const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+
+        model.uncertaintyManager.addObservation(newNodeId, finalX, finalY, newMorph?.confidence || 0.5);
+        const uncertaintyPoint = model.uncertaintyManager.getPoint(newNodeId);
+
+        model.graph.nodes.set(newNodeId, {
+            id: newNodeId,
+            x: finalX,
+            y: finalY,
+            degree: 0,
+            triangles: 0,
+            morphology: transformedMorph || {},
+            confirmationCount: 1,
+            addedFrom: 'new_photo_point',
+            addedAt: new Date(),
+            originalPhotoId: photoPoint.id,
+            sourceContours: transformedSourceContours
+        });
+
+        newNodesAdded++;
+        if (this.debug) {
+            console.log(`   ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)}) с контуром: ${transformedMorph?.contour?.length || 0} точек`);
+        }
     }
+}
     }
 
         // ========== 🔥 ДИАГНОСТИКА КОНТУРОВ ПОСЛЕ ОБНОВЛЕНИЯ ==========
