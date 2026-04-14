@@ -407,50 +407,33 @@ class MorphologyEncoder {
             historyContours: existing.sourceContours || []
         };
     }
-   
-    // 🔥 НОВОЕ: если есть transform, ПЕРЕСЧИТЫВАЕМ ВСЕ ИСТОРИЧЕСКИЕ КОНТУРЫ
-    let transformedExistingContour = existingContour;
-    let transformedHistoryContours = [...(existing.sourceContours || [])];
-   
-    if (transform && existingContour && existingContour.length > 0) {
-        // Пересчитываем существующий контур с новым transform
-        transformedExistingContour = existingContour.map(p => this.applyTransform(p, transform));
        
-        // Пересчитываем все исторические контуры
-        transformedHistoryContours = transformedHistoryContours.map(historyItem => {
-            if (historyItem.points && historyItem.points.length > 0) {
-                return {
-                    ...historyItem,
-                    points: historyItem.points.map(p => this.applyTransform(p, transform)),
-                    retransformed: true,
-                    previousTransform: transform
-                };
-            }
-            return historyItem;
-        });
-       
-        if (this.debug) {
-            console.log(`   🔄 Пересчитаны исторические контуры (${transformedHistoryContours.length} шт) с новым transform`);
+        const historyContours = existing.sourceContours || [];
+        if (existingContour) {
+            historyContours.push({
+                points: existingContour,
+                confidence: existing.morphology?.confidence || existing.confidence || 0.5,
+                type: 'model_existing'
+            });
         }
-    }
-   
-    const historyContours = transformedHistoryContours;
-    if (transformedExistingContour) {
-        historyContours.push({
-            points: transformedExistingContour,
-            confidence: existing.morphology?.confidence || existing.confidence || 0.5,
-            type: 'model_existing'
-        });
-    }
 
-    const newContour = newContourRaw.map(p => this.applyTransform(p, transform));
-    const newConfidence = newData.morphology?.confidence || newData.confidence || 0.5;
-   
-    historyContours.push({
-        points: newContour,
-        confidence: newConfidence,
-        type: 'photo_new'
-    });
+        if (!newContourRaw) {
+            return {
+                finalContour: existingContour,
+                finalConfidence: existing.morphology?.confidence || 0.5,
+                finalMorphology: existing.morphology || {},
+                historyContours
+            };
+        }
+
+        const newContour = newContourRaw.map(p => this.applyTransform(p, transform));
+        const newConfidence = newData.morphology?.confidence || newData.confidence || 0.5;
+       
+        historyContours.push({
+            points: newContour,
+            confidence: newConfidence,
+            type: 'photo_new'
+        });
 
         const existingConf = existing.morphology?.confidence || existing.confidence || 0.5;
    
@@ -464,8 +447,9 @@ class MorphologyEncoder {
 
     if (isExistingHigh && !isNewHigh) {
         console.log(`   🛡️ Модель уверена (${(existingConf*100).toFixed(0)}%), игнорируем новый контур (${(newConfidence*100).toFixed(0)}%)`);
-        if (transformedExistingContour && Array.isArray(transformedExistingContour) && transformedExistingContour.length >= 3) {
-            finalContour = transformedExistingContour;
+        // 🔥 ИСПРАВЛЕНО: если existingContour нет, используем новый
+        if (existingContour && Array.isArray(existingContour) && existingContour.length >= 3) {
+            finalContour = existingContour;
         } else {
             console.log(`      ⚠️ existingContour отсутствует, беру новый контур`);
             finalContour = newContour;
@@ -473,23 +457,25 @@ class MorphologyEncoder {
         finalConfidence = existingConf;
     } else if (isNewHigh && !isExistingHigh) {
         console.log(`   ⚡ Новый контур увереннее (${(newConfidence*100).toFixed(0)}%), заменяем старый (${(existingConf*100).toFixed(0)}%)`);
+        // 🔥 ИСПРАВЛЕНО: если newContour нет, оставляем existing
         if (newContour && Array.isArray(newContour) && newContour.length >= 3) {
             finalContour = newContour;
         } else {
             console.log(`      ⚠️ newContour повреждён, оставляю existing`);
-            finalContour = transformedExistingContour;
+            finalContour = existingContour;
         }
         finalConfidence = newConfidence;
     } else {
         console.log(`   🔄 Усреднение контуров (уверенности: ${(existingConf*100).toFixed(0)}% и ${(newConfidence*100).toFixed(0)}%)`);
-        if (!transformedExistingContour || transformedExistingContour.length < 3) {
+        // 🔥 ИСПРАВЛЕНО: проверяем оба контура
+        if (!existingContour || existingContour.length < 3) {
             console.log(`      ⚠️ existingContour повреждён, беру новый`);
             finalContour = newContour;
         } else if (!newContour || newContour.length < 3) {
             console.log(`      ⚠️ newContour повреждён, беру existing`);
-            finalContour = transformedExistingContour;
+            finalContour = existingContour;
         } else {
-            finalContour = this.averageContoursInternal(transformedExistingContour, newContour, existingConf, newConfidence);
+            finalContour = this.averageContoursInternal(existingContour, newContour, existingConf, newConfidence);
         }
         finalConfidence = Math.min(existingConf, newConfidence);
     }
@@ -497,33 +483,34 @@ class MorphologyEncoder {
     // 🔥 ФИНАЛЬНАЯ ПРОВЕРКА
     if (!finalContour || finalContour.length < 3) {
         console.log(`   ❌ КРИТИЧНО: finalContour всё ещё повреждён!`);
-        finalContour = transformedExistingContour || newContour || [];
+        finalContour = existingContour || newContour || [];
     }
 
-    let finalMorphology;
-    if (finalContour && Array.isArray(finalContour) && finalContour.length >= 3) {
-        finalMorphology = this.computeMorphologyCode(finalContour);
-    } else {
-        console.log(`   ⚠️ finalContour повреждён, использую existing morphology`);
-        finalMorphology = existing.morphology || {
-            compactness: 4.0,
-            eccentricity: 0.5,
-            orientation: 0,
-            hasContour: false,
-            normalizedArea: 1.0,
-            radialProfile: [1, 1, 1, 1, 1, 1, 1, 1],
-            asymmetry: 0,
-            confidence: 0.5
-        };
-    }
-
-    return {
-        finalContour,
-        finalConfidence,
-        finalMorphology,
-        historyContours
+        // 🔥 ЗАЩИТА: проверяем, что finalContour существует и не пустой
+let finalMorphology;
+if (finalContour && Array.isArray(finalContour) && finalContour.length >= 3) {
+    finalMorphology = this.computeMorphologyCode(finalContour);
+} else {
+    console.log(`   ⚠️ finalContour повреждён, использую existing morphology`);
+    finalMorphology = existing.morphology || {
+        compactness: 4.0,
+        eccentricity: 0.5,
+        orientation: 0,
+        hasContour: false,
+        normalizedArea: 1.0,
+        radialProfile: [1, 1, 1, 1, 1, 1, 1, 1],
+        asymmetry: 0,
+        confidence: 0.5
     };
 }
+
+        return {
+            finalContour,
+            finalConfidence,
+            finalMorphology,
+            historyContours
+        };
+    }
 
     /**
 * Внутренний метод усреднения контуров
