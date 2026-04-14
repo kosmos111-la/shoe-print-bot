@@ -566,122 +566,114 @@ class ModelVisualization {
      * Рисует легенду
      */
     drawLegend(ctx, width, height, transform, hasContours = false) {
-        const legendX = width - 300;
-        const legendY = 30;
-        const lineHeight = 22;
+    const legendX = width - 300;
+    const legendY = 30;
+    const lineHeight = 22;
 
-        let legendHeight = 220;
-        if (transform) legendHeight += 70;
-        if (hasContours) legendHeight += 50; // Увеличиваем для новых элементов
+    let legendHeight = 220;
+    if (transform) legendHeight += 70;
+    if (hasContours) legendHeight += 50;
 
-        // Полупрозрачный фон
-        ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
-        ctx.fillRect(legendX - 15, legendY - 15, 280, legendHeight);
+    // Полупрозрачный фон
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+    ctx.fillRect(legendX - 15, legendY - 15, 280, legendHeight);
 
-        ctx.font = 'bold 14px Arial';
-        ctx.fillStyle = '#FFFFFF';
-        ctx.fillText('🏗️ МОДЕЛЬ С НАЛОЖЕНИЕМ', legendX, legendY);
+    ctx.font = 'bold 14px Arial';
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText('🏗️ МОДЕЛЬ С НАЛОЖЕНИЕМ', legendX, legendY);
 
-        let currentY = legendY + lineHeight;
+    let currentY = legendY + lineHeight;
 
-        // Точки модели
-        this.drawLegendItem(ctx, legendX, currentY, '#FF0000', '🔴 4+ фото (очень надёжно)');
-        currentY += lineHeight;
-        this.drawLegendItem(ctx, legendX, currentY, '#FFA500', '🟠 3 фото (надёжно)');
-        currentY += lineHeight;
-        this.drawLegendItem(ctx, legendX, currentY, '#FFD700', '🟡 2 фото (подтверждено)');
-        currentY += lineHeight;
-        this.drawLegendItem(ctx, legendX, currentY, '#4169E1', '🔵 1 фото (новое)');
-        currentY += lineHeight;
-        this.drawLegendItem(ctx, legendX, currentY, '#808080', '⚪ 0 фото (ожидание)');
-        currentY += lineHeight;
+    // ✅ УДАЛЯЕМ ОШИБОЧНУЮ СТРОКУ (или исправляем на правильную переменную)
+    // Было: ctx.fillText(tx, legendX + 20, currentY - 5);
+    // Нужно: использовать правильную переменную или удалить
 
-        // Точки фото
-        ctx.fillStyle = '#AA00FF';
+    // Точки модели
+    this.drawLegendItem(ctx, legendX, currentY, '#FF0000', '🔴 4+ фото (очень надёжно)');
+    currentY += lineHeight;
+    this.drawLegendItem(ctx, legendX, currentY, '#FFA500', '🟠 3 фото (надёжно)');
+    currentY += lineHeight;
+    this.drawLegendItem(ctx, legendX, currentY, '#FFD700', '🟡 2 фото (подтверждено)');
+    currentY += lineHeight;
+    this.drawLegendItem(ctx, legendX, currentY, '#4169E1', '🔵 1 фото (новое)');
+    currentY += lineHeight;
+    this.drawLegendItem(ctx, legendX, currentY, '#808080', '⚪ 0 фото (ожидание)');
+    currentY += lineHeight;
+
+    // Точки фото
+    ctx.fillStyle = '#AA00FF';
+    ctx.beginPath();
+    ctx.arc(legendX + 7, currentY - 8, 6, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.strokeStyle = '#FFFFFF';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '12px Arial';
+    ctx.fillText('Фото: сопоставлено', legendX + 20, currentY - 5);
+    currentY += lineHeight;
+
+    ctx.fillStyle = 'rgba(65, 105, 225, 0.5)';
+    ctx.beginPath();
+    ctx.arc(legendX + 7, currentY - 8, 6, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.fillStyle = '#FFFFFF';
+    ctx.font = '12px Arial';
+    ctx.fillText('Фото: не сопоставлено', legendX + 20, currentY - 5);
+    currentY += lineHeight;
+
+    // Контуры в легенде (если есть)
+    if (hasContours) {
+        // Финальный контур (зелёный)
+        ctx.strokeStyle = '#00FF00';
+        ctx.lineWidth = 2.5;
         ctx.beginPath();
-        ctx.arc(legendX + 7, currentY - 8, 6, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.strokeStyle = '#FFFFFF';
-        ctx.lineWidth = 1;
+        ctx.moveTo(legendX, currentY - 8);
+        ctx.lineTo(legendX + 14, currentY - 8);
         ctx.stroke();
         ctx.fillStyle = '#FFFFFF';
         ctx.font = '12px Arial';
-        ctx.fillText('Фото: сопоставлено', legendX + 20, currentY - 5);
+        ctx.fillText('🟢 Финальный контур модели', legendX + 20, currentY - 5);
         currentY += lineHeight;
 
-        ctx.fillStyle = 'rgba(65, 105, 225, 0.5)';
+        // Исторический контур (серый)
+        ctx.strokeStyle = '#888888';
+        ctx.lineWidth = 1.2;
         ctx.beginPath();
-        ctx.arc(legendX + 7, currentY - 8, 6, 0, 2 * Math.PI);
-        ctx.fill();
+        ctx.moveTo(legendX, currentY - 8);
+        ctx.lineTo(legendX + 14, currentY - 8);
+        ctx.stroke();
         ctx.fillStyle = '#FFFFFF';
         ctx.font = '12px Arial';
-        ctx.fillText('Фото: не сопоставлено', legendX + 20, currentY - 5);
+        ctx.fillText('📜 История (предыдущие фото)', legendX + 20, currentY - 5);
         currentY += lineHeight;
 
-        // 🔥 НОВОЕ: Контуры в легенде
-        if (hasContours) {
-            // Финальный контур (зелёный)
-            ctx.strokeStyle = '#00FF00';
-            ctx.lineWidth = 2.5;
-            ctx.beginPath();
-            ctx.moveTo(legendX, currentY - 8);
-            ctx.lineTo(legendX + 14, currentY - 8);
-            ctx.stroke();
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = '12px Arial';
-            ctx.fillText('🟢 Финальный контур модели', legendX + 20, currentY - 5);
-            currentY += lineHeight;
-
-            // Исторический контур (серый)
-            tx.strokeStyle = '#888888';
-ctx.lineWidth = 1.2;
-ctx.beginPath();
-ctx.moveTo(legendX, currentY - 8);
-ctx.lineTo(legendX + 14, currentY - 8);
-ctx.stroke();
-ctx.fillStyle = '#FFFFFF';
-ctx.font = '12px Arial';
-ctx.fillText('📜 История (предыдущие фото)', legendX + 20, currentY - 5);
-currentY += lineHeight;
-
-// 🔥 НОВОЕ: Контур из текущего фото (пурпурный пунктир)
-ctx.strokeStyle = '#FF00FF';
-ctx.lineWidth = 1.5;
-ctx.setLineDash([5, 5]);
-ctx.beginPath();
-ctx.moveTo(legendX, currentY - 8);
-ctx.lineTo(legendX + 14, currentY - 8);
-ctx.stroke();
-ctx.setLineDash([]);
-ctx.fillStyle = '#FFFFFF';
-ctx.font = '12px Arial';
-ctx.fillText('🟣 Текущее фото (трансформировано)', legendX + 20, currentY - 5);
-currentY += lineHeight;
-
-            // Контур из текущего фото (фиолетовый)
-            ctx.strokeStyle = '#AA00FF';
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(legendX, currentY - 8);
-            ctx.lineTo(legendX + 14, currentY - 8);
-            ctx.stroke();
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = '12px Arial';
-            ctx.fillText('🟣 Текущее фото (трансформировано)', legendX + 20, currentY - 5);
-            currentY += lineHeight;
-        }
-
-        // Информация о трансформации
-        if (transform) {
-            ctx.font = '11px Arial';
-            ctx.fillStyle = '#AAAAAA';
-            ctx.fillText(`Масштаб: ${transform.scale?.toFixed(3) || 'нет'}`, legendX, currentY);
-            currentY += lineHeight;
-            ctx.fillText(`Поворот: ${transform.rotation ? (transform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`, legendX, currentY);
-            currentY += lineHeight;
-            ctx.fillText(`Сдвиг: (${transform.translation?.x?.toFixed(0) || 0}, ${transform.translation?.y?.toFixed(0) || 0})`, legendX, currentY);
-        }
+        // Контур из текущего фото (пурпурный пунктир)
+        ctx.strokeStyle = '#FF00FF';
+        ctx.lineWidth = 1.5;
+        ctx.setLineDash([5, 5]);
+        ctx.beginPath();
+        ctx.moveTo(legendX, currentY - 8);
+        ctx.lineTo(legendX + 14, currentY - 8);
+        ctx.stroke();
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#FFFFFF';
+        ctx.font = '12px Arial';
+        ctx.fillText('🟣 Текущее фото (трансформировано)', legendX + 20, currentY - 5);
+        currentY += lineHeight;
     }
+
+    // Информация о трансформации
+    if (transform) {
+        ctx.font = '11px Arial';
+        ctx.fillStyle = '#AAAAAA';
+        ctx.fillText(`Масштаб: ${transform.scale?.toFixed(3) || 'нет'}`, legendX, currentY);
+        currentY += lineHeight;
+        ctx.fillText(`Поворот: ${transform.rotation ? (transform.rotation * 180 / Math.PI).toFixed(1) : 'нет'}°`, legendX, currentY);
+        currentY += lineHeight;
+        ctx.fillText(`Сдвиг: (${transform.translation?.x?.toFixed(0) || 0}, ${transform.translation?.y?.toFixed(0) || 0})`, legendX, currentY);
+    }
+}
 
     drawLegendItem(ctx, x, y, color, text) {
         ctx.fillStyle = color;
