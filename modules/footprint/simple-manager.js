@@ -525,31 +525,29 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
 
                  // Подготавливаем точки модели с номерами пар
                 const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
-                    let pairNumber = null;
-                    let status = null;
-
-                    // Ищем номер пары в matchMap
-                    for (const [photoId, match] of matchMap) {
-                        if (match.modelId === node.id && match.pairNumber) {
-                            pairNumber = match.pairNumber;
-                            status = match.status;
-                            break;
-                        }
-                    }
-
-                    // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ необходимые поля для визуализации
-                    return {
-                        id: node.id,
-                        x: node.x,
-                        y: node.y,
-                        confirmationCount: node.confirmationCount || 0,
-                        pairNumber: pairNumber,
-                        status: status,
-                        // 🔥 КРИТИЧНО: Добавляем morphology и sourceContours
-                        morphology: node.morphology || null,
-                        sourceContours: node.sourceContours || []
-                    };
-                });
+    let pairNumber = null;
+    let status = null;
+   
+    for (const [photoId, match] of matchMap) {
+        if (match.modelId === node.id && match.pairNumber) {
+            pairNumber = match.pairNumber;
+            status = match.status;
+            break;
+        }
+    }
+   
+    return {
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        confirmationCount: node.confirmationCount || 0,
+        pairNumber: pairNumber,
+        status: status,
+        // ✅ ДОБАВЛЯЕМ morphology и sourceContours
+        morphology: node.morphology || null,
+        sourceContours: node.sourceContours || []
+    };
+});
 
                 // 🔥 ПРОВЕРКА: ДИАГНОСТИКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ
                 console.log(`\n🔍 ПРОВЕРКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ:`);
@@ -760,27 +758,29 @@ if (modelImagePath && fs.existsSync(modelImagePath)) {
                
                 // Подготавливаем точки модели с номерами пар
                 const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
-                    let pairNumber = null;
-                    let status = null;
-                   
-                    // Ищем номер пары в matchMap
-                    for (const [photoId, match] of matchMap) {
-                        if (match.modelId === node.id && match.pairNumber) {
-                            pairNumber = match.pairNumber;
-                            status = match.status;
-                            break;
-                        }
-                    }
-                   
-                    return {
-                        id: node.id,
-                        x: node.x,
-                        y: node.y,
-                        confirmationCount: node.confirmationCount || 0,
-                        pairNumber: pairNumber,
-                        status: status
-                    };
-                });
+    let pairNumber = null;
+    let status = null;
+   
+    for (const [photoId, match] of matchMap) {
+        if (match.modelId === node.id && match.pairNumber) {
+            pairNumber = match.pairNumber;
+            status = match.status;
+            break;
+        }
+    }
+   
+    return {
+        id: node.id,
+        x: node.x,
+        y: node.y,
+        confirmationCount: node.confirmationCount || 0,
+        pairNumber: pairNumber,
+        status: status,
+        // ✅ ДОБАВЛЯЕМ morphology и sourceContours
+        morphology: node.morphology || null,
+        sourceContours: node.sourceContours || []
+    };
+});
                
                 const edges = Array.from(modelInfo.graph.edges);
                
