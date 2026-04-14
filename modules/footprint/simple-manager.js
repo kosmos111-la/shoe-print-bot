@@ -525,29 +525,31 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
 
                  // Подготавливаем точки модели с номерами пар
                 const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
-    let pairNumber = null;
-    let status = null;
-   
-    for (const [photoId, match] of matchMap) {
-        if (match.modelId === node.id && match.pairNumber) {
-            pairNumber = match.pairNumber;
-            status = match.status;
-            break;
-        }
-    }
-   
-    return {
-        id: node.id,
-        x: node.x,
-        y: node.y,
-        confirmationCount: node.confirmationCount || 0,
-        pairNumber: pairNumber,
-        status: status,
-        // ✅ ДОБАВЛЯЕМ morphology и sourceContours
-        morphology: node.morphology || null,
-        sourceContours: node.sourceContours || []
-    };
-});
+                    let pairNumber = null;
+                    let status = null;
+
+                    // Ищем номер пары в matchMap
+                    for (const [photoId, match] of matchMap) {
+                        if (match.modelId === node.id && match.pairNumber) {
+                            pairNumber = match.pairNumber;
+                            status = match.status;
+                            break;
+                        }
+                    }
+
+                    // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ необходимые поля для визуализации
+                    return {
+                        id: node.id,
+                        x: node.x,
+                        y: node.y,
+                        confirmationCount: node.confirmationCount || 0,
+                        pairNumber: pairNumber,
+                        status: status,
+                        // 🔥 КРИТИЧНО: Добавляем morphology и sourceContours
+                        morphology: node.morphology || null,
+                        sourceContours: node.sourceContours || []
+                    };
+                });
 
                 // 🔥 ПРОВЕРКА: ДИАГНОСТИКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ
                 console.log(`\n🔍 ПРОВЕРКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ:`);
@@ -603,39 +605,30 @@ if (triangles.length > 0) {
 }
 console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructure.size} записей`);
 
-// 🔥 ДИАГНОСТИКА ПЕРЕД ВЫЗОВОМ
-console.log(`\n🔍 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ МОДЕЛИ:`);
-console.log(`   points.length: ${points.length}`);
+// 🔥 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ
+                console.log(`\n🔍 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ МОДЕЛИ:`);
+                console.log(`   points.length: ${points.length}`);
 
-let hasContour = 0;
-let hasHistory = 0;
-let hasMorphology = 0;
+                let hasContour = 0;
+                let hasHistory = 0;
 
-for (const point of points) {
-    if (point.morphology) hasMorphology++;
-    if (point.morphology?.contour && point.morphology.contour.length > 0) {
-        hasContour++;
-    }
-    if (point.sourceContours && point.sourceContours.length > 0) {
-        hasHistory++;
-    }
-}
+                for (const point of points) {
+                    if (point.morphology?.contour && point.morphology.contour.length > 0) {
+                        hasContour++;
+                    }
+                    if (point.sourceContours && point.sourceContours.length > 0) {
+                        hasHistory++;
+                    }
+                }
 
-console.log(`   • Точек с morphology (любой): ${hasMorphology}`);
-console.log(`   • Точек с morphology.contour: ${hasContour}`);
-console.log(`   • Точек с sourceContours: ${hasHistory}`);
+                console.log(`   • Точек с morphology.contour: ${hasContour}`);
+                console.log(`   • Точек с sourceContours: ${hasHistory}`);
 
-// 🔥 ДОПОЛНИТЕЛЬНО: покажем пример первой точки
-if (points.length > 0) {
-    const sample = points[0];
-    console.log(`   • Пример первой точки:`);
-    console.log(`      id: ${sample.id?.substring(0,20)}`);
-    console.log(`      morphology: ${sample.morphology ? 'ЕСТЬ' : 'НЕТ'}`);
-    console.log(`      morphology.contour: ${sample.morphology?.contour?.length || 0} точек`);
-    console.log(`      sourceContours: ${sample.sourceContours?.length || 0} записей`);
-}
+                if (hasContour === 0) {
+                    console.log(`   ⚠️ ВНИМАНИЕ: НИ ОДНА ТОЧКА НЕ ИМЕЕТ КОНТУРА!`);
+                }
 
-const modelImagePath = await modelViz.createVisualization({
+                const modelImagePath = await modelViz.createVisualization({
     points: points,
     photoPoints: [],           // ✅ пустой массив для чистой модели
     transform: transform,
@@ -758,29 +751,27 @@ if (modelImagePath && fs.existsSync(modelImagePath)) {
                
                 // Подготавливаем точки модели с номерами пар
                 const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
-    let pairNumber = null;
-    let status = null;
-   
-    for (const [photoId, match] of matchMap) {
-        if (match.modelId === node.id && match.pairNumber) {
-            pairNumber = match.pairNumber;
-            status = match.status;
-            break;
-        }
-    }
-   
-    return {
-        id: node.id,
-        x: node.x,
-        y: node.y,
-        confirmationCount: node.confirmationCount || 0,
-        pairNumber: pairNumber,
-        status: status,
-        // ✅ ДОБАВЛЯЕМ morphology и sourceContours
-        morphology: node.morphology || null,
-        sourceContours: node.sourceContours || []
-    };
-});
+                    let pairNumber = null;
+                    let status = null;
+                   
+                    // Ищем номер пары в matchMap
+                    for (const [photoId, match] of matchMap) {
+                        if (match.modelId === node.id && match.pairNumber) {
+                            pairNumber = match.pairNumber;
+                            status = match.status;
+                            break;
+                        }
+                    }
+                   
+                    return {
+                        id: node.id,
+                        x: node.x,
+                        y: node.y,
+                        confirmationCount: node.confirmationCount || 0,
+                        pairNumber: pairNumber,
+                        status: status
+                    };
+                });
                
                 const edges = Array.from(modelInfo.graph.edges);
                
@@ -799,17 +790,14 @@ if (modelImagePath && fs.existsSync(modelImagePath)) {
 // 🔥 ДИАГНОСТИКА ПЕРЕД ВЫЗОВОМ
 console.log(`\n📐 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ С НАЛОЖЕНИЕМ:`);
 console.log(`   visualizationData.outlineContour: ${visualizationData?.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
-
-// 🔥 ДОБАВЛЕНА ДИАГНОСТИКА: проверяем точки перед визуализацией
-let pointsWithContourBefore = 0;
-let pointsWithHistoryBefore = 0;
-for (const point of points) {
-    if (point.morphology?.contour && point.morphology.contour.length > 0) pointsWithContourBefore++;
-    if (point.sourceContours && point.sourceContours.length > 0) pointsWithHistoryBefore++;
+if (visualizationData?.outlineContour) {
+    console.log(`      точек: ${visualizationData.outlineContour.points?.length || 0}`);
 }
-console.log(`   🔍 Точки перед overlay визуализацией: ${points.length} всего`);
-console.log(`      - с morphology.contour: ${pointsWithContourBefore}`);
-console.log(`      - с sourceContours: ${pointsWithHistoryBefore}`);
+console.log(`   topologicalResult.photoContours: ${topologicalResult?.photoContours?.length || 0}`);
+if (topologicalResult?.photoContours) {
+    const outlinePhoto = topologicalResult.photoContours.find(c => c.class === 'Outline-trail');
+    console.log(`      outline в photoContours: ${outlinePhoto ? 'ЕСТЬ' : 'НЕТ'}, точек: ${outlinePhoto?.points?.length || 0}`);
+}
 
 const modelImagePath = await modelViz.createVisualization({
     points: points,
