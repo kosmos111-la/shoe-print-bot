@@ -21,21 +21,22 @@ class ModelVisualization {
     async createVisualization(options = {}) {
         try {
             const {
-                points = [],
-                photoPoints = [],
-                transform = null,
-                matches = new Map(),
-                edges = [],
-                triangles = [],
-                structures = [],
-                pointToStructure = new Map(),
-                outlineContour = null,
-                photoOutlineContour = null,
-                width = 1200,
-                height = 1000,
-                padding = 50,
-                outputPath = null
-            } = options;
+        points = [],
+        photoPoints = [],
+        transform = null,
+        matches = new Map(),
+        edges = [],
+        triangles = [],
+        structures = [],
+        pointToStructure = new Map(),
+        outlineContour = null,
+        photoOutlineContour = null,
+        photoProtectorContours = [],  // ← НОВЫЙ ПАРАМЕТР
+        width = 1200,
+        height = 1000,
+        padding = 50,
+        outputPath = null
+    } = options;
 
             // ========== ДИАГНОСТИКА ==========
             console.log(`\n🔍 createVisualization: получены данные`);
@@ -632,16 +633,30 @@ class ModelVisualization {
             currentY += lineHeight;
 
             // Исторический контур (серый)
-            ctx.strokeStyle = '#888888';
-            ctx.lineWidth = 1.2;
-            ctx.beginPath();
-            ctx.moveTo(legendX, currentY - 8);
-            ctx.lineTo(legendX + 14, currentY - 8);
-            ctx.stroke();
-            ctx.fillStyle = '#FFFFFF';
-            ctx.font = '12px Arial';
-            ctx.fillText('📜 История (предыдущие фото)', legendX + 20, currentY - 5);
-            currentY += lineHeight;
+            tx.strokeStyle = '#888888';
+ctx.lineWidth = 1.2;
+ctx.beginPath();
+ctx.moveTo(legendX, currentY - 8);
+ctx.lineTo(legendX + 14, currentY - 8);
+ctx.stroke();
+ctx.fillStyle = '#FFFFFF';
+ctx.font = '12px Arial';
+ctx.fillText('📜 История (предыдущие фото)', legendX + 20, currentY - 5);
+currentY += lineHeight;
+
+// 🔥 НОВОЕ: Контур из текущего фото (пурпурный пунктир)
+ctx.strokeStyle = '#FF00FF';
+ctx.lineWidth = 1.5;
+ctx.setLineDash([5, 5]);
+ctx.beginPath();
+ctx.moveTo(legendX, currentY - 8);
+ctx.lineTo(legendX + 14, currentY - 8);
+ctx.stroke();
+ctx.setLineDash([]);
+ctx.fillStyle = '#FFFFFF';
+ctx.font = '12px Arial';
+ctx.fillText('🟣 Текущее фото (трансформировано)', legendX + 20, currentY - 5);
+currentY += lineHeight;
 
             // Контур из текущего фото (фиолетовый)
             ctx.strokeStyle = '#AA00FF';
