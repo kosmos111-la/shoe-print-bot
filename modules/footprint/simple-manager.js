@@ -300,25 +300,6 @@ let visualizationData = null;
 let modelVizPath = null;
 let photoVizPath = null;
 
-  // ========== ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ ==========
-console.log(`\n🔍 ПЕРЕД ТОПОЛОГИЧЕСКОЙ ВИЗУАЛИЗАЦИЕЙ:`);
-const topologyManagerCheck = this.getTopologyManager(userId);
-if (topologyManagerCheck) {
-    const model = topologyManagerCheck.accumulator.getCurrentModel();
-    if (model && model.graph) {
-        let red = 0, orange = 0, yellow = 0, blue = 0;
-        for (const node of model.graph.nodes.values()) {
-            const count = node.confirmationCount || 0;
-            if (count >= 4) red++;
-            else if (count === 3) orange++;
-            else if (count === 2) yellow++;
-            else if (count === 1) blue++;
-        }
-        console.log(`   Состояние модели ПЕРЕД визуализацией: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-        console.log(`   Всего узлов: ${model.graph.nodes.size}`);
-    }
-}
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========        
 
 if (this.config.enableMergeVisualization && this.visualizationManager) {
     try {
@@ -327,24 +308,9 @@ if (this.config.enableMergeVisualization && this.visualizationManager) {
             // Получаем данные для визуализации
             visualizationData = topologyManager.getAccumulativeVisualizationData();
 
-// ========== ДИАГНОСТИКА ПОСЛЕ getAccumulativeVisualizationData ==========
-console.log(`\n🔍 ПОСЛЕ getAccumulativeVisualizationData:`);
-const modelAfterGetViz = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
-if (modelAfterGetViz && modelAfterGetViz.graph) {
-    let red = 0, orange = 0, yellow = 0, blue = 0;
-    for (const node of modelAfterGetViz.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) red++;
-        else if (count === 3) orange++;
-        else if (count === 2) yellow++;
-        else if (count === 1) blue++;
-    }
-    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-}
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
-// 🔥 ИЩЕМ matchMap
-let matchMap = null;
+            // 🔥 ИЩЕМ matchMap
+            let matchMap = null;
 
             if (topologicalResult && topologicalResult.matchMap) {
                 matchMap = topologicalResult.matchMap;
@@ -455,23 +421,6 @@ if (bot && chatId) {
             chatId,
             topologicalResult
         );
-       
-        // ========== ДИАГНОСТИКА ПОСЛЕ ОТПРАВКИ В TELEGRAM ==========
-        console.log(`\n🔍 ПОСЛЕ отправки в Telegram:`);
-        const modelAfterTelegram = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
-        if (modelAfterTelegram && modelAfterTelegram.graph) {
-            let red = 0, orange = 0, yellow = 0, blue = 0;
-            for (const node of modelAfterTelegram.graph.nodes.values()) {
-                const count = node.confirmationCount || 0;
-                if (count >= 4) red++;
-                else if (count === 3) orange++;
-                else if (count === 2) yellow++;
-                else if (count === 1) blue++;
-            }
-            console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-        }
-        // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-       
     } else {
         console.log('⚠️ Нет визуализаций для отправки');
         telegramSent = true;
@@ -482,26 +431,6 @@ if (bot && chatId) {
 // ВИЗУАЛИЗАЦИЯ МОДЕЛИ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО
 
 if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
-
- // ========== ДИАГНОСТИКА ПЕРЕД ЧИСТОЙ МОДЕЛЬЮ ==========
-    console.log(`\n🔍 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ ЧИСТОЙ МОДЕЛИ:`);
-    const topologyManagerCheck2 = this.getTopologyManager(userId);
-    if (topologyManagerCheck2) {
-        const model = topologyManagerCheck2.accumulator.getCurrentModel();
-        if (model && model.graph) {
-            let red = 0, orange = 0, yellow = 0, blue = 0;
-            for (const node of model.graph.nodes.values()) {
-                const count = node.confirmationCount || 0;
-                if (count >= 4) red++;
-                else if (count === 3) orange++;
-                else if (count === 2) yellow++;
-                else if (count === 1) blue++;
-            }
-            console.log(`   Состояние модели ПЕРЕД чистой визуализацией: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-        }
-    }
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========
-  
     try {
         console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...');
 
@@ -523,7 +452,7 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                 console.log(`   • Точек модели: ${modelInfo.graph.nodes.size}`);
                 console.log(`   • Соответствий: ${matchMap.size}`);
 
-                 // Подготавливаем точки модели с номерами пар
+                // Подготавливаем точки модели с номерами пар
                 const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
                     let pairNumber = null;
                     let status = null;
@@ -537,42 +466,15 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                         }
                     }
 
-                    // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ необходимые поля для визуализации
                     return {
                         id: node.id,
                         x: node.x,
                         y: node.y,
                         confirmationCount: node.confirmationCount || 0,
                         pairNumber: pairNumber,
-                        status: status,
-                        // 🔥 КРИТИЧНО: Добавляем morphology и sourceContours
-                        morphology: node.morphology || null,
-                        sourceContours: node.sourceContours || []
+                        status: status
                     };
                 });
-
-                // 🔥 ПРОВЕРКА: ДИАГНОСТИКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ
-                console.log(`\n🔍 ПРОВЕРКА КОНТУРОВ В ПОДГОТОВЛЕННЫХ ТОЧКАХ:`);
-                const originalNodes = Array.from(modelInfo.graph.nodes.values());
-                let originalWithContour = 0;
-                let preparedWithContour = 0;
-               
-                for (const node of originalNodes) {
-                    if (node.morphology?.contour) originalWithContour++;
-                }
-               
-                for (const point of points) {
-                    if (point.morphology?.contour) preparedWithContour++;
-                }
-               
-                console.log(`   • В исходных узлах модели: ${originalWithContour} контуров`);
-                console.log(`   • В подготовленных точках: ${preparedWithContour} контуров`);
-               
-                if (originalWithContour > 0 && preparedWithContour === 0) {
-                    console.log(`   ❌ КОНТУРЫ ПОТЕРЯНЫ ПРИ ПОДГОТОВКЕ ТОЧЕК!`);
-                } else if (preparedWithContour > 0) {
-                    console.log(`   ✅ Контуры успешно скопированы в points!`);
-                }
 
                 const edges = Array.from(modelInfo.graph.edges);
 
@@ -605,61 +507,21 @@ if (triangles.length > 0) {
 }
 console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructure.size} записей`);
 
-// 🔥 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ
-                console.log(`\n🔍 ДИАГНОСТИКА ПЕРЕД ВИЗУАЛИЗАЦИЕЙ МОДЕЛИ:`);
-                console.log(`   points.length: ${points.length}`);
-
-                let hasContour = 0;
-                let hasHistory = 0;
-
-                for (const point of points) {
-                    if (point.morphology?.contour && point.morphology.contour.length > 0) {
-                        hasContour++;
-                    }
-                    if (point.sourceContours && point.sourceContours.length > 0) {
-                        hasHistory++;
-                    }
-                }
-
-                console.log(`   • Точек с morphology.contour: ${hasContour}`);
-                console.log(`   • Точек с sourceContours: ${hasHistory}`);
-
-                if (hasContour === 0) {
-                    console.log(`   ⚠️ ВНИМАНИЕ: НИ ОДНА ТОЧКА НЕ ИМЕЕТ КОНТУРА!`);
-                }
-
-                const modelImagePath = await modelViz.createVisualization({
+const modelImagePath = await modelViz.createVisualization({
     points: points,
-    photoPoints: [],           // ✅ пустой массив для чистой модели
+    photoPoints: [],
     transform: transform,
     matches: matchMap,
     edges: edges,
-    triangles: visualizationData?.triangles || [],      // ← ДОБАВИТЬ
-    structures: visualizationData?.structures || [],    // ← ДОБАВИТЬ
-    pointToStructure: visualizationData?.pointToStructure || new Map(),  // ← ДОБАВИТЬ
-    outlineContour: visualizationData?.outlineContour,
-    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'),
+    triangles: triangles,
+    structures: structures,
+    pointToStructure: pointToStructure,
     outputPath: outputPath,
     width: 1200,
     height: 1000
 });
-// ========== ДИАГНОСТИКА ПОСЛЕ ВИЗУАЛИЗАЦИИ ЧИСТОЙ МОДЕЛИ ==========
-console.log(`\n🔍 ПОСЛЕ визуализации чистой модели:`);
-const modelAfterCleanViz = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
-if (modelAfterCleanViz && modelAfterCleanViz.graph) {
-    let red = 0, orange = 0, yellow = 0, blue = 0;
-    for (const node of modelAfterCleanViz.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) red++;
-        else if (count === 3) orange++;
-        else if (count === 2) yellow++;
-        else if (count === 1) blue++;
-    }
-    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-}
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========
 
-if (modelImagePath && fs.existsSync(modelImagePath)) {
+                if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Чистая модель сохранена: ${modelImagePath}`);
 
                     // Отправляем в Telegram
@@ -691,28 +553,7 @@ if (modelImagePath && fs.existsSync(modelImagePath)) {
         console.log(`⚠️ Ошибка визуализации чистой модели: ${modelVizError.message}`);
         console.log(modelVizError.stack);
     }
-}
-          if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
-
-         // ========== ДИАГНОСТИКА ПЕРЕД НАЛОЖЕНИЕМ ==========
-    console.log(`\n🔍 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ С НАЛОЖЕНИЕМ:`);
-    const topologyManagerCheck3 = this.getTopologyManager(userId);
-    if (topologyManagerCheck3) {
-        const model = topologyManagerCheck3.accumulator.getCurrentModel();
-        if (model && model.graph) {
-            let red = 0, orange = 0, yellow = 0, blue = 0;
-            for (const node of model.graph.nodes.values()) {
-                const count = node.confirmationCount || 0;
-                if (count >= 4) red++;
-                else if (count === 3) orange++;
-                else if (count === 2) yellow++;
-                else if (count === 1) blue++;
-            }
-            console.log(`   Состояние модели ПЕРЕД наложением: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-        }
-    }
-    // ========== КОНЕЦ ДИАГНОСТИКИ ==========   
-            
+}if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
     try {
         console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО...');
        
@@ -805,30 +646,14 @@ const modelImagePath = await modelViz.createVisualization({
     transform: transform,
     matches: matchMap,
     edges: edges,
-    outlineContour: visualizationData?.outlineContour,
-    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'),
+    outlineContour: visualizationData?.outlineContour,                              // 🔥 КОНТУР МОДЕЛИ
+    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'), // 🔥 КОНТУР ФОТО
     outputPath: outputPath,
     width: 1200,
     height: 1000
 });
-
-// ========== ДИАГНОСТИКА ПОСЛЕ ВИЗУАЛИЗАЦИИ С НАЛОЖЕНИЕМ ==========
-console.log(`\n🔍 ПОСЛЕ визуализации с наложением:`);
-const modelAfterOverlayViz = this.getTopologyManager(userId)?.accumulator.getCurrentModel();
-if (modelAfterOverlayViz && modelAfterOverlayViz.graph) {
-    let red = 0, orange = 0, yellow = 0, blue = 0;
-    for (const node of modelAfterOverlayViz.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) red++;
-        else if (count === 3) orange++;
-        else if (count === 2) yellow++;
-        else if (count === 1) blue++;
-    }
-    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-}
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========
-
-if (modelImagePath && fs.existsSync(modelImagePath)) {
+               
+                if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Визуализация с наложением создана: ${modelImagePath}`);
                    
                     // Отправляем в Telegram
@@ -1216,28 +1041,6 @@ const result = {
         console.log(`   Контур следа: есть (${outlineContour.points.length} точек)`);
     } else {
         console.log(`   Контур следа: не найден`);
-    }
-
-    // 🔥 ДИАГНОСТИКА СВЯЗИ ТОЧЕК И КОНТУРОВ
-    console.log(`\n🔍 ДИАГНОСТИКА ИЗВЛЕЧЁННЫХ КОНТУРОВ:`);
-   
-    let pointsWithContour = 0;
-    for (const point of points) {
-        const hasContour = contours.some(c => c.pointId === point.id);
-        if (hasContour) pointsWithContour++;
-    }
-   
-    console.log(`   • Всего точек: ${points.length}`);
-    console.log(`   • Всего контуров (без outline): ${contours.filter(c => c.class !== 'Outline-trail').length}`);
-    console.log(`   • Точек с привязанным контуром: ${pointsWithContour}`);
-   
-    if (contours.length > 0) {
-        const protectorContour = contours.find(c => c.class === 'shoe-protector');
-        if (protectorContour) {
-            console.log(`   • Пример контура протектора: ${protectorContour.points?.length || 0} точек`);
-        }
-    } else {
-        console.log(`   ⚠️ КОНТУРЫ НЕ ИЗВЛЕЧЕНЫ ИЗ АНАЛИЗА!`);
     }
 
     return { points, contours };
