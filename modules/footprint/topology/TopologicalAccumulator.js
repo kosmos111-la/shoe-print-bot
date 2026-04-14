@@ -2341,7 +2341,7 @@ return {
             } else {
                 if (this.debug) console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
             }
-          }
+          
         } else {
             if (this.debug) {
                 console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
