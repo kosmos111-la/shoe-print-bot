@@ -3322,78 +3322,44 @@ if (!isDuplicate) {
     const avgArea = this.calculateAverageArea(model);
     const newArea = newMorph?.normalizedArea || 1;
     const areaRatio = newArea / avgArea;
-
+   
     let isAnomaly = false;
     if (avgArea > 0.1 && (areaRatio > 3.0 || areaRatio < 0.33)) {
         console.log(`   🚫 Новая точка ${photoPoint.id.substring(0,12)}: площадь ${areaRatio.toFixed(1)}x от средней — НЕ ДОБАВЛЯЕМ (шум)`);
         isAnomaly = true;
     }
-
+   
     if (!isAnomaly) {
-        // ✅ УДАЛЯЕМ ПОВТОРНОЕ ОБЪЯВЛЕНИЕ newMorph (оно уже есть выше)
-        // const newMorph = newMorphology?.get(photoPoint.id);  // ← УДАЛИТЬ ЭТУ СТРОКУ
-
-        // ✅ ТРАНСФОРМИРУЕМ КОНТУР, если он есть
-        let transformedMorph = null;
-        let transformedSourceContours = [];
-
-        if (newMorph && newMorph.hasContour && newMorph.contour && transform) {
-            const transformedContour = newMorph.contour.map(p => this.applyTransform(p, transform));
-            transformedMorph = {
-                ...newMorph,
-                contour: transformedContour,
-                center: this.calculateCentroid(transformedContour)
-            };
-            transformedSourceContours = [{
-                points: transformedContour,
-                confidence: newMorph.confidence || 0.5,
-                type: 'photo_new',
-                transformed: true
-            }];
-            if (this.debug) {
-                console.log(`   🔄 Контур точки ${photoPoint.id.substring(0,12)} трансформирован (${newMorph.contour.length} точек)`);
-            }
-        } else if (newMorph) {
-            transformedMorph = newMorph;
-            if (newMorph.contour) {
-                transformedSourceContours = [{
-                    points: newMorph.contour,
-                    confidence: newMorph.confidence || 0.5,
-                    type: 'photo_new',
-                    transformed: false
-                }];
-            }
-        }
-
-        // ✅ ТОЛЬКО ОДНО ОБЪЯВЛЕНИЕ newNodeId
         const newNodeId = `pt_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-
+       
         model.uncertaintyManager.addObservation(newNodeId, finalX, finalY, newMorph?.confidence || 0.5);
         const uncertaintyPoint = model.uncertaintyManager.getPoint(newNodeId);
-
+       
         model.graph.nodes.set(newNodeId, {
             id: newNodeId,
-            x: finalX,
-            y: finalY,
+            x: uncertaintyPoint.x,
+            y: uncertaintyPoint.y,
+            radius: uncertaintyPoint.radius,
             degree: 0,
             triangles: 0,
-            morphology: transformedMorph || {},
+            morphology: newMorph || {},
             confirmationCount: 1,
             addedFrom: 'new_photo_point',
             addedAt: new Date(),
             originalPhotoId: photoPoint.id,
-            sourceContours: transformedSourceContours
+            sourceContours: (newMorph?.hasContour && newMorph?.contour) ? [{
+                points: newMorph.contour,
+                confidence: newMorph.confidence || 0.5,
+                type: 'photo_new'
+            }] : []
         });
-
+       
         newNodesAdded++;
-        if (this.debug) {
-            console.log(`   ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)}) с контуром: ${transformedMorph?.contour?.length || 0} точек`);
-        }
+        if (this.debug) console.log(`      ✅ Добавлена новая точка (${finalX.toFixed(1)}, ${finalY.toFixed(1)})`);
     }
 }
+        }
     }
-    }
-      
 
         // ========== 🔥 ДИАГНОСТИКА КОНТУРОВ ПОСЛЕ ОБНОВЛЕНИЯ ==========
         console.log(`\n🔍 ДИАГНОСТИКА КОНТУРОВ В МОДЕЛИ ПОСЛЕ ОБНОВЛЕНИЯ:`);
@@ -4824,50 +4790,63 @@ generateStructureColors(structures) {
     * @returns {Array} - массив треугольников {p1, p2, p3}
     */
     extractTrianglesFromGraph(graph) {
-    // ✅ ПРОВЕРЯЕМ, ЕСТЬ ЛИ УЖЕ ПОСТРОЕННЫЙ triangleList
-    if (graph.triangleList && graph.triangleList.length > 0) {
-        if (this.debug) {
-            console.log(`📊 extractTrianglesFromGraph: используем существующий triangleList (${graph.triangleList.length} треугольников)`);
-        }
-       
-        const triangles = [];
-        for (const tri of graph.triangleList) {
-            if (!tri || tri.length < 3) continue;
-           
-            const p1 = graph.nodes.get(tri[0]);
-            const p2 = graph.nodes.get(tri[1]);
-            const p3 = graph.nodes.get(tri[2]);
-           
-            if (!p1 || !p2 || !p3) continue;
-           
-            triangles.push({
-                p1, p2, p3,
-                id: `tri_${tri[0]}_${tri[1]}_${tri[2]}`,
-                confidence: 0.5,
-                edges: [
-                    { v1: p1, v2: p2, externalPoint: null, neighborTriangles: [] },
-                    { v1: p2, v2: p3, externalPoint: null, neighborTriangles: [] },
-                    { v1: p3, v2: p1, externalPoint: null, neighborTriangles: [] }
-                ]
-            });
-        }
-       
-        if (this.debug) {
-            console.log(`   → Получено ${triangles.length} треугольников из triangleList`);
-        }
-       
-        return triangles;
-    }
+    const triangles = [];
+    const nodeIds = Array.from(graph.nodes.keys());
+    const edges = graph.edges;
+
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
+
+                if (edges.has([a, b].sort().join('--')) &&
+                    edges.has([b, c].sort().join('--')) &&
+                    edges.has([c, a].sort().join('--'))) {
+
+                    const p1 = graph.nodes.get(a);
+                    const p2 = graph.nodes.get(b);
+                    const p3 = graph.nodes.get(c);
+
+                    // 🔥 ДИАГНОСТИКА
+                    if (!p1 || !p2 || !p3) {
+                        if (this.debug) console.log(`⚠️ Треугольник ${a},${b},${c}: одна из точек не найдена`);
+                        continue;
+                    }
+                   
+                    if (typeof p1.x !== 'number' || typeof p2.x !== 'number' || typeof p3.x !== 'number') {
+                        if (this.debug) {
+                            console.log(`⚠️ Треугольник ${a},${b},${c}: координаты не числа`);
+                            console.log(`   p1: ${p1?.x},${p1?.y}`);
+                            console.log(`   p2: ${p2?.x},${p2?.y}`);
+                            console.log(`   p3: ${p3?.x},${p3?.y}`);
+                        }
+                        continue;
+                    }
+
+                    const triangleEdges = [
+                        { v1: p1, v2: p2, externalPoint: null, neighborTriangles: [] },
+                        { v1: p2, v2: p3, externalPoint: null, neighborTriangles: [] },
+                        { v1: p3, v2: p1, externalPoint: null, neighborTriangles: [] }
+                    ];
+
+                    triangles.push({
+                        p1, p2, p3,
+                        edges: triangleEdges,
+                        id: `tri_${a}_${b}_${c}`,
+                        confidence: 0.5
+                    });
+                }
+            }
+        }
+    }
    
-    // Fallback: пересчитываем с нуля (только если triangleList отсутствует)
-    if (this.debug) {
-        console.log(`⚠️ graph.triangleList отсутствует, пересчитываю...`);
-    }
+    if (this.debug) {
+        console.log(`📊 extractTrianglesFromGraph: найдено ${triangles.length} треугольников`);
+    }
    
-    this.recalculateTriangles(graph);
-   
-    // Рекурсивно вызываем снова (теперь triangleList должен быть)
-    return this.extractTrianglesFromGraph(graph);
+    return triangles;
 }
 
 /**
@@ -5541,42 +5520,40 @@ recalculateTriangles(graph) {
         console.log('   ⚠️ recalculateTriangles: нет графа');
         return;
     }
-
+   
     console.log(`   📐 recalculateTriangles: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
-
+   
     // Сбрасываем triangles у всех узлов
     for (const node of graph.nodes.values()) {
         node.triangles = 0;
     }
-
+   
     // Строим triangleList
     const nodeIds = Array.from(graph.nodes.keys());
     const edgesSet = graph.edges;
     const triangleList = [];
-
+   
     for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
             for (let k = j + 1; k < nodeIds.length; k++) {
                 const a = nodeIds[i];
                 const b = nodeIds[j];
                 const c = nodeIds[k];
-
+               
                 const ab = [a, b].sort().join('--');
                 const bc = [b, c].sort().join('--');
                 const ca = [c, a].sort().join('--');
-
+               
                 if (edgesSet.has(ab) && edgesSet.has(bc) && edgesSet.has(ca)) {
                     triangleList.push([a, b, c]);
                 }
             }
         }
     }
-
-    // ✅ СОХРАНЯЕМ triangleList В ГРАФ
-    graph.triangleList = triangleList;
    
+     graph.triangleList = triangleList;
     console.log(`   📊 recalculateTriangles: ${triangleList.length} треугольников`);
-
+   
     // Подсчёт треугольников для каждой точки
     for (const tri of triangleList) {
         for (const v of tri) {
@@ -5586,13 +5563,31 @@ recalculateTriangles(graph) {
             }
         }
     }
-
-    let nodesWithTriangles = 0;
-    for (const node of graph.nodes.values()) {
-        if (node.triangles > 0) nodesWithTriangles++;
-    }
    
+    // 🔥 ДИАГНОСТИКА
+   let nodesWithTriangles = 0;
+    for (const node of graph.nodes.values()) {
+        if (node.triangles > 0) {
+            nodesWithTriangles++;
+        }
+    }
+     console.log(`   📐 recalculateTriangles: ${graph.nodes.size} узлов, ${graph.edges.size} рёбер`);
+    console.log(`   📊 recalculateTriangles: ${triangleList.length} треугольников`);
     console.log(`   📊 Узлов с triangles > 0: ${nodesWithTriangles} / ${graph.nodes.size}`);
+   
+    // 🔥 ДИАГНОСТИКА: проверяем, что рёбра не дублируются
+    const edgeKeys = new Set();
+    let duplicateEdges = 0;
+    for (const edge of graph.edges) {
+        if (edgeKeys.has(edge)) {
+            duplicateEdges++;
+        } else {
+            edgeKeys.add(edge);
+        }
+    }
+    if (duplicateEdges > 0) {
+        console.log(`   ⚠️ Обнаружено ${duplicateEdges} дублирующихся рёбер!`);
+    }
 }
      /**
      * Подсчитывает количество треугольников для каждой точки графа
@@ -5632,23 +5627,6 @@ recalculateTriangles(graph) {
     return triangles;
 }
 
-/**
-* Вычисляет центроид контура
-*/
-calculateCentroid(points) {
-    if (!points || points.length === 0) return { x: 0, y: 0 };
-   
-    let sumX = 0, sumY = 0;
-    for (const p of points) {
-        sumX += p.x;
-        sumY += p.y;
-    }
-    return {
-        x: sumX / points.length,
-        y: sumY / points.length
-    };
-}
-  
     clear() {
         this.models.clear();
         this.currentModelId = null;
