@@ -131,50 +131,16 @@ const result = await this.accumulator.processPoints(points, {
     contours: contours
 });
 
-// ========== ДИАГНОСТИКА СРАЗУ ПОСЛЕ ВОЗВРАТА ИЗ accumulator.processPoints ==========
-console.log(`\n🔍 СРАЗУ ПОСЛЕ ВОЗВРАТА ИЗ accumulator.processPoints:`);
-const modelImmediate = this.accumulator.getCurrentModel();
-if (modelImmediate && modelImmediate.graph) {
-    let red = 0, orange = 0, yellow = 0, blue = 0;
-    for (const node of modelImmediate.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) red++;
-        else if (count === 3) orange++;
-        else if (count === 2) yellow++;
-        else if (count === 1) blue++;
-    }
-    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-    console.log(`   Всего узлов: ${modelImmediate.graph.nodes.size}`);
-}
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========
-
-// ========== ДИАГНОСТИКА ПОСЛЕ accumulator.processPoints (оставляем для сравнения) ==========
-console.log(`\n🔍 ПОСЛЕ accumulator.processPoints в TopologyManager (после всех операций):`);
-const modelAfterProcess = this.accumulator.getCurrentModel();
-if (modelAfterProcess && modelAfterProcess.graph) {
-    let red = 0, orange = 0, yellow = 0, blue = 0;
-    for (const node of modelAfterProcess.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) red++;
-        else if (count === 3) orange++;
-        else if (count === 2) yellow++;
-        else if (count === 1) blue++;
-    }
-    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-    console.log(`   Всего узлов: ${modelAfterProcess.graph.nodes.size}`);
-}
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========
-
-// 🔥 СОХРАНЯЕМ patternData И clusterData
-if (result.modelId && this.accumulator.models.has(result.modelId)) {
-    const model = this.accumulator.models.get(result.modelId);
-    if (model.patternData) {
-        this.patterns.set(result.modelId, model.patternData);
-    }
-    if (model.clusterData) {
-        this.clusters.set(result.modelId, model.clusterData);
-    }
-}
+        // 🔥 СОХРАНЯЕМ patternData И clusterData
+        if (result.modelId && this.accumulator.models.has(result.modelId)) {
+            const model = this.accumulator.models.get(result.modelId);
+            if (model.patternData) {
+                this.patterns.set(result.modelId, model.patternData);
+            }
+            if (model.clusterData) {
+                this.clusters.set(result.modelId, model.clusterData);
+            }
+        }
 
         // 🔥 ВАЖНО: обновляем текущий modelId для следующих вызовов
 if (result.modelId) {
@@ -200,37 +166,21 @@ if (result.modelId) {
             console.log(`🔍 matchMap передан в результат: ${matchMap.size} пар`);
         }
 
-        // ========== ДИАГНОСТИКА ПЕРЕД ВОЗВРАТОМ ИЗ processFootprint ==========
-console.log(`\n🔍 ПЕРЕД ВОЗВРАТОМ ИЗ processFootprint:`);
-const modelBeforeReturn = this.accumulator.getCurrentModel();
-if (modelBeforeReturn && modelBeforeReturn.graph) {
-    let red = 0, orange = 0, yellow = 0, blue = 0;
-    for (const node of modelBeforeReturn.graph.nodes.values()) {
-        const count = node.confirmationCount || 0;
-        if (count >= 4) red++;
-        else if (count === 3) orange++;
-        else if (count === 2) yellow++;
-        else if (count === 1) blue++;
-    }
-    console.log(`   Состояние модели: красных ${red}, оранж ${orange}, жёлт ${yellow}, син ${blue}`);
-}
-// ========== КОНЕЦ ДИАГНОСТИКИ ==========
-
-return {
-    success: true,
-    topologicalResult: {
-        ...result,
-        matchMap: matchMap
-    },
-    modelInfo: modelInfo,
-    pointsCount: points.length,
-    modelId: result.modelId,
-    similarity: result.similarity || 0,
-    decision: this.getDecisionFromResult(result),
-    sandboxMode: this.sandboxMode,
-    patternData: this.patterns.get(result.modelId),
-    clusterData: this.clusters.get(result.modelId)
-};
+        return {
+            success: true,
+            topologicalResult: {
+                ...result,
+                matchMap: matchMap
+            },
+            modelInfo: modelInfo,
+            pointsCount: points.length,
+            modelId: result.modelId,
+            similarity: result.similarity || 0,
+            decision: this.getDecisionFromResult(result),
+            sandboxMode: this.sandboxMode,
+            patternData: this.patterns.get(result.modelId),
+            clusterData: this.clusters.get(result.modelId)
+        };
     }
 
     // ==================== ИЗВЛЕЧЕНИЕ ТОЧЕК И КОНТУРОВ ====================
@@ -304,9 +254,6 @@ return {
     // ==================== ВИЗУАЛИЗАЦИЯ ====================
 
     getAccumulativeVisualizationData(modelId = null) {
-        console.log(`\n🔍 getAccumulativeVisualizationData ВЫЗВАН`);
-        console.log(new Error().stack.split('\n').slice(1, 5).join('\n'));
-       
         const targetModelId = modelId || this.accumulator.currentModelId;
 
         if (!targetModelId) {
@@ -314,134 +261,13 @@ return {
             return null;
         }
 
-        const model = this.accumulator.models.get(targetModelId);
-        if (!model) {
-            console.log('⚠️ Модель не найдена');
-            return null;
-        }
-
-         const graph = model.graph;
-   
-    // 🔥 ПРОВЕРЯЕМ, ЧТО triangleList АКТУАЛЕН
-    if (!graph.triangleList || graph.triangleList.length === 0) {
-        console.log(`   ⚠️ triangleList пуст, пересчитываю...`);
-        this.accumulator.recalculateTriangles(graph);
-    }
-   
-    // 🔥 ПРЕОБРАЗУЕМ triangleList (массив [id1, id2, id3]) в объекты {p1, p2, p3}
-const triangles = (graph.triangleList || []).map(tri => {
-    if (!tri || tri.length < 3) return null;
-    const p1 = graph.nodes.get(tri[0]);
-    const p2 = graph.nodes.get(tri[1]);
-    const p3 = graph.nodes.get(tri[2]);
-   
-    if (!p1 || !p2 || !p3) {
-        console.log(`   ⚠️ Треугольник с несуществующими точками: ${tri[0]}, ${tri[1]}, ${tri[2]}`);
-        return null;
-    }
-   
-    return { p1, p2, p3 };
-}).filter(t => t !== null);
-
-console.log(`   📊 getAccumulativeVisualizationData: triangles.length = ${triangles.length}`);
+        const vizData = this.accumulator.getVisualizationData(targetModelId);
        
-        // 🔥 ИСПРАВЛЕНО: Копируем ВСЕ поля, включая morphology и sourceContours
-        const points = Array.from(graph.nodes.values()).map(node => ({
-            id: node.id,
-            x: node.x,
-            y: node.y,
-            confirmationCount: node.confirmationCount || 0,
-            degree: node.degree || 0,
-            triangles: node.triangles || 0,
-            // 🔥 КРИТИЧНО: Копируем морфологию и историю контуров
-            morphology: node.morphology || null,
-            sourceContours: node.sourceContours || [],
-            // Остальные поля
-            clusterId: node.clusterId,
-            patternType: node.patternType,
-            addedFrom: node.addedFrom
-        }));
-
-        // 🔥 ДИАГНОСТИКА
-        let pointsWithContour = 0;
-        let pointsWithHistory = 0;
-        for (const point of points) {
-            if (point.morphology?.contour) pointsWithContour++;
-            if (point.sourceContours?.length > 0) pointsWithHistory++;
+        // Добавляем паттерны и кластеры для визуализации
+        if (vizData) {
+            vizData.patternData = this.patterns.get(targetModelId);
+            vizData.clusterData = this.clusters.get(targetModelId);
         }
-        console.log(`   📊 getAccumulativeVisualizationData: точек с контуром ${pointsWithContour}, с историей ${pointsWithHistory}`);
-
-        // 🔥 ПЕРЕСЧИТЫВАЕМ РЁБРА ИЗ ТРЕУГОЛЬНИКОВ (гарантия Делоне, без пересечений)
-        const edgesSet = new Set();
-        for (const tri of triangles) {
-            if (!tri || !tri.p1 || !tri.p2 || !tri.p3) continue;
-            edgesSet.add([tri.p1.id, tri.p2.id].sort().join('--'));
-            edgesSet.add([tri.p2.id, tri.p3.id].sort().join('--'));
-            edgesSet.add([tri.p3.id, tri.p1.id].sort().join('--'));
-        }
-        const edges = Array.from(edgesSet);
-        console.log(`   📊 Рёбра пересчитаны из треугольников: ${edges.length} (в графе было ${graph.edges?.size || 0})`);
-       
-        // Получаем структуры
-        const structures = (model.structures || []).map(s => ({
-            id: s.id,
-            pointIds: s.pointIds || [],
-            triangleIds: s.triangleIds || [],
-            triangles: s.triangles || [],
-            confidence: s.confidence || 0,
-            transform: s.transform || null,
-            rays: s.rays || []
-        }));
-
-        // 🔥 ТРЕУГОЛЬНИКИ УЖЕ ПОЛУЧЕНЫ ВЫШЕ — ИСПОЛЬЗУЕМ ИХ
-        // const triangles = ... // УДАЛЕНО!
-
-        // Получаем pointToStructure
-        const pointToStructure = model.pointToStructure || new Map();
-
-        // Получаем уникальные точки
-        const uniquePoints = model.uniquePoints || { model: [], photo: [] };
-
-        // Получаем matchMap
-        const matchMap = model.lastTriangleResult?.matchMap || new Map();
-        const modelMatchMap = model.lastTriangleResult?.modelMatchMap || new Map();
-
-        const stats = {
-            totalNodes: graph.nodes.size,
-            totalEdges: graph.edges.size,
-            confirmed3: points.filter(p => p.confirmationCount >= 3).length,
-            confirmed2: points.filter(p => p.confirmationCount === 2).length,
-            confirmed1: points.filter(p => p.confirmationCount === 1).length,
-            confirmed0: points.filter(p => !p.confirmationCount).length,
-            structureCount: structures.length,
-            // 🔥 Дополнительная статистика
-            uniquePoints: graph.nodes.size,
-            confirmedPoints: points.filter(p => p.confirmationCount >= 2).length,
-            stability: graph.nodes.size > 0 ?
-                (points.filter(p => p.confirmationCount >= 2).length / graph.nodes.size * 100).toFixed(1) : 0
-        };
-
-        const vizData = {
-            modelId: targetModelId,
-            modelName: model.metadata.name,
-            points: points,
-            photoPoints: model.originalPoints || [],
-            edges: edges,
-            triangles: triangles,
-            structures: structures,
-            pointToStructure: pointToStructure,
-            uniquePoints: uniquePoints,
-            matchMap: matchMap,
-            modelMatchMap: modelMatchMap,
-            outlineContour: model.metadata?.outlineContour || null,
-            transform: model.transform || model.lastTransform || null,
-            stats: stats,
-            metadata: model.metadata
-        };
-
-        // Добавляем паттерны и кластеры
-        vizData.patternData = this.patterns.get(targetModelId);
-        vizData.clusterData = this.clusters.get(targetModelId);
 
         return vizData;
     }
@@ -522,16 +348,13 @@ console.log(`   📊 getAccumulativeVisualizationData: triangles.length = ${tr
         const models = [];
 
         for (const [modelId, model] of this.accumulator.models) {
-    // 🔥 Экспортируем ТОЛЬКО points, без графа
-    models.push({
-        id: modelId,
-        points: model.points || Array.from(model.graph?.nodes?.values() || []),
-        metadata: model.metadata,
-        patternData: this.patterns.get(modelId),
-        clusterData: this.clusters.get(modelId),
-        exportedAt: new Date().toISOString()
-    });
-}
+            const exportData = this.accumulator.exportModel(modelId);
+            models.push({
+                ...exportData,
+                patternData: this.patterns.get(modelId),
+                clusterData: this.clusters.get(modelId)
+            });
+        }
 
         return {
             userId: this.userId,
@@ -550,38 +373,17 @@ console.log(`   📊 getAccumulativeVisualizationData: triangles.length = ${tr
         let importedCount = 0;
 
         for (const modelData of data.models) {
-    // 🔥 Импортируем модель с точками
-    const modelId = modelData.id;
-   
-    // Строим граф из точек
-    const points = modelData.points || [];
-    const graph = points.length >= 3
-        ? this.accumulator.graphBuilder.buildGraph(points, 'imported_model')
-        : this.accumulator.graphBuilder.buildMinimalGraph(points);
-   
-    const model = {
-        id: modelId,
-        points: points,
-        graph: graph,
-        knnGraph: null,
-        knnFingerprints: new Map(),
-        morphologyMap: new Map(),
-        metadata: modelData.metadata || {},
-        patternData: modelData.patternData,
-        clusterData: modelData.clusterData,
-        history: []
-    };
-   
-    this.accumulator.models.set(modelId, model);
-   
-    if (modelData.patternData) {
-        this.patterns.set(modelId, modelData.patternData);
-    }
-    if (modelData.clusterData) {
-        this.clusters.set(modelId, modelData.clusterData);
-    }
-    importedCount++;
-}
+            if (this.accumulator.importModel(modelData)) {
+                const modelId = modelData.id;
+                if (modelData.patternData) {
+                    this.patterns.set(modelId, modelData.patternData);
+                }
+                if (modelData.clusterData) {
+                    this.clusters.set(modelId, modelData.clusterData);
+                }
+                importedCount++;
+            }
+        }
 
         // Восстанавливаем связи след-модель
         if (data.linkedFootprints && Array.isArray(data.linkedFootprints)) {
