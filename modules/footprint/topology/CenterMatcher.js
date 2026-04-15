@@ -2,6 +2,10 @@
 // 🔥 ИЕРАРХИЧЕСКИЙ ПОИСК НАДЁЖНЫХ ТОЧЕК (H → B/C → R → L) + K-PLET + LCS
 // 🔥 + ГЛОБАЛЬНАЯ ГЕОМЕТРИЧЕСКАЯ ВЕРИФИКАЦИЯ + ДОПУСКИ
 
+const GeometryUtils = require('./utils/GeometryUtils');
+const GraphUtils = require('./utils/GraphUtils');
+const RoleClassifier = require('./utils/RoleClassifier');
+
 class CenterMatcher {
     constructor(options = {}) {
         this.debug = options.debug || false;
@@ -26,14 +30,21 @@ class CenterMatcher {
         this.thetaCoeff = 6;
 
         // 🔥 ПОРОГИ ДЛЯ РОЛЕЙ
-        this.hubThreshold = 6;      // H: степень ≥ 6
-        this.bridgeThreshold = 2;    // B: степень = 2, соседи не связаны
-        this.cliqueThreshold = 3;     // C: степень ≥ 3, все соседи связаны
-        this.highDegreeThreshold = 4; // для обычных узлов с высокой степенью
+        this.hubThreshold = 6;
+        this.bridgeThreshold = 2;
+        this.cliqueThreshold = 3;
+        this.highDegreeThreshold = 4;
+
+        // 🔥 КЛАССИФИКАТОР РОЛЕЙ
+        this.roleClassifier = new RoleClassifier({
+            hubThreshold: this.hubThreshold,
+            bridgeThreshold: this.bridgeThreshold,
+            cliqueThreshold: this.cliqueThreshold
+        });
 
         // 🔥 ПАРАМЕТРЫ ГЛОБАЛЬНОЙ ВЕРИФИКАЦИИ
-        this.geometryThreshold = options.geometryThreshold || 0.3; // макс. отклонение 30%
-        this.minAnchorsForGeometry = 3; // минимум якорей для проверки
+        this.geometryThreshold = options.geometryThreshold || 0.3;
+        this.minAnchorsForGeometry = 3;
 
         // 🔥 ДОПУСКИ ДЛЯ МОРФОЛОГИИ
         this.tolerances = {
@@ -77,11 +88,10 @@ class CenterMatcher {
         const searchDim = 15;
 
         // УРОВЕНЬ 1: ХАБЫ (H)
-        let result = this.searchByRole('H', photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, false, photoMorphology, modelMorphology);
+        let result = this.searchByRole('H', photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim);
         if (result.size >= this.minConsistentPairs) {
             console.log(`\n✅ Найдено ${result.size} якорей на УРОВНЕ 1 (ХАБЫ)`);
            
-            // 🔥 ГЛОБАЛЬНАЯ ВЕРИФИКАЦИЯ
             const verified = this.verifyGlobalGeometry(result, photoGraph, modelGraph);
             if (verified.size >= this.minConsistentPairs) {
                 return verified;
@@ -120,8 +130,7 @@ class CenterMatcher {
 
     // ==================== ИЕРАРХИЧЕСКИЙ ПОИСК ПО РОЛЯМ ====================
 
-    searchByRole(roles, photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, highDegreeOnly = false, photoMorphology = null, modelMorphology = null) {
-        // Собираем ID точек с нужными ролями
+    searchByRole(roles, photoGraph, modelGraph, photoKPlets, modelKPlets, photoRoles, modelRoles, searchDim, highDegreeOnly = false) {
         let photoIds = [];
         let modelIds = [];
 
@@ -153,7 +162,6 @@ class CenterMatcher {
             }
         }
 
-        // Ограничиваем размер поиска
         photoIds = photoIds.slice(0, searchDim);
         modelIds = modelIds.slice(0, searchDim);
 
@@ -165,11 +173,10 @@ class CenterMatcher {
         for (const photoId of photoIds) {
             for (const modelId of modelIds) {
                 const result = this.matchWithDFS(
-        photoId, modelId,
-        photoGraph, modelGraph,
-        photoKPlets, modelKPlets,
-        photoMorphology, modelMorphology
-    );
+                    photoId, modelId,
+                    photoGraph, modelGraph,
+                    photoKPlets, modelKPlets
+                );
 
                 if (result.score > bestScore) {
                     bestScore = result.score;
@@ -178,7 +185,6 @@ class CenterMatcher {
             }
         }
 
-        // Формируем результат
         const result = new Map();
         let pairNumber = 1;
 
@@ -201,47 +207,10 @@ class CenterMatcher {
         const roles = new Map();
 
         for (const [nodeId, node] of graph.nodes) {
-            roles.set(nodeId, this.getNodeRole(nodeId, graph));
+            roles.set(nodeId, this.roleClassifier.classify(nodeId, graph));
         }
 
         return roles;
-    }
-
-    getNodeRole(nodeId, graph) {
-        const neighbors = this.findNodeNeighbors(nodeId, graph);
-        const degree = neighbors.length;
-
-        // ХАБ (H)
-        if (degree >= this.hubThreshold) return 'H';
-
-        // МОСТ (B)
-        if (degree === 2) {
-            const [a, b] = neighbors;
-            if (!this.areConnected(a.id, b.id, graph)) {
-                return 'B';
-            }
-        }
-
-        // КЛИКА (C)
-        if (degree >= this.cliqueThreshold) {
-            let allConnected = true;
-            for (let i = 0; i < neighbors.length; i++) {
-                for (let j = i + 1; j < neighbors.length; j++) {
-                    if (!this.areConnected(neighbors[i].id, neighbors[j].id, graph)) {
-                        allConnected = false;
-                        break;
-                    }
-                }
-                if (!allConnected) break;
-            }
-            if (allConnected) return 'C';
-        }
-
-        // ЛИСТ (L)
-        if (degree === 1) return 'L';
-
-        // ОБЫЧНЫЙ (R)
-        return 'R';
     }
 
     // ==================== ПОСТРОЕНИЕ K-PLET ====================
@@ -269,17 +238,16 @@ class CenterMatcher {
             const dx = neighbor.x - centerNode.x;
             const dy = neighbor.y - centerNode.y;
 
-            const dist = Math.sqrt(dx*dx + dy*dy);
+            const dist = GeometryUtils.distance({ x: 0, y: 0 }, { x: dx, y: dy });
 
             let angle = Math.atan2(dy, dx) * 180 / Math.PI;
             if (angle < 0) angle += 360;
 
             const quadrant = Math.floor(angle / 90) % 4;
 
-            const neighborRole = this.getNodeRole(neighbor.id, graph);
-            const theta = this.roleToAngle(neighborRole);
+            const neighborRole = this.roleClassifier.classify(neighbor.id, graph);
+            const theta = this.roleClassifier.roleToAngle(neighborRole);
 
-            // Добавляем морфологию соседа
             const morph = morphologyMap.get(neighbor.id) || {};
 
             quadrants[quadrant].push({
@@ -334,7 +302,7 @@ class CenterMatcher {
 
             if (dist >= depth) continue;
 
-            const nodeNeighbors = this.findNodeNeighbors(id, graph);
+            const nodeNeighbors = GraphUtils.findNodeNeighbors(id, graph);
             for (const neighbor of nodeNeighbors) {
                 if (!visited.has(neighbor.id)) {
                     visited.add(neighbor.id);
@@ -348,7 +316,7 @@ class CenterMatcher {
 
     // ==================== LCS СРАВНЕНИЕ С ДОПУСКАМИ ====================
 
-    compareKPlets(kplet1, kplet2, color1, color2, morph1, morph2) {
+    compareKPlets(kplet1, kplet2, color1, color2) {
         const m = kplet1.length;
         const n = kplet2.length;
 
@@ -357,22 +325,20 @@ class CenterMatcher {
 
         for (let i = 1; i <= m; i++) {
             for (let j = 1; j <= n; j++) {
-                const ray1 = kplet1[i-1];
-                const ray2 = kplet2[j-1];
+                const ray1 = kplet1[i - 1];
+                const ray2 = kplet2[j - 1];
 
                 let leftUpCost;
 
                 if (!ray1 || !ray2) {
-                    leftUpCost = cost[i-1][j-1] + this.falseWeight;
+                    leftUpCost = cost[i - 1][j - 1] + this.falseWeight;
                 } else if (color1[ray1.id] !== 0 || color2[ray2.id] !== 0) {
-                    leftUpCost = cost[i-1][j-1] + this.falseWeight;
+                    leftUpCost = cost[i - 1][j - 1] + this.falseWeight;
                 } else {
-                    // Проверка геометрии
                     const distDiff = Math.abs(ray1.dist - ray2.dist);
-                    const angleDiff = this.angleDiff(ray1.angle, ray2.angle);
-                    const thetaDiff = this.angleDiff(ray1.theta, ray2.theta);
+                    const angleDiff = GeometryUtils.angleDiff(ray1.angle, ray2.angle);
+                    const thetaDiff = GeometryUtils.angleDiff(ray1.theta, ray2.theta);
 
-                    // Проверка морфологии с допусками
                     const morphScore = this.compareMorphologyWithTolerances(
                         ray1.morphology, ray2.morphology
                     );
@@ -383,19 +349,19 @@ class CenterMatcher {
                         morphScore > 0.7) {
 
                         const weight = this.trueWeight -
-                                      distDiff / this.distCoeff -
-                                      angleDiff / this.angleCoeff -
-                                      thetaDiff / this.thetaCoeff +
-                                      morphScore * 5;
+                            distDiff / this.distCoeff -
+                            angleDiff / this.angleCoeff -
+                            thetaDiff / this.thetaCoeff +
+                            morphScore * 5;
 
-                        leftUpCost = cost[i-1][j-1] + Math.max(0, weight);
+                        leftUpCost = cost[i - 1][j - 1] + Math.max(0, weight);
                     } else {
-                        leftUpCost = cost[i-1][j-1] + this.falseWeight;
+                        leftUpCost = cost[i - 1][j - 1] + this.falseWeight;
                     }
                 }
 
-                const upCost = cost[i-1][j];
-                const leftCost = cost[i][j-1];
+                const upCost = cost[i - 1][j];
+                const leftCost = cost[i][j - 1];
 
                 if (leftUpCost > upCost && leftUpCost > leftCost) {
                     cost[i][j] = leftUpCost;
@@ -415,14 +381,14 @@ class CenterMatcher {
 
         while (i > 0 && j > 0) {
             if (dir[i][j] === 1) {
-                const ray1 = kplet1[i-1];
-                const ray2 = kplet2[j-1];
+                const ray1 = kplet1[i - 1];
+                const ray2 = kplet2[j - 1];
 
                 if (ray1 && ray2 && color1[ray1.id] === 0 && color2[ray2.id] === 0) {
                     pairs.push({
                         photoId: ray1.id,
                         modelId: ray2.id,
-                        score: cost[i][j] - cost[i-1][j-1]
+                        score: cost[i][j] - cost[i - 1][j - 1]
                     });
                 }
 
@@ -446,17 +412,15 @@ class CenterMatcher {
         let score = 0;
         let checks = 0;
 
-        // Компактность
         if (morph1.compactness && morph2.compactness) {
             const ratio = Math.min(morph1.compactness, morph2.compactness) /
-                         Math.max(morph1.compactness, morph2.compactness);
+                Math.max(morph1.compactness, morph2.compactness);
             if (ratio >= 1 - this.tolerances.compactness) {
                 score += ratio;
                 checks++;
             }
         }
 
-        // Эксцентриситет
         if (morph1.eccentricity && morph2.eccentricity) {
             const diff = Math.abs(morph1.eccentricity - morph2.eccentricity);
             if (diff <= this.tolerances.eccentricity) {
@@ -465,10 +429,9 @@ class CenterMatcher {
             }
         }
 
-        // Площадь
         if (morph1.normalizedArea && morph2.normalizedArea) {
             const ratio = Math.min(morph1.normalizedArea, morph2.normalizedArea) /
-                         Math.max(morph1.normalizedArea, morph2.normalizedArea);
+                Math.max(morph1.normalizedArea, morph2.normalizedArea);
             if (ratio >= 1 - this.tolerances.normalizedArea) {
                 score += ratio;
                 checks++;
@@ -480,7 +443,7 @@ class CenterMatcher {
 
     // ==================== DFS ОБХОД ====================
 
-    matchWithDFS(startPhotoId, startModelId, photoGraph, modelGraph, photoKPlets, modelKPlets, photoMorphology, modelMorphology) {
+    matchWithDFS(startPhotoId, startModelId, photoGraph, modelGraph, photoKPlets, modelKPlets) {
         const photoColor = {};
         const modelColor = {};
 
@@ -505,14 +468,11 @@ class CenterMatcher {
 
             const photoKplet = photoKPlets.get(photoId) || [];
             const modelKplet = modelKPlets.get(modelId) || [];
-            const photoMorph = photoMorphology?.get(photoId);
-            const modelMorph = modelMorphology?.get(modelId);
 
-            const result = this.compareKPlets(photoKplet, modelKplet, photoColor, modelColor, photoMorph, modelMorph);
+            const result = this.compareKPlets(photoKplet, modelKplet, photoColor, modelColor);
 
             for (const pair of result.pairs) {
                 if (photoColor[pair.photoId] === 0 && modelColor[pair.modelId] === 0) {
-                    // Проверяем глобальную геометрию с уже найденными парами
                     if (this.isGeometricallyConsistent(pair, pairs, photoGraph, modelGraph)) {
                         photoColor[pair.photoId] = 1;
                         modelColor[pair.modelId] = 1;
@@ -538,7 +498,6 @@ class CenterMatcher {
     isGeometricallyConsistent(newPair, existingPairs, photoGraph, modelGraph) {
         if (existingPairs.length < 2) return true;
 
-        // Берем первые две пары как базовые
         const base1 = existingPairs[0];
         const base2 = existingPairs[1];
 
@@ -551,30 +510,27 @@ class CenterMatcher {
 
         if (!photo1 || !photo2 || !model1 || !model2 || !photoNew || !modelNew) return false;
 
-        // Проверяем сохранение отношений
         const photoVec = { x: photo2.x - photo1.x, y: photo2.y - photo1.y };
         const modelVec = { x: model2.x - model1.x, y: model2.y - model1.y };
         const photoNewVec = { x: photoNew.x - photo1.x, y: photoNew.y - photo1.y };
         const modelNewVec = { x: modelNew.x - model1.x, y: modelNew.y - model1.y };
 
-        const photoLen = Math.sqrt(photoVec.x*photoVec.x + photoVec.y*photoVec.y);
-        const modelLen = Math.sqrt(modelVec.x*modelVec.x + modelVec.y*modelVec.y);
+        const photoLen = GeometryUtils.distance({ x: 0, y: 0 }, photoVec);
+        const modelLen = GeometryUtils.distance({ x: 0, y: 0 }, modelVec);
         if (photoLen === 0 || modelLen === 0) return false;
 
         const scale = modelLen / photoLen;
 
-        const photoNewLen = Math.sqrt(photoNewVec.x*photoNewVec.x + photoNewVec.y*photoNewVec.y);
-        const modelNewLen = Math.sqrt(modelNewVec.x*modelNewVec.x + modelNewVec.y*modelNewVec.y);
+        const photoNewLen = GeometryUtils.distance({ x: 0, y: 0 }, photoNewVec);
+        const modelNewLen = GeometryUtils.distance({ x: 0, y: 0 }, modelNewVec);
 
-        // Ошибка масштаба
         const scaleError = Math.abs(modelNewLen / photoNewLen - scale) / scale;
         if (scaleError > 0.3) return false;
 
-        // Углы должны сохраняться
-        const dot = photoVec.x*photoNewVec.x + photoVec.y*photoNewVec.y;
+        const dot = photoVec.x * photoNewVec.x + photoVec.y * photoNewVec.y;
         const cosAngle = dot / (photoLen * photoNewLen);
 
-        const modelDot = modelVec.x*modelNewVec.x + modelVec.y*modelNewVec.y;
+        const modelDot = modelVec.x * modelNewVec.x + modelVec.y * modelNewVec.y;
         const modelCosAngle = modelDot / (modelLen * modelNewLen);
 
         if (Math.abs(cosAngle - modelCosAngle) > 0.3) return false;
@@ -593,7 +549,6 @@ class CenterMatcher {
             return centerMatches;
         }
 
-        // Превращаем в массив для удобства
         const pairs = Array.from(centerMatches.entries()).map(([photoId, match]) => ({
             photoId,
             modelId: match.modelId,
@@ -602,29 +557,27 @@ class CenterMatcher {
             confidence: match.confidence
         }));
 
-        // Вычисляем все попарные расстояния
-     //   console.log(`\n📊 МАТРИЦА РАССТОЯНИЙ МЕЖДУ ЯКОРЯМИ:`);
-     //   console.log(`┌─────┬──────────────┬──────────────┬──────────────┬──────────────┐`);
-     //   console.log(`│  #  │  Фото-Фото   │ Модель-Модель│   Отношение  │   Статус     │`);
-     //   console.log(`├─────┼──────────────┼──────────────┼──────────────┼──────────────┤`);
+        console.log(`\n📊 МАТРИЦА РАССТОЯНИЙ МЕЖДУ ЯКОРЯМИ:`);
+        console.log(`┌─────┬──────────────┬──────────────┬──────────────┬──────────────┐`);
+        console.log(`│  #  │  Фото-Фото   │ Модель-Модель│   Отношение  │   Статус     │`);
+        console.log(`├─────┼──────────────┼──────────────┼──────────────┼──────────────┤`);
 
         const ratios = [];
         for (let i = 0; i < pairs.length; i++) {
-            for (let j = i+1; j < pairs.length; j++) {
-                const photoDist = this.distance(pairs[i].photoPoint, pairs[j].photoPoint);
-                const modelDist = this.distance(pairs[i].modelPoint, pairs[j].modelPoint);
+            for (let j = i + 1; j < pairs.length; j++) {
+                const photoDist = GeometryUtils.distance(pairs[i].photoPoint, pairs[j].photoPoint);
+                const modelDist = GeometryUtils.distance(pairs[i].modelPoint, pairs[j].modelPoint);
                 const ratio = photoDist / modelDist;
                 ratios.push({ ratio, i, j });
 
                 const status = this.isConsistent(ratio, ratios.map(r => r.ratio)) ? '✅' : '❌';
-       //      console.log(
-       //             `│ ${i+1}-${j+1}  │ ${photoDist.toFixed(1).padStart(12)} │ ${modelDist.toFixed(1).padStart(12)} │ ` +
-        //            `${ratio.toFixed(3).padStart(12)} │ ${status.padStart(12)} │`
-        //        );
+                console.log(
+                    `│ ${i + 1}-${j + 1}  │ ${photoDist.toFixed(1).padStart(12)} │ ${modelDist.toFixed(1).padStart(12)} │ ` +
+                    `${ratio.toFixed(3).padStart(12)} │ ${status.padStart(12)} │`
+                );
             }
         }
 
-        // Анализ согласованности
         const analysis = this.analyzeConsistency(ratios.map(r => r.ratio));
 
         console.log(`\n📈 РЕЗУЛЬТАТ ВЕРИФИКАЦИИ:`);
@@ -644,24 +597,23 @@ class CenterMatcher {
 
         if (bestCombo.size >= this.minAnchorsForGeometry) {
             console.log(`✅ Найдена согласованная комбинация из ${bestCombo.size} якорей`);
-           
+
             console.log(`\n📋 СОГЛАСОВАННЫЕ ЯКОРЯ:`);
             console.log(`┌─────┬──────────────────────┬──────────────────────┬───────────┐`);
-            console.log(`│  #  │   ТОЧКА В ФОТО 2      │   ТОЧКА В МОДЕЛИ      │ УВЕРЕН.   │`);
+            console.log(`│  #  │   ТОЧКА В ФОТО       │   ТОЧКА В МОДЕЛИ     │ УВЕРЕН.   │`);
             console.log(`├─────┼──────────────────────┼──────────────────────┼───────────┤`);
-           
+
             let idx = 1;
             for (const [photoId, match] of bestCombo) {
-    const currentIdx = idx; // 🔥 ИСПРАВЛЕНИЕ
-    idx++;
-    console.log(
-        `│ ${currentIdx.toString().padEnd(3)} │ ${photoId.substring(0,20).padEnd(20)} │ ` +
-        `${match.modelId.substring(0,20).padEnd(20)} │ ` +
-        `${(match.confidence*100).toFixed(0).padStart(5)}%   │`
-    );
-}
+                console.log(
+                    `│ ${idx.toString().padEnd(3)} │ ${photoId.substring(0, 20).padEnd(20)} │ ` +
+                    `${match.modelId.substring(0, 20).padEnd(20)} │ ` +
+                    `${(match.confidence * 100).toFixed(0).padStart(5)}%   │`
+                );
+                idx++;
+            }
             console.log(`└─────┴──────────────────────┴──────────────────────┴───────────┘`);
-           
+
             return bestCombo;
         }
 
@@ -694,8 +646,8 @@ class CenterMatcher {
         let minError = Infinity;
 
         for (let i = 0; i < pairs.length; i++) {
-            for (let j = i+1; j < pairs.length; j++) {
-                for (let k = j+1; k < pairs.length; k++) {
+            for (let j = i + 1; j < pairs.length; j++) {
+                for (let k = j + 1; k < pairs.length; k++) {
                     const combo = [pairs[i], pairs[j], pairs[k]];
                     const error = this.calculateComboError(combo);
 
@@ -738,14 +690,14 @@ class CenterMatcher {
             const testRatios = [];
 
             for (const base of basePairs) {
-                const photoDist = this.distance(pair.photoPoint, base.photoPoint);
-                const modelDist = this.distance(pair.modelPoint, base.modelPoint);
+                const photoDist = GeometryUtils.distance(pair.photoPoint, base.photoPoint);
+                const modelDist = GeometryUtils.distance(pair.modelPoint, base.modelPoint);
                 const ratio = photoDist / modelDist;
                 testRatios.push(ratio);
             }
 
             const avgTestRatio = testRatios.reduce((a, b) => a + b, 0) / testRatios.length;
-           
+
             for (const ratio of testRatios) {
                 const deviation = Math.abs(ratio - avgTestRatio) / avgTestRatio;
                 if (deviation > this.geometryThreshold) {
@@ -768,9 +720,9 @@ class CenterMatcher {
     calculateComboError(combo) {
         const ratios = [];
         for (let a = 0; a < combo.length; a++) {
-            for (let b = a+1; b < combo.length; b++) {
-                const photoDist = this.distance(combo[a].photoPoint, combo[b].photoPoint);
-                const modelDist = this.distance(combo[a].modelPoint, combo[b].modelPoint);
+            for (let b = a + 1; b < combo.length; b++) {
+                const photoDist = GeometryUtils.distance(combo[a].photoPoint, combo[b].photoPoint);
+                const modelDist = GeometryUtils.distance(combo[a].modelPoint, combo[b].modelPoint);
                 ratios.push(photoDist / modelDist);
             }
         }
@@ -779,48 +731,7 @@ class CenterMatcher {
         return Math.max(...deviations);
     }
 
-    distance(p1, p2) {
-        if (!p1 || !p2) return Infinity;
-        const dx = p1.x - p2.x;
-        const dy = p1.y - p2.y;
-        return Math.sqrt(dx * dx + dy * dy);
-    }
-
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
-
-    roleToAngle(role) {
-        const map = { 'L': 0, 'R': 45, 'C': 90, 'H': 135, 'B': 180 };
-        return map[role] || 0;
-    }
-
-    angleDiff(a1, a2) {
-        let diff = Math.abs(a1 - a2);
-        if (diff > 180) diff = 360 - diff;
-        return diff;
-    }
-
-    findNodeNeighbors(nodeId, graph) {
-        const neighbors = [];
-        if (!graph?.edges) return neighbors;
-
-        for (const edge of graph.edges) {
-            const [a, b] = edge.split('--');
-            if (a === nodeId) {
-                const node = graph.nodes.get(b);
-                if (node) neighbors.push(node);
-            }
-            if (b === nodeId) {
-                const node = graph.nodes.get(a);
-                if (node) neighbors.push(node);
-            }
-        }
-        return neighbors;
-    }
-
-    areConnected(aId, bId, graph) {
-        const edgeId = [aId, bId].sort().join('--');
-        return graph.edges.has(edgeId);
-    }
 
     printRoleStats(roles) {
         const stats = { H: 0, B: 0, C: 0, R: 0, L: 0 };
