@@ -11,6 +11,9 @@ class RoleClassifier {
 
     /**
      * Определяет роль узла: H (хаб), B (мост), C (клика), L (лист), R (обычный)
+     * @param {string} nodeId - ID узла
+     * @param {Object} graph - граф
+     * @returns {string} - роль
      */
     classify(nodeId, graph) {
         const neighbors = GraphUtils.findNodeNeighbors(nodeId, graph);
@@ -51,6 +54,9 @@ class RoleClassifier {
 
     /**
      * Упрощенная классификация (только H, L, R)
+     * @param {string} nodeId - ID узла
+     * @param {Object} graph - граф
+     * @returns {string} - роль
      */
     classifySimple(nodeId, graph) {
         const neighbors = GraphUtils.findNodeNeighbors(nodeId, graph);
@@ -63,10 +69,51 @@ class RoleClassifier {
 
     /**
      * Преобразует роль в угол для K-plet
+     * @param {string} role - роль
+     * @returns {number} - угол в градусах
      */
     roleToAngle(role) {
         const map = { 'L': 0, 'R': 45, 'C': 90, 'H': 135, 'B': 180 };
         return map[role] || 0;
+    }
+
+    /**
+     * Классифицирует все узлы графа
+     * @param {Object} graph - граф
+     * @returns {Map} - nodeId -> роль
+     */
+    classifyAll(graph) {
+        const roles = new Map();
+        for (const nodeId of graph.nodes.keys()) {
+            roles.set(nodeId, this.classify(nodeId, graph));
+        }
+        return roles;
+    }
+
+    /**
+     * Возвращает статистику распределения ролей
+     * @param {Map} roles - карта ролей
+     * @returns {Object} - статистика
+     */
+    getRoleStats(roles) {
+        const stats = { H: 0, B: 0, C: 0, R: 0, L: 0 };
+        for (const role of roles.values()) {
+            stats[role] = (stats[role] || 0) + 1;
+        }
+        return stats;
+    }
+
+    /**
+     * Печатает статистику ролей
+     * @param {Map} roles - карта ролей
+     */
+    printRoleStats(roles) {
+        const stats = this.getRoleStats(roles);
+        console.log(`   Хабы (H): ${stats.H}`);
+        console.log(`   Мосты (B): ${stats.B}`);
+        console.log(`   Клики (C): ${stats.C}`);
+        console.log(`   Обычные (R): ${stats.R}`);
+        console.log(`   Листья (L): ${stats.L}`);
     }
 }
 
