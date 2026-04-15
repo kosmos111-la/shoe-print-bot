@@ -58,6 +58,60 @@ class TriangleMatcher {
 
         const trianglesA = this.buildTopologicalTriangles(delaunayA, pointsA);
         const trianglesB = this.buildTopologicalTriangles(delaunayB, pointsB);
+ // (сразу после построения trianglesA и trianglesB)
+   
+    if (this.debug && this.bluePointIds.size > 0) {
+        console.log(`\n🔵 ДИАГНОСТИКА СИНИХ ТОЧЕК В МАТЧЕРЕ:`);
+        console.log(`   • Синих точек в модели: ${this.bluePointIds.size}`);
+       
+        // Проверяем, есть ли эти точки в pointsB (граф модели)
+        let foundInPointsB = 0;
+        let notFoundInPointsB = [];
+        for (const blueId of this.bluePointIds) {
+            const pointB = pointsB.find(p => p.id === blueId);
+            if (pointB) {
+                foundInPointsB++;
+            } else {
+                notFoundInPointsB.push(blueId.substring(0,12));
+            }
+        }
+        console.log(`   • Найдено в pointsB: ${foundInPointsB} / ${this.bluePointIds.size}`);
+        if (notFoundInPointsB.length > 0) {
+            console.log(`   • НЕ найдены в pointsB: ${notFoundInPointsB.join(', ')}`);
+        }
+       
+        // Проверяем, попадают ли они в треугольники B
+        let blueInTriangles = 0;
+        const blueTriangles = [];
+        for (const tri of trianglesB) {
+            const points = [tri.p1.id, tri.p2.id, tri.p3.id];
+            for (const blueId of this.bluePointIds) {
+                if (points.includes(blueId)) {
+                    blueInTriangles++;
+                    blueTriangles.push({
+                        triangleId: tri.id,
+                        points: points.map(p => p.substring(0,12)).join(',')
+                    });
+                    break;
+                }
+            }
+        }
+        console.log(`   • Синих точек в треугольниках B: ${blueInTriangles} / ${this.bluePointIds.size}`);
+       
+        // Если ни одна синяя точка не попала в треугольники - показываем координаты
+        if (blueInTriangles === 0 && this.bluePointIds.size > 0) {
+            console.log(`   ⚠️ НИ ОДНА синяя точка не попала в треугольники!`);
+            console.log(`   📍 Координаты синих точек (первые 5):`);
+            let shown = 0;
+            for (const blueId of this.bluePointIds) {
+                const point = pointsB.find(p => p.id === blueId);
+                if (point && shown < 5) {
+                    console.log(`      - ${blueId.substring(0,12)}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
+                    shown++;
+                }
+            }
+        }
+    }
         this.stats.totalTrianglesA = trianglesA.length;
         this.stats.totalTrianglesB = trianglesB.length;
 
@@ -107,7 +161,49 @@ class TriangleMatcher {
         const pointMatches = this.reconstructPoints(anchors, trianglesA, trianglesB);
 
         console.log(`\n✅ Найдено соответствий точек: ${pointMatches.length}`);
-        this.printSummary();   
+        this.printSummary();
+if (this.debug) {
+    // Статистика использования радиального профиля
+    let radialMatches = 0;
+    let totalChecked = 0;
+   
+    for (const candidate of candidates) {
+        totalChecked++;
+        // Проверяем, совпали ли радиальные профили у кандидата
+        const tA = trianglesA[candidate.aIndex];
+        const tB = trianglesB[candidate.bIndex];
+       
+        const rpA = [
+            tA.p1.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tA.p2.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tA.p3.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join('')
+        ].sort().join('');
+       
+        const rpB = [
+            tB.p1.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tB.p2.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join(''),
+            tB.p3.radialProfile?.slice(0,4).map(v => v > 0.5 ? 1 : 0).join('')
+        ].sort().join('');
+       
+        if (rpA === rpB) radialMatches++;
+    }
+   
+    console.log(`\n📊 РАДИАЛЬНЫЙ ПРОФИЛЬ В СРАВНЕНИИ:`);
+    console.log(`   • Совпадений радиального профиля: ${radialMatches}/${totalChecked} (${(radialMatches/totalChecked*100).toFixed(1)}%)`);
+}
+        // Диагностика: сколько синих точек попало в matches
+    if (this.debug && this.bluePointIds.size > 0) {
+        const matchedBlue = pointMatches.filter(m => this.bluePointIds.has(m.pointB));
+        console.log(`\n🔵 СИНИЕ ТОЧКИ В РЕЗУЛЬТАТЕ:`);
+        console.log(`   • В matches: ${matchedBlue.length} / ${this.bluePointIds.size}`);
+       
+        if (matchedBlue.length === 0 && this.bluePointIds.size > 0) {
+            console.log(`   ⚠️ ВНИМАНИЕ: НИ ОДНА синяя точка не попала в matches!`);
+            console.log(`   → Причина: синие точки имеют другую топологическую структуру`);
+            console.log(`   → Буду использовать fallback-сопоставление по расстоянию`);
+        }
+    }
+       
     return {
     matches: pointMatches,
     triangles: trianglesA,  // 🔥 ВОЗВРАЩАЕМ ВСЕ ТРЕУГОЛЬНИКИ
