@@ -125,18 +125,14 @@ this.affineRefiner = new AffineRefiner({
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     async processPoints(points, options = {}) {
-    console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
-    const photoId = options.photoId || `photo_${Date.now()}`;
-    const contours = options.contours || [];
-    const modelIdHint = options.modelId;
+        const photoId = options.photoId || `photo_${Date.now()}`;
+        const contours = options.contours || [];
+        const modelIdHint = options.modelId;
 
-    // ===== ГЛОБАЛЬНЫЙ SET ДЛЯ ОТСЛЕЖИВАНИЯ ОБНОВЛЁННЫХ ЗА ФОТО ТОЧЕК =====
-    const updatedModelPointsThisPhoto = new Set();
-    // ===== КОНЕЦ =====
-
-    // 🔥 НОВОЕ: Извлекаем контур следа из contours
-    const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
+    // 🔥 НОВОЕ: Извлекаем контур следа из contours
+    const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
    
     if (outlineContour && this.debug) {
         console.log(`📐 Найден контур следа (${outlineContour.points.length} точек) для сохранения в модель`);
@@ -823,252 +819,209 @@ if (existingModel) {
                     // ===== ШАГ 3.6: Финальное притягивание близких точек с топологической проверкой =====
                     if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
 
-const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null, updatedThisPhoto = null) => {
-    const pulledMatches = [];
-    const usedPhotoPoints = new Set();
-    const usedModelPoints = new Set();
-    let pulledCount = 0;
-    let topologyCheckedCount = 0;
-    let topologyRejectedCount = 0;
+const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null) => {
+    const pulledMatches = [];
+    const usedPhotoPoints = new Set();
+    const usedModelPoints = new Set();
+    let pulledCount = 0;
+    let topologyCheckedCount = 0;
+    let topologyRejectedCount = 0;
 
-    // Сортируем matches по уверенности
-    const sortedMatches = [...matches].sort((a, b) => b.confidence - a.confidence);
+    // Сортируем matches по уверенности
+    const sortedMatches = [...matches].sort((a, b) => b.confidence - a.confidence);
 
-    // Строим карту уже сопоставленных точек для быстрого доступа
-    const matchedPhotoMap = new Map(); // photoId -> modelId
-    const matchedModelMap = new Map(); // modelId -> photoId
-    for (const match of sortedMatches) {
-        matchedPhotoMap.set(match.pointA, match.pointB);
-        matchedModelMap.set(match.pointB, match.pointA);
-    }
+    // Строим карту уже сопоставленных точек для быстрого доступа
+    const matchedPhotoMap = new Map(); // photoId -> modelId
+    const matchedModelMap = new Map(); // modelId -> photoId
+    for (const match of sortedMatches) {
+        matchedPhotoMap.set(match.pointA, match.pointB);
+        matchedModelMap.set(match.pointB, match.pointA);
+    }
 
-    for (const match of sortedMatches) {
-        const photoPoint = photoGraph?.nodes?.get(match.pointA);
-        const modelPoint = modelGraph?.nodes?.get(match.pointB);
+    for (const match of sortedMatches) {
+        const photoPoint = photoGraph?.nodes?.get(match.pointA);
+        const modelPoint = modelGraph?.nodes?.get(match.pointB);
 
-        if (!photoPoint || !modelPoint) continue;
+        if (!photoPoint || !modelPoint) continue;
 
-        // Проецируем точку фото в пространство модели
-        const projected = {
-            x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
-               photoPoint.y * transform.scale * Math.sin(transform.rotation) +
-               transform.translation.x,
-            y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
-               photoPoint.y * transform.scale * Math.cos(transform.rotation) +
-               transform.translation.y
-        };
+        // Проецируем точку фото в пространство модели
+        const projected = {
+            x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
+               photoPoint.y * transform.scale * Math.sin(transform.rotation) +
+               transform.translation.x,
+            y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
+               photoPoint.y * transform.scale * Math.cos(transform.rotation) +
+               transform.translation.y
+        };
 
-        // Вычисляем расстояние до точки модели
-        const dx = projected.x - modelPoint.x;
-        const dy = projected.y - modelPoint.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
+        // Вычисляем расстояние до точки модели
+        const dx = projected.x - modelPoint.x;
+        const dy = projected.y - modelPoint.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
 
-        // 🔥 Если точка уже близко — просто сохраняем
-        if (dist < threshold && dist > 0.5) {
-            // Точки рядом — притягиваем!
-            if (this.debug && dist > 1) {
-                console.log(`   🧲 Точки рядом (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)}`);
-            }
+        // 🔥 Если точка уже близко — просто сохраняем
+        if (dist < threshold && dist > 0.5) {
+            // Точки рядом — притягиваем!
+            if (this.debug && dist > 1) {
+                console.log(`   🧲 Точки рядом (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)}`);
+            }
 
-            // Усредняем позицию (взвешенно по уверенности)
-            const weight = match.confidence || 0.5;
-            const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
-            const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
+            // Усредняем позицию (взвешенно по уверенности)
+            const weight = match.confidence || 0.5;
+            const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
+            const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
 
-            // Проверяем, не обновляли ли уже эту точку в этом фото
-if (updatedThisPhoto && updatedThisPhoto.has(modelPoint.id)) {
-    if (this.debug) {
-        console.log(`   ⏭️ Пропускаем повторное обновление точки ${modelPoint.id.substring(0,12)} (уже обновлена в этом фото)`);
-    }
-    // Обновляем позицию, но НЕ увеличиваем confirmationCount
-    modelPoint.x = avgX;
-    modelPoint.y = avgY;
-    modelPoint.pulled = true;
-    modelPoint.pullDistance = dist;
-   
-    pulledMatches.push({
-        ...match,
-        pulled: true,
-        pullDistance: dist,
-        newPosition: { x: avgX, y: avgY },
-        skippedDuplicate: true
-    });
-   
-    usedPhotoPoints.add(match.pointA);
-    usedModelPoints.add(modelPoint.id);
-    pulledCount++;
-    continue;
-}
+            // Обновляем модель
+            modelPoint.x = avgX;
+            modelPoint.y = avgY;
+            modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
+            modelPoint.pulled = true;
+            modelPoint.pullDistance = dist;
 
-// Если не обновляли — добавляем в Set и обновляем счётчик
-if (updatedThisPhoto) updatedThisPhoto.add(modelPoint.id);
+            pulledMatches.push({
+                ...match,
+                pulled: true,
+                pullDistance: dist,
+                newPosition: { x: avgX, y: avgY },
+                topologyChecked: false
+            });
 
-// Обновляем модель
-modelPoint.x = avgX;
-modelPoint.y = avgY;
-modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
-modelPoint.pulled = true;
-modelPoint.pullDistance = dist;
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+            pulledCount++;
+            continue;
+        }
 
-            pulledMatches.push({
-                ...match,
-                pulled: true,
-                pullDistance: dist,
-                newPosition: { x: avgX, y: avgY },
-                topologyChecked: false
-            });
+        // 🔥 Если точка далеко — пробуем найти правильную с топологической проверкой
+        if (dist >= threshold) {
+            // Находим всех соседей точки A в графе фото
+            const photoNeighbors = this.findNodeNeighbors(match.pointA, photoGraph);
+            const matchedNeighbors = photoNeighbors.filter(n => matchedPhotoMap.has(n.id));
+           
+            // 🔥 Если у точки нет сопоставленных соседей — не можем проверить топологию, пропускаем
+            if (matchedNeighbors.length < 2) {
+                if (this.debug && dist > threshold * 2) {
+                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - мало соседей для проверки`);
+                }
+                pulledMatches.push(match);
+                usedPhotoPoints.add(match.pointA);
+                usedModelPoints.add(match.pointB);
+                continue;
+            }
 
-            usedPhotoPoints.add(match.pointA);
-            usedModelPoints.add(match.pointB);
-            pulledCount++;
-            continue;
-        }
+            // 🔥 Ищем кандидатов среди точек модели в расширенном радиусе
+            const candidates = [];
+            for (const [candidateId, candidatePoint] of modelGraph.nodes) {
+                if (usedModelPoints.has(candidateId)) continue;
+               
+                const candidateDx = projected.x - candidatePoint.x;
+                const candidateDy = projected.y - candidatePoint.y;
+                const candidateDist = Math.sqrt(candidateDx*candidateDx + candidateDy*candidateDy);
+               
+                if (candidateDist < threshold * 2) { // радиус поиска в 2 раза больше
+                    candidates.push({ id: candidateId, point: candidatePoint, dist: candidateDist });
+                }
+            }
+           
+            // Сортируем по расстоянию
+            candidates.sort((a, b) => a.dist - b.dist);
+           
+            let bestCandidate = null;
+            let bestTopologyScore = 0;
+           
+            // Проверяем каждого кандидата на топологию
+            for (const candidate of candidates) {
+                const modelNeighbors = this.findNodeNeighbors(candidate.id, modelGraph);
+                const matchedModelNeighbors = modelNeighbors.filter(n => matchedModelMap.has(n.id));
+               
+                // Количество сопоставленных соседей должно совпадать
+                if (matchedModelNeighbors.length !== matchedNeighbors.length) continue;
+               
+                // Проверяем, что соседи соответствуют друг другу
+                let topologyScore = 0;
+                for (const photoNeighbor of matchedNeighbors) {
+                    const expectedModelId = matchedPhotoMap.get(photoNeighbor.id);
+                    if (matchedModelNeighbors.some(n => n.id === expectedModelId)) {
+                        topologyScore++;
+                    }
+                }
+               
+                const matchRatio = topologyScore / matchedNeighbors.length;
+                if (matchRatio > bestTopologyScore && matchRatio >= 0.7) { // минимум 70% совпадения
+                    bestTopologyScore = matchRatio;
+                    bestCandidate = candidate;
+                }
+            }
+           
+            if (bestCandidate) {
+                // Нашли правильную точку! Притягиваем
+                topologyCheckedCount++;
+               
+                if (this.debug) {
+                    console.log(`   🧲 Топологический магнит: ${match.pointA.substring(0,12)} → ${bestCandidate.id.substring(0,12)} (${bestCandidate.dist.toFixed(1)}px, совпадение ${(bestTopologyScore*100).toFixed(0)}%)`);
+                }
+               
+                const weight = match.confidence || 0.5;
+                const avgX = (projected.x * weight + bestCandidate.point.x * (1 - weight));
+                const avgY = (projected.y * weight + bestCandidate.point.y * (1 - weight));
+               
+                bestCandidate.point.x = avgX;
+                bestCandidate.point.y = avgY;
+                bestCandidate.point.confirmationCount = (bestCandidate.point.confirmationCount || 1) + 1;
+                bestCandidate.point.pulled = true;
+                bestCandidate.point.pullDistance = bestCandidate.dist;
+               
+                pulledMatches.push({
+                    pointA: match.pointA,
+                    pointB: bestCandidate.id,
+                    confidence: match.confidence,
+                    pulled: true,
+                    pullDistance: bestCandidate.dist,
+                    topologyChecked: true,
+                    topologyScore: bestTopologyScore,
+                    originalPointB: match.pointB
+                });
+               
+                usedPhotoPoints.add(match.pointA);
+                usedModelPoints.add(bestCandidate.id);
+                pulledCount++;
+            } else {
+                // Не нашли подходящего кандидата — оставляем как есть
+                topologyRejectedCount++;
+                if (this.debug && dist > threshold * 2) {
+                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - нет подходящего кандидата`);
+                }
+                pulledMatches.push(match);
+                usedPhotoPoints.add(match.pointA);
+                usedModelPoints.add(match.pointB);
+            }
+        } else {
+            // Точки уже почти совпадают
+            pulledMatches.push(match);
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+        }
+    }
 
-        // 🔥 Если точка далеко — пробуем найти правильную с топологической проверкой
-        if (dist >= threshold) {
-            // Находим всех соседей точки A в графе фото
-            const photoNeighbors = this.findNodeNeighbors(match.pointA, photoGraph);
-            const matchedNeighbors = photoNeighbors.filter(n => matchedPhotoMap.has(n.id));
+    if (this.debug) {
+        console.log(`\n📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ:`);
+        console.log(`   • Притянуто точек: ${pulledCount}`);
+        console.log(`   • Топологически проверено: ${topologyCheckedCount}`);
+        console.log(`   • Отвергнуто топологией: ${topologyRejectedCount}`);
+        console.log(`   • Осталось без изменений: ${pulledMatches.length - pulledCount}`);
+    }
 
-            // 🔥 Если у точки нет сопоставленных соседей — не можем проверить топологию, пропускаем
-            if (matchedNeighbors.length < 2) {
-                if (this.debug && dist > threshold * 2) {
-                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - мало соседей для проверки`);
-                }
-                pulledMatches.push(match);
-                usedPhotoPoints.add(match.pointA);
-                usedModelPoints.add(match.pointB);
-                continue;
-            }
-
-            // 🔥 Ищем кандидатов среди точек модели в расширенном радиусе
-            const candidates = [];
-            for (const [candidateId, candidatePoint] of modelGraph.nodes) {
-                if (usedModelPoints.has(candidateId)) continue;
-
-                const candidateDx = projected.x - candidatePoint.x;
-                const candidateDy = projected.y - candidatePoint.y;
-                const candidateDist = Math.sqrt(candidateDx*candidateDx + candidateDy*candidateDy);
-
-                if (candidateDist < threshold * 2) { // радиус поиска в 2 раза больше
-                    candidates.push({ id: candidateId, point: candidatePoint, dist: candidateDist });
-                }
-            }
-
-            // Сортируем по расстоянию
-            candidates.sort((a, b) => a.dist - b.dist);
-
-            let bestCandidate = null;
-            let bestTopologyScore = 0;
-
-            // Проверяем каждого кандидата на топологию
-            for (const candidate of candidates) {
-                const modelNeighbors = this.findNodeNeighbors(candidate.id, modelGraph);
-                const matchedModelNeighbors = modelNeighbors.filter(n => matchedModelMap.has(n.id));
-
-                // Количество сопоставленных соседей должно совпадать
-                if (matchedModelNeighbors.length !== matchedNeighbors.length) continue;
-
-                // Проверяем, что соседи соответствуют друг другу
-                let topologyScore = 0;
-                for (const photoNeighbor of matchedNeighbors) {
-                    const expectedModelId = matchedPhotoMap.get(photoNeighbor.id);
-                    if (matchedModelNeighbors.some(n => n.id === expectedModelId)) {
-                        topologyScore++;
-                    }
-                }
-
-                const matchRatio = topologyScore / matchedNeighbors.length;
-                if (matchRatio > bestTopologyScore && matchRatio >= 0.7) { // минимум 70% совпадения
-                    bestTopologyScore = matchRatio;
-                    bestCandidate = candidate;
-                }
-            }
-
-            if (bestCandidate) {
-                // Нашли правильную точку! Притягиваем
-                topologyCheckedCount++;
-
-                if (this.debug) {
-                    console.log(`   🧲 Топологический магнит: ${match.pointA.substring(0,12)} → ${bestCandidate.id.substring(0,12)} (${bestCandidate.dist.toFixed(1)}px, совпадение ${(bestTopologyScore*100).toFixed(0)}%)`);
-                }
-
-                const weight = match.confidence || 0.5;
-                const avgX = (projected.x * weight + bestCandidate.point.x * (1 - weight));
-                const avgY = (projected.y * weight + bestCandidate.point.y * (1 - weight));
-
-                bestCandidate.point.x = avgX;
-                bestCandidate.point.y = avgY;
-                bestCandidate.point.confirmationCount = (bestCandidate.point.confirmationCount || 1) + 1;
-                bestCandidate.point.pulled = true;
-                bestCandidate.point.pullDistance = bestCandidate.dist;
-
-                pulledMatches.push({
-                    pointA: match.pointA,
-                    pointB: bestCandidate.id,
-                    confidence: match.confidence,
-                    pulled: true,
-                    pullDistance: bestCandidate.dist,
-                    topologyChecked: true,
-                    topologyScore: bestTopologyScore,
-                    originalPointB: match.pointB
-                });
-
-                usedPhotoPoints.add(match.pointA);
-                usedModelPoints.add(bestCandidate.id);
-                pulledCount++;
-            } else {
-                // Не нашли подходящего кандидата — оставляем как есть
-                topologyRejectedCount++;
-                if (this.debug && dist > threshold * 2) {
-                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - нет подходящего кандидата`);
-                }
-                pulledMatches.push(match);
-                usedPhotoPoints.add(match.pointA);
-                usedModelPoints.add(match.pointB);
-            }
-        } else {
-            // Точки уже почти совпадают
-            pulledMatches.push(match);
-            usedPhotoPoints.add(match.pointA);
-            usedModelPoints.add(match.pointB);
-        }
-    }
-
-    // ===== НОВАЯ ДЕДУПЛИКАЦИЯ: каждая точка модели получает максимум +1 =====
-    const uniqueByModelId = new Map();
-    for (const match of pulledMatches) {
-        const existing = uniqueByModelId.get(match.pointB);
-        if (!existing || match.confidence > existing.confidence) {
-            uniqueByModelId.set(match.pointB, match);
-        }
-    }
-    const deduplicatedMatches = Array.from(uniqueByModelId.values());
-
-    if (this.debug && pulledMatches.length !== deduplicatedMatches.length) {
-        console.log(`   🔧 Дедупликация magneticPull: ${pulledMatches.length} → ${deduplicatedMatches.length}`);
-    }
-
-   // if (this.debug) {
-        console.log(`\n📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ (после дедупликации):`);
-        console.log(`   • Притянуто точек: ${deduplicatedMatches.length}`);
-        console.log(`   • Топологически проверено: ${topologyCheckedCount}`);
-        console.log(`   • Отвергнуто топологией: ${topologyRejectedCount}`);
-   // }
-
-    return { pulledMatches: deduplicatedMatches, pulledCount: deduplicatedMatches.length };
+    return { pulledMatches, pulledCount };
 };
                     // Применяем притягивание если есть transform и matches
                     if (finalTransform && finalValidatedMatches && finalValidatedMatches.length > 0) {
                         const { pulledMatches, pulledCount } = magneticPull(
-    finalValidatedMatches,
-    exactGraph,
-    existingModel.graph,
-    finalTransform,
-    25,
-    null,
-    updatedModelPointsThisPhoto
-);
+                            finalValidatedMatches,
+                            exactGraph,
+                            existingModel.graph,
+                            finalTransform,
+                            25
+                        );
 
                         if (pulledCount > 0) {
                             if (this.debug) console.log(`\n✅ Притянуто ${pulledCount} точек!`);
@@ -1496,22 +1449,19 @@ for (const photoPoint of uniqueInPhoto) {
    
     if (!isDuplicate) {
         const newNodeId = `node_${Date.now()}_${Date.now()}_${Math.random().toString(36).substr(2, 4)}`;
-existingModel.graph.nodes.set(newNodeId, {
-    id: newNodeId,
-    x: photoPoint.x,
-    y: photoPoint.y,
-    degree: 0,
-    morphology: morphologyMap.get(photoPoint.id),
-    confirmationCount: 1,
-    addedFrom: 'unique_photo_point',
-    addedAt: new Date(),
-    originalPhotoId: photoPoint.id
-});
-uniqueAddedCount++;
-console.log(`   ✅ Добавлена НОВАЯ точка из фото: ${newNodeId}`);
-console.log(`      confirmationCount = 1`);
-console.log(`      originalPhotoId: ${photoPoint.id}`);
-console.log(`      координаты: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+        existingModel.graph.nodes.set(newNodeId, {
+            id: newNodeId,
+            x: photoPoint.x,
+            y: photoPoint.y,
+            degree: 0,
+            morphology: morphologyMap.get(photoPoint.id),
+            confirmationCount: 1,
+            addedFrom: 'unique_photo_point',
+            addedAt: new Date(),
+            originalPhotoId: photoPoint.id
+        });
+        uniqueAddedCount++;
+        if (this.debug) console.log(`   ✅ Добавлена уникальная точка ${photoPoint.id.substring(0,12)} (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
     }
 }
 console.log(`📊 Добавлено уникальных точек: ${uniqueAddedCount}`);
@@ -1973,16 +1923,13 @@ if (existingModel) {
                                     // 🔥 ДОБАВЛЯЕМ МАГНИТ ДЛЯ НОВЫХ ПАР
                                     if (this.debug) console.log(`\n🧲 ДОПОЛНИТЕЛЬНОЕ ПРИТЯГИВАНИЕ НОВЫХ ПАР`);
 
-                                    // Берем ТОЛЬКО новые добавленные точки
-const { pulledMatches, pulledCount } = magneticPull(
-    finalValidatedMatches,
-    exactGraph,
-    existingModel.graph,
-    finalTransform,
-    20,
-    null,
-    updatedModelPointsThisPhoto
-);
+                                    const { pulledMatches, pulledCount } = magneticPull(
+                                        finalValidatedMatches,
+                                        exactGraph,
+                                        existingModel.graph,
+                                        finalTransform,
+                                        20 // порог в пикселях
+                                    );
 
                                     if (pulledCount > 0) {
                                         if (this.debug) console.log(`\n✅ Притянуто ещё ${pulledCount} новых пар!`);
@@ -2336,8 +2283,7 @@ const updateResult = this.updateModelWithOptimalMatches(
     modelIdHint,
     exactGraph,
     finalValidatedMatches || [],
-    morphologyMap,
-    updatedModelPointsThisPhoto  // ← передаём Set
+    morphologyMap
 );
 
 // 🔥 СЛИВАЕМ ДУБЛИРУЮЩИЕСЯ ТОЧКИ
@@ -3069,32 +3015,28 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
-  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology, updatedThisPhoto = null) {
-    // ===== ДИАГНОСТИКА: счётчик вызовов =====
-    if (!this._updateCallCount) this._updateCallCount = 0;
-    this._updateCallCount++;
-    console.log(`\n🔁🔁🔁 updateModelWithOptimalMatches ВЫЗОВ #${this._updateCallCount} 🔁🔁🔁`);
-    // ===== КОНЕЦ ДИАГНОСТИКИ =====
-   
+  updateModelWithOptimalMatches(modelId, newGraph, matches, newMorphology) {
     const model = this.models.get(modelId);
    
-    console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
-    }
-
-    // 🔥 ДЕДУПЛИКАЦИЯ
-    const uniqueMatches = [];
-    const seenPairs = new Set();
-    for (const match of matches) {
-        const key = `${match.pointA}|${match.pointB}`;
-        if (!seenPairs.has(key)) {
-            seenPairs.add(key);
-            uniqueMatches.push(match);
+    // 🔥 ДИАГНОСТИКА: что в lastUniqueInPhoto
+ //   if (this.debug) {
+        console.log(`\n🔍 [updateModelWithOptimalMatches] lastUniqueInPhoto.length = ${this.lastUniqueInPhoto?.length || 0}`);
+        if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+            console.log(`   Примеры синих точек: ${this.lastUniqueInPhoto.slice(0,3).map(p => p.id?.substring(0,12)).join(', ')}`);
         }
+ //   }
+   
+    // 🔥 ДЕДУПЛИКАЦИЯ
+const uniqueMatches = [];
+const seenPairs = new Set();
+for (const match of matches) {
+    const key = `${match.pointA}|${match.pointB}`;
+    if (!seenPairs.has(key)) {
+        seenPairs.add(key);
+        uniqueMatches.push(match);
     }
+}
 
-    // Дедупликация по pointB (точке модели) — оставляем только лучший match для каждой точки модели
 const uniqueByPointB = new Map();
 for (const match of uniqueMatches) {
     const existing = uniqueByPointB.get(match.pointB);
@@ -3102,52 +3044,11 @@ for (const match of uniqueMatches) {
         uniqueByPointB.set(match.pointB, match);
     }
 }
-let finalMatches = Array.from(uniqueByPointB.values());
+const finalMatches = Array.from(uniqueByPointB.values());
 
-// ===== НОВОЕ: дополнительная защита — каждая точка модели получает максимум +1 за фото =====
-// Создаём Set уже обработанных pointB, чтобы случайно не обновить дважды
-const processedPointB = new Set();
-const trulyUniqueMatches = [];
-for (const match of finalMatches) {
-    if (!processedPointB.has(match.pointB)) {
-        processedPointB.add(match.pointB);
-        trulyUniqueMatches.push(match);
-    }
+if (this.debug && matches.length !== finalMatches.length) {
+    console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
 }
-if (finalMatches.length !== trulyUniqueMatches.length) {
-    console.log(`   ⚠️ ВНИМАНИЕ: обнаружены дубликаты pointB! Было ${finalMatches.length}, стало ${trulyUniqueMatches.length}`);
-}
-finalMatches = trulyUniqueMatches;
-
-    if (this.debug && matches.length !== finalMatches.length) {
-        console.log(`   🔧 Дедупликация: ${matches.length} → ${finalMatches.length} matches`);
-    }
-
-    // ===== НОВАЯ ДИАГНОСТИКА ПЕРЕД ОБНОВЛЕНИЕМ =====
-    console.log(`\n🔍 ДИАГНОСТИКА ПЕРЕД ОБНОВЛЕНИЕМ В updateModelWithOptimalMatches:`);
-    console.log(`   finalMatches.length = ${finalMatches.length}`);
-    const uniquePointB = new Set(finalMatches.map(m => m.pointB));
-    console.log(`   Уникальных pointB: ${uniquePointB.size}`);
-    if (finalMatches.length !== uniquePointB.size) {
-        console.log(`   ⚠️ ВНИМАНИЕ: есть дубликаты pointB! Будет множественное обновление одной точки.`);
-        // Покажем первые 5 дубликатов
-        const counts = new Map();
-        for (const m of finalMatches) {
-            counts.set(m.pointB, (counts.get(m.pointB) || 0) + 1);
-        }
-        const duplicates = [];
-        for (const [id, count] of counts) {
-            if (count > 1) duplicates.push({ id: id.substring(0,12), count });
-        }
-        console.log(`   Дубликаты: ${JSON.stringify(duplicates.slice(0,5))}`);
-    }
-    console.log(`   Первые 5 pointB (полные ID) с их confirmationCount ДО обновления:`);
-Array.from(uniquePointB).slice(0,10).forEach((id, idx) => {
-    const node = model.graph.nodes.get(id);
-    const oldCount = node?.confirmationCount || 0;
-    console.log(`      ${idx+1}: ${id} -> было ${oldCount}`);
-});
-    // ===== КОНЕЦ ДИАГНОСТИКИ =====
 
 // 🔥 ДИАГНОСТИКА: какие точки модели НЕ получили подтверждение
 if (this.debug && finalMatches.length > 0) {
@@ -3199,61 +3100,29 @@ if (this.debug && finalMatches.length > 0) {
     }
    
     let confirmedExisting = 0;
-let newNodesAdded = 0;
+    let newNodesAdded = 0;
 
-const matchedPhotoIds = new Set();
-const matchedModelIds = new Set();
+    const matchedPhotoIds = new Set();
+    const matchedModelIds = new Set();
 
-// ===== НОВОЕ: дедупликация по pointB (точкам модели) =====
-// Каждая точка модели может получить максимум +1 подтверждение за фото
-const uniqueMatchesByModel = new Map(); // pointB -> match
-for (const match of finalMatches) {
-    const pointB = match.pointB;
-    const existing = uniqueMatchesByModel.get(pointB);
-    if (!existing || match.confidence > existing.confidence) {
-        uniqueMatchesByModel.set(pointB, match);
-    }
-}
-const deduplicatedMatches = Array.from(uniqueMatchesByModel.values());
-
-if (this.debug && finalMatches.length !== deduplicatedMatches.length) {
-    console.log(`   🔧 Дедупликация по модели: ${finalMatches.length} → ${deduplicatedMatches.length} matches`);
-}
-
-// 1. Обновляем существующие точки (только счётчик!)
+    // 1. Обновляем существующие точки (только счётчик!)
 let updatedCount = 0;
 let notFoundCount = 0;
-
-for (const match of deduplicatedMatches) {
+// 1. Обновляем существующие точки (используем finalMatches)
+for (const match of finalMatches) {
     const modelNode = model.graph.nodes.get(match.pointB);
     if (modelNode) {
-        // Проверяем, не обновляли ли уже эту точку в этом фото
-        if (updatedThisPhoto && updatedThisPhoto.has(match.pointB)) {
-          //  if (this.debug) {
-                console.log(`   ⏭️ updateModel: пропускаем повторное обновление точки ${match.pointB.substring(0,12)} (уже обновлена в этом фото)`);
-        //    }
-            // Всё равно добавляем в matchedPhotoIds для правильного учёта
-            matchedPhotoIds.add(match.pointA);
-            matchedModelIds.add(match.pointB);
-            updatedCount++;
-            continue;
-        }
-       
         const oldCount = modelNode.confirmationCount || 1;
-        const newCount = oldCount + 1;
-        console.log(`   🔄 Точка ${match.pointB}: было ${oldCount}, станет ${newCount} (+1)`);
-        modelNode.confirmationCount = newCount;
+        modelNode.confirmationCount = oldCount + 1;
         modelNode.lastConfirmed = new Date();
         confirmedExisting++;
         matchedPhotoIds.add(match.pointA);
         matchedModelIds.add(match.pointB);
         updatedCount++;
        
-        // Добавляем в Set, чтобы не обновлять повторно
-        if (updatedThisPhoto) updatedThisPhoto.add(match.pointB);
-
+        // 🔥 ДИАГНОСТИКА ДЛЯ ПЕРВЫХ 5
         if (updatedCount <= 5) {
-            console.log(`   ✅ Обновлена точка ${match.pointB}: ${oldCount} → ${modelNode.confirmationCount}`);
+            console.log(`   ✅ Обновлена точка ${match.pointB.substring(0,12)}: ${oldCount} → ${modelNode.confirmationCount}`);
         }
     } else {
         notFoundCount++;
@@ -3648,9 +3517,8 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
             node.gapPattern = patternData.gaps?.[nodeId] || '0';
 
             node.confirmationCount = 1;
-node.addedFrom = 'original';
-node.addedAt = new Date();
-console.log(`   🆕 Новая точка в модели: ${nodeId}, confirmationCount = ${node.confirmationCount}`);
+            node.addedFrom = 'original';
+            node.addedAt = new Date();
         }
 
         const model = {
