@@ -852,7 +852,7 @@ const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10
            
             // Проверяем каждого кандидата на топологию
             for (const candidate of candidates) {
-                const modelNeighbors = this.findNodeNeighbors(candidate.id, modelGraph);
+                const modelNeighbors = GraphUtils.findNodeNeighbors(candidate.id, modelGraph);
                 const matchedModelNeighbors = modelNeighbors.filter(n => matchedModelMap.has(n.id));
                
                 // Количество сопоставленных соседей должно совпадать
@@ -1521,7 +1521,7 @@ if (this.debug && refinementIteration > 1) {
                                     if (this.debug) console.log(`\n   Проверка точки ${candidate.pointA.substring(0,12)}...`);
 
                                     // Для каждого кандидата проверяем топологию
-                                    const photoNeighbors = this.findNodeNeighbors(candidate.pointA, exactGraph) || [];
+                                    const photoNeighbors = GraphUtils.findNodeNeighbors(candidate.pointA, exactGraph) || [];
                                     const photoNeighborIds = photoNeighbors.map(n => n?.id).filter(id => id);
 
                                     // Какие из соседей уже сопоставлены?
@@ -1537,7 +1537,7 @@ if (this.debug && refinementIteration > 1) {
                                         const modelPoint = modelCandidate.modelPoint;
                                         if (!modelPoint || !modelPoint.id) continue;
 
-                                        const modelNeighbors = this.findNodeNeighbors(modelPoint.id, existingModel.graph) || [];
+                                        const modelNeighbors = GraphUtils.findNodeNeighbors(modelPoint.id, existingModel.graph) || [];
                                         const modelNeighborIds = modelNeighbors.map(n => n?.id).filter(id => id);
 
                                         // Проверяем, что соседи модели тоже сопоставлены
@@ -3659,7 +3659,7 @@ generateStructureColors(structures) {
             const neighborAnchorsA = neighborsA.filter(n => pointMap.has(n.id)).map(n => n.id);
 
             // Находим соседей точки B в графе
-            const neighborsB = this.findNodeNeighbors(pB, graphB);
+           const neighborsB = GraphUtils.findNodeNeighbors(pB, graphB);
             const neighborAnchorsB = neighborsB.filter(n => reversePairs.has(n.id)).map(n => n.id);
 
             // Проверяем, что количество якорей-соседей совпадает
@@ -3807,7 +3807,7 @@ generateStructureColors(structures) {
             const anchorNeighborsA = neighborsA.filter(n => anchorMap.has(n.id));
 
             // Находим всех соседей-якорей для точки B
-            const neighborsB = this.findNodeNeighbors(pointB, graphB);
+            const neighborsB = GraphUtils.findNodeNeighbors(pointB, graphB);
             const anchorNeighborsB = neighborsB.filter(n =>
                 Array.from(anchorMap.values()).some(a => a.pointB === n.id)
             );
@@ -4273,8 +4273,8 @@ expandStructureGeometrically(structure, graphA, graphB, morphologyMap, modelMorp
             const photoA = edge.v1;
             const photoB = edge.v2;
 
-            const neighborsA = this.findNodeNeighbors(photoA.id, graphA);
-            const neighborsB = this.findNodeNeighbors(photoB.id, graphA);
+            const neighborsA = GraphUtils.findNodeNeighbors(photoA.id, graphA);
+            const neighborsB = GraphUtils.findNodeNeighbors(photoB.id, graphA);
 
             const candidates = [];
             for (const nA of neighborsA) {
