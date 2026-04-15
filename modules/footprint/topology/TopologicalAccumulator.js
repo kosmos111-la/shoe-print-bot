@@ -11,10 +11,13 @@ const TopologicalFingerprint = require('./TopologicalFingerprint');
 const TriangleMatcher = require('../matching/TriangleMatcher');
 const PatternAnalyzer = require('../analysis/PatternAnalyzer');
 const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
+const ValidationModule = require('../validation/ValidationModule');
+const StructureManager = require('./StructureManager');
+const AffineRefiner = require('./AffineRefiner');
 const GeometryUtils = require('./utils/GeometryUtils');
 const GraphUtils = require('./utils/GraphUtils');
 const RoleClassifier = require('./utils/RoleClassifier');
-const ModelEnhancer = require('./enhancers/ModelEnhancer');
+// ModelEnhancer - УДАЛИТЬ (временно отключаем)
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -80,6 +83,13 @@ class TopologicalAccumulator {
             cliqueThreshold: options.cliqueThreshold || 3
         });
 
+// 🔥 ВАЛИДАТОР
+this.validator = new ValidationModule({
+    debug: this.debug,
+    positionThreshold: 0.15,
+    morphologyThreshold: 0.85
+});
+      
         // 🔥 АНАЛИЗАТОРЫ
         this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
         this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug });
@@ -94,7 +104,7 @@ class TopologicalAccumulator {
         this.currentModelId = null;
         this.modelRelations = new Map();
         this.photoToModel = new Map();
-        this.lastUniqueInPhoto = null;  // для передачи в ModelEnhancer
+// lastUniqueInPhoto больше не нужен
 
         // Статистика
         this.stats = {
@@ -146,113 +156,98 @@ class TopologicalAccumulator {
 
         // 🔥 2. Если есть существующая модель - пробуем улучшить через ModelEnhancer
         if (modelIdHint && this.models.has(modelIdHint)) {
-            console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю ModelEnhancer...`);
-
-            const existingModel = this.models.get(modelIdHint);
-
-            // Создаём экземпляр ModelEnhancer
-            const enhancer = new ModelEnhancer({
-                debug: this.debug,
-                fastMode: this.fastMode,
-                positionThreshold: 0.15,
-                morphologyThreshold: 0.85,
-                softThreshold: 20
-            });
-
-            // Передаём уникальные точки фото (для последующего добавления)
-            if (this.lastUniqueInPhoto) {
-                enhancer.setLastUniqueInPhoto(this.lastUniqueInPhoto);
-            }
-
-            // Запускаем улучшение модели
-            const enhanceResult = await enhancer.enhance(
-                existingModel,
-                exactGraph,
-                morphologyMap,
-                points,
-                {
-                    photoId,
-                    contours,
-                    outlineContour,
-                    triangleResult: null
-                }
-            );
-
-            if (enhanceResult.success) {
-                // Обновляем статистику
-                this.stats.triangleMatchesCount += enhanceResult.matches.length;
-                this.stats.totalEnhancements++;
-
-                // Сохраняем transform в модель
-                if (enhanceResult.transform) {
-                    existingModel.transform = enhanceResult.transform;
-                }
-
-                // Сохраняем структуры
-                if (enhanceResult.structures) {
-                    existingModel.structures = enhanceResult.structures;
-                    existingModel.pointToStructure = enhanceResult.pointToStructure;
-                }
-
-                // Обновляем метаданные
-                existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-                existingModel.metadata.lastEnhanced = new Date();
-
-                // Сохраняем контур
-                if (outlineContour && !existingModel.metadata.outlineContour) {
-                    existingModel.metadata.outlineContour = outlineContour;
-                }
-
-                // Строим matchMap для визуализации
-                const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-                    { matches: enhanceResult.matches || [] },
-                    modelIdHint
-                );
-
-                if (existingModel) {
-                    existingModel.lastTriangleResult = {
-                        ...(existingModel.lastTriangleResult || {}),
-                        modelMatchMap: modelMatchMap,
-                        matchMap: matchMap,
-                        transform: enhanceResult.transform
-                    };
-                }
-
-                // Очищаем неподтверждённые точки
-                const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
-                this.stats.totalNodesRemoved += cleanResult.removed;
-
-                // Фото привязано к модели
-                this.photoToModel.set(photoId, modelIdHint);
-
-                // Формируем результат
-                const confirmedInModel = enhanceResult.matches?.length || 0;
-                const onlyInModel = (existingModel.graph.nodes.size || 0) - confirmedInModel;
-                const onlyInPhoto = (exactGraph.nodes.size || 0) - confirmedInModel;
-
-                console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-                console.log(`   • 🟠 Подтвержденных: ${confirmedInModel}`);
-                console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
-                console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
-
-                return {
-                    status: 'enhanced',
-                    modelId: modelIdHint,
-                    similarity: enhanceResult.matches?.length / Math.max(1, exactGraph.nodes.size) || 0,
-                    matchesCount: enhanceResult.matches?.length || 0,
-                    newNodesAdded: enhanceResult.newNodesAdded || 0,
-                    nodesRemoved: cleanResult.removed,
-                    matchMap: matchMap,
-                    modelMatchMap: modelMatchMap,
-                    transform: enhanceResult.transform,
-                    structures: enhanceResult.structures,
-                    message: `Модель улучшена: +${enhanceResult.newNodesAdded || 0} точек`
-                };
-            } else {
-                console.log(`⚠️ ModelEnhancer не смог улучшить модель: ${enhanceResult.reason}`);
-                // Продолжаем выполнение - возможно, создадим новую модель
+    console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
+   
+    const existingModel = this.models.get(modelIdHint);
+   
+    // 1. ТРЕУГОЛЬНОЕ СРАВНЕНИЕ
+    const triangleResult = await this.compareByTriangleMatching(
+        { graph: exactGraph, morphologyMap: morphologyMap },
+        existingModel
+    );
+   
+    if (!triangleResult || triangleResult.count < 12) {
+        console.log(`⚠️ Недостаточно треугольных соответствий: ${triangleResult?.count || 0}`);
+        // Продолжаем выполнение (идём к стандартному сравнению)
+    } else {
+        console.log(`✅ Найдено ${triangleResult.count} треугольных соответствий!`);
+       
+        // 2. СОЗДАЁМ ЯКОРЯ ИЗ ТРЕУГОЛЬНИКОВ
+        const anchors = [];
+        for (const tri of triangleResult.triangles) {
+            if (tri.pB1 && tri.pB2 && tri.pB3) {
+                anchors.push({ pointA: tri.p1.id, pointB: tri.pB1.id, confidence: tri.confidence || 0.9, triangleId: tri.id });
+                anchors.push({ pointA: tri.p2.id, pointB: tri.pB2.id, confidence: tri.confidence || 0.9, triangleId: tri.id });
+                anchors.push({ pointA: tri.p3.id, pointB: tri.pB3.id, confidence: tri.confidence || 0.9, triangleId: tri.id });
             }
         }
+       
+        // 3. ВАЛИДАЦИЯ ЧЕРЕЗ ValidationModule
+        const validationResult = this.validator.validateAll(
+            exactGraph,
+            existingModel.graph,
+            anchors,
+            morphologyMap,
+            existingModel.morphologyMap
+        );
+       
+        if (validationResult.success && validationResult.transform) {
+            existingModel.transform = validationResult.transform;
+           
+            // 4. ОБНОВЛЯЕМ МОДЕЛЬ
+            const updateResult = this.updateModelWithOptimalMatches(
+                modelIdHint,
+                exactGraph,
+                triangleResult.matches,
+                morphologyMap
+            );
+           
+            // 5. ОЧИЩАЕМ НЕПОДТВЕРЖДЁННЫЕ ТОЧКИ
+            const cleanResult = this.cleanUnconfirmedNodes(modelIdHint, 2, 3);
+            this.stats.totalNodesRemoved += cleanResult.removed;
+           
+            // 6. СТРОИМ MATCHMAP ДЛЯ ВИЗУАЛИЗАЦИИ
+            const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
+                { matches: triangleResult.matches },
+                modelIdHint
+            );
+           
+            existingModel.lastTriangleResult = {
+                modelMatchMap: modelMatchMap,
+                matchMap: matchMap,
+                transform: validationResult.transform
+            };
+           
+            this.photoToModel.set(photoId, modelIdHint);
+            this.stats.triangleMatchesCount += triangleResult.matches.length;
+            this.stats.totalEnhancements++;
+           
+            const confirmedInModel = triangleResult.matches.length;
+            const onlyInModel = existingModel.graph.nodes.size - confirmedInModel;
+            const onlyInPhoto = exactGraph.nodes.size - confirmedInModel;
+           
+            console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+            console.log(`   • 🟠 Подтвержденных: ${confirmedInModel}`);
+            console.log(`   • 🔵 Только в модели: ${onlyInModel}`);
+            console.log(`   • 🔵 Только в новом фото: ${onlyInPhoto}`);
+           
+            return {
+                status: 'enhanced',
+                modelId: modelIdHint,
+                similarity: triangleResult.count / Math.max(1, exactGraph.nodes.size),
+                matchesCount: triangleResult.matches.length,
+                newNodesAdded: updateResult.newNodesAdded || 0,
+                nodesRemoved: cleanResult.removed,
+                matchMap: matchMap,
+                modelMatchMap: modelMatchMap,
+                transform: validationResult.transform,
+                message: `Модель улучшена: +${updateResult.newNodesAdded || 0} точек`
+            };
+        } else {
+            console.log(`⚠️ Валидация не удалась, продолжаем стандартный путь`);
+        }
+    }
+}
 
         // Если это первое фото вообще - создаём первую модель
         if (this.models.size === 0) {
