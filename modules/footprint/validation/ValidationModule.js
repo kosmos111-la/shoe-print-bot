@@ -1,6 +1,9 @@
 // modules/footprint/validation/ValidationModule.js
 // 🔍 ПАРАЛЛЕЛЬНЫЙ МОДУЛЬ ВАЛИДАЦИИ (векторный, без пикселей)
 
+const GeometryUtils = require('../topology/utils/GeometryUtils');
+const GraphUtils = require('../topology/utils/GraphUtils');
+
 class ValidationModule {
     constructor(options = {}) {
         this.debug = options.debug || false;
@@ -20,15 +23,15 @@ class ValidationModule {
      * @returns {Object} - преобразование {scale, rotation, translation}
      */
     calculateTransform(anchors, graphA, graphB) {
-      if (this.debug) {
-        console.log(`\n📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО ${anchors.length} ЯКОРЯМ`);
-       }
+        if (this.debug) {
+            console.log(`\n📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО ${anchors.length} ЯКОРЯМ`);
+        }
+       
         if (anchors.length < 2) {
             console.log(`   ⚠️ Недостаточно якорей (нужно минимум 2)`);
             return null;
         }
 
-        // Берём точки из графов
         const pointsA = [];
         const pointsB = [];
        
@@ -47,18 +50,16 @@ class ValidationModule {
             return null;
         }
 
-        // Вычисляем центры масс
-        const centerA = this.calculateCentroid(pointsA);
-        const centerB = this.calculateCentroid(pointsB);
+        const centerA = GeometryUtils.calculateCentroid(pointsA);
+        const centerB = GeometryUtils.calculateCentroid(pointsB);
 
-        // Вычисляем масштаб (среднее отношение расстояний)
         let scaleSum = 0;
         let scaleCount = 0;
        
         for (let i = 0; i < pointsA.length; i++) {
             for (let j = i + 1; j < pointsA.length; j++) {
-                const distA = this.calcDistance(pointsA[i], pointsA[j]);
-                const distB = this.calcDistance(pointsB[i], pointsB[j]);
+                const distA = GeometryUtils.distance(pointsA[i], pointsA[j]);
+                const distB = GeometryUtils.distance(pointsB[i], pointsB[j]);
                
                 if (distA > 0 && distB > 0) {
                     scaleSum += distB / distA;
@@ -69,10 +70,8 @@ class ValidationModule {
        
         const scale = scaleCount > 0 ? scaleSum / scaleCount : 1.0;
        
-        // Вычисляем поворот (метод наименьших квадратов)
         let rotation = 0;
         if (pointsA.length >= 2) {
-            // Центрируем точки
             const centeredA = pointsA.map(p => ({
                 x: p.x - centerA.x,
                 y: p.y - centerA.y
@@ -83,11 +82,9 @@ class ValidationModule {
                 y: p.y - centerB.y
             }));
            
-            // Вычисляем угол поворота
             let sinSum = 0, cosSum = 0;
            
             for (let i = 0; i < centeredA.length; i++) {
-                // Масштабируем A
                 const scaledA = {
                     x: centeredA[i].x * scale,
                     y: centeredA[i].y * scale
@@ -108,30 +105,15 @@ class ValidationModule {
                 y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
             }
         };
-if (this.debug) {
-        console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:`);
-        console.log(`   • Масштаб: ${scale.toFixed(3)}`);
-        console.log(`   • Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
-        console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
-}
-        return transform;
-    }
 
-    /**
-     * Применяет преобразование к точке
-     */
-    applyTransform(point, transform) {
-        const { scale, rotation, translation } = transform;
-       
-        // Поворот и масштаб
-        const xRot = point.x * Math.cos(rotation) - point.y * Math.sin(rotation);
-        const yRot = point.x * Math.sin(rotation) + point.y * Math.cos(rotation);
-       
-        // Масштаб и сдвиг
-        return {
-            x: xRot * scale + translation.x,
-            y: yRot * scale + translation.y
-        };
+        if (this.debug) {
+            console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:`);
+            console.log(`   • Масштаб: ${scale.toFixed(3)}`);
+            console.log(`   • Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
+            console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
+        }
+
+        return transform;
     }
 
     /**
@@ -144,19 +126,14 @@ if (this.debug) {
      * @returns {Object} - результат валидации
      */
     validatePoint(pointA, candidatesB, transform, morphologyA, morphologyB) {
-        // Проецируем точку A в пространство B
-        const projected = this.applyTransform(pointA, transform);
+        const projected = GeometryUtils.applyTransform(pointA, transform);
        
-        // Ищем ближайшие реальные точки
         const candidates = [];
+        const footprintSize = GeometryUtils.getFootprintSize(candidatesB);
        
         for (const pointB of candidatesB) {
-            const dx = pointB.x - projected.x;
-            const dy = pointB.y - projected.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
-           
-            // Нормируем расстояние относительно размера следа
-            const normDist = dist / this.getFootprintSize(candidatesB);
+            const dist = GeometryUtils.distance(pointB, projected);
+            const normDist = dist / footprintSize;
            
             if (normDist < this.positionThreshold) {
                 candidates.push({
@@ -175,10 +152,8 @@ if (this.debug) {
             };
         }
        
-        // Сортируем по расстоянию
         candidates.sort((a, b) => a.distance - b.distance);
        
-        // Проверяем морфологию лучшего кандидата
         const best = candidates[0];
         const morphA = morphologyA.get(pointA.id);
         const morphB = morphologyB.get(best.pointB.id);
@@ -192,7 +167,6 @@ if (this.debug) {
             };
         }
        
-        // Сравниваем морфологию (эксцентриситет и асимметрия)
         const morphScore = this.compareMorphology(morphA, morphB);
        
         if (morphScore >= this.morphologyThreshold) {
@@ -223,10 +197,10 @@ if (this.debug) {
      * @returns {Object} - результаты валидации
      */
     validateAll(graphA, graphB, anchors, morphologyA, morphologyB) {
-      if (this.debug) {
-        console.log(`\n🔍 ЗАПУСК ВАЛИДАЦИИ ВСЕХ ТОЧЕК`);
-       }
-        // Вычисляем преобразование по якорям
+        if (this.debug) {
+            console.log(`\n🔍 ЗАПУСК ВАЛИДАЦИИ ВСЕХ ТОЧЕК`);
+        }
+       
         const transform = this.calculateTransform(anchors, graphA, graphB);
         if (!transform) {
             return {
@@ -235,24 +209,20 @@ if (this.debug) {
             };
         }
 
-        // Получаем все точки из графов
         const pointsA = Array.from(graphA.nodes.values());
         const pointsB = Array.from(graphB.nodes.values());
        
-        // Создаём множество якорей для быстрого поиска
         const anchorSetA = new Set(anchors.map(a => a.pointA));
         const anchorSetB = new Set(anchors.map(a => a.pointB));
        
         const results = {
-            anchors: [],      // уже известные якоря
-            confirmed: [],    // новые подтверждённые точки
-            candidates: [],   // точки, требующие проверки
-            rejected: []      // точки, не прошедшие валидацию
+            anchors: [],
+            confirmed: [],
+            candidates: [],
+            rejected: []
         };
 
-        // Валидируем каждую точку из A
         for (const pointA of pointsA) {
-            // Пропускаем якоря
             if (anchorSetA.has(pointA.id)) {
                 results.anchors.push({
                     pointA: pointA.id,
@@ -264,7 +234,7 @@ if (this.debug) {
 
             const validation = this.validatePoint(
                 pointA,
-                pointsB.filter(p => !anchorSetB.has(p.id)), // исключаем якоря из кандидатов
+                pointsB.filter(p => !anchorSetB.has(p.id)),
                 transform,
                 morphologyA,
                 morphologyB
@@ -293,14 +263,16 @@ if (this.debug) {
                 });
             }
         }
-if (this.debug) {
-        console.log(`\n📊 РЕЗУЛЬТАТЫ ВАЛИДАЦИИ:`);
-        console.log(`   • Якорей: ${results.anchors.length}`);
-        console.log(`   • Подтверждено: ${results.confirmed.length}`);
-        console.log(`   • Кандидатов: ${results.candidates.length}`);
-        console.log(`   • Отвергнуто: ${results.rejected.length}`);
-        console.log(`   • ВСЕГО: ${results.anchors.length + results.confirmed.length} точек`);
-}
+
+        if (this.debug) {
+            console.log(`\n📊 РЕЗУЛЬТАТЫ ВАЛИДАЦИИ:`);
+            console.log(`   • Якорей: ${results.anchors.length}`);
+            console.log(`   • Подтверждено: ${results.confirmed.length}`);
+            console.log(`   • Кандидатов: ${results.candidates.length}`);
+            console.log(`   • Отвергнуто: ${results.rejected.length}`);
+            console.log(`   • ВСЕГО: ${results.anchors.length + results.confirmed.length} точек`);
+        }
+
         return {
             success: true,
             transform,
@@ -308,135 +280,83 @@ if (this.debug) {
         };
     }
 
-/**
-* Находит новые соответствия среди нераспознанных точек
-* @param {Object} graphA - граф первого следа
-* @param {Object} graphB - граф второго следа
-* @param {Array} existingMatches - уже найденные соответствия
-* @param {Object} transform - вычисленное преобразование
-* @param {Map} morphologyA - морфология первого следа
-* @param {Map} morphologyB - морфология второго следа
-* @returns {Array} - новые найденные соответствия
-*/
-findNewMatches(graphA, graphB, existingMatches, transform, morphologyA, morphologyB) {
-    console.log(`\n🔍 ПОИСК НОВЫХ СООТВЕТСТВИЙ ЧЕРЕЗ ВАЛИДАТОР`);
-   
-    // Создаём множества уже использованных точек
-    const usedPointsA = new Set(existingMatches.map(m => m.pointA));
-    const usedPointsB = new Set(existingMatches.map(m => m.pointB));
-   
-    // Получаем все точки из графов
-    const pointsA = Array.from(graphA.nodes.values());
-    const pointsB = Array.from(graphB.nodes.values());
-   
-    // Фильтруем только неиспользованные
-    const unmatchedA = pointsA.filter(p => !usedPointsA.has(p.id));
-    const unmatchedB = pointsB.filter(p => !usedPointsB.has(p.id));
-   
-    console.log(`   • Точек без пары в A: ${unmatchedA.length}`);
-    console.log(`   • Точек без пары в B: ${unmatchedB.length}`);
-   
-    const newMatches = [];
-    const searchRadius = this.getFootprintSize(pointsB) * this.positionThreshold; // 0.15
-   
-    for (const pointA of unmatchedA) {
-        // Проецируем точку A в пространство B
-        const projected = this.applyTransform(pointA, transform);
+    /**
+     * Находит новые соответствия среди нераспознанных точек
+     * @param {Object} graphA - граф первого следа
+     * @param {Object} graphB - граф второго следа
+     * @param {Array} existingMatches - уже найденные соответствия
+     * @param {Object} transform - вычисленное преобразование
+     * @param {Map} morphologyA - морфология первого следа
+     * @param {Map} morphologyB - морфология второго следа
+     * @returns {Array} - новые найденные соответствия
+     */
+    findNewMatches(graphA, graphB, existingMatches, transform, morphologyA, morphologyB) {
+        console.log(`\n🔍 ПОИСК НОВЫХ СООТВЕТСТВИЙ ЧЕРЕЗ ВАЛИДАТОР`);
        
-        // Ищем ближайшую точку в B
-        let bestMatch = null;
-        let bestDist = Infinity;
+        const usedPointsA = new Set(existingMatches.map(m => m.pointA));
+        const usedPointsB = new Set(existingMatches.map(m => m.pointB));
        
-        for (const pointB of unmatchedB) {
-            const dx = pointB.x - projected.x;
-            const dy = pointB.y - projected.y;
-            const dist = Math.sqrt(dx*dx + dy*dy);
+        const pointsA = Array.from(graphA.nodes.values());
+        const pointsB = Array.from(graphB.nodes.values());
+       
+        const unmatchedA = pointsA.filter(p => !usedPointsA.has(p.id));
+        const unmatchedB = pointsB.filter(p => !usedPointsB.has(p.id));
+       
+        console.log(`   • Точек без пары в A: ${unmatchedA.length}`);
+        console.log(`   • Точек без пары в B: ${unmatchedB.length}`);
+       
+        const newMatches = [];
+        const searchRadius = GeometryUtils.getFootprintSize(pointsB) * this.positionThreshold;
+       
+        for (const pointA of unmatchedA) {
+            const projected = GeometryUtils.applyTransform(pointA, transform);
            
-            if (dist < bestDist && dist < searchRadius) {
-                bestDist = dist;
-                bestMatch = pointB;
-            }
-        }
-       
-        if (bestMatch) {
-            // Проверяем морфологию
-            const morphA = morphologyA.get(pointA.id);
-            const morphB = morphologyB.get(bestMatch.id);
+            let bestMatch = null;
+            let bestDist = Infinity;
            
-            if (morphA && morphB) {
-                const morphScore = this.compareMorphology(morphA, morphB);
+            for (const pointB of unmatchedB) {
+                const dist = GeometryUtils.distance(pointB, projected);
                
-                if (morphScore >= this.morphologyThreshold) { // 0.85
-                    newMatches.push({
-                        pointA: pointA.id,
-                        pointB: bestMatch.id,
-                        confidence: (1 - bestDist / searchRadius) * 0.6 + morphScore * 0.4,
-                        method: 'validator_new',
-                        status: 'validator_found'
-                    });
+                if (dist < bestDist && dist < searchRadius) {
+                    bestDist = dist;
+                    bestMatch = pointB;
+                }
+            }
+           
+            if (bestMatch) {
+                const morphA = morphologyA.get(pointA.id);
+                const morphB = morphologyB.get(bestMatch.id);
+               
+                if (morphA && morphB) {
+                    const morphScore = this.compareMorphology(morphA, morphB);
+                   
+                    if (morphScore >= this.morphologyThreshold) {
+                        newMatches.push({
+                            pointA: pointA.id,
+                            pointB: bestMatch.id,
+                            confidence: (1 - bestDist / searchRadius) * 0.6 + morphScore * 0.4,
+                            method: 'validator_new',
+                            status: 'validator_found'
+                        });
+                    }
                 }
             }
         }
-    }
-   
-    console.log(`\n📊 НАЙДЕНО НОВЫХ СООТВЕТСТВИЙ: ${newMatches.length}`);
-    return newMatches;
-}
-  
-    /**
-     * Вычисляет центроид множества точек
-     */
-    calculateCentroid(points) {
-        if (points.length === 0) return { x: 0, y: 0 };
        
-        let sumX = 0, sumY = 0;
-        for (const p of points) {
-            sumX += p.x;
-            sumY += p.y;
-        }
-       
-        return {
-            x: sumX / points.length,
-            y: sumY / points.length
-        };
-    }
-
-    /**
-     * Вычисляет расстояние между двумя точками
-     */
-    calcDistance(p1, p2) {
-        const dx = p2.x - p1.x;
-        const dy = p2.y - p1.y;
-        return Math.sqrt(dx*dx + dy*dy);
-    }
-
-    /**
-     * Оценивает размер следа (для нормализации расстояний)
-     */
-    getFootprintSize(points) {
-        if (points.length === 0) return 1;
-       
-        let minX = Infinity, maxX = -Infinity;
-        let minY = Infinity, maxY = -Infinity;
-       
-        for (const p of points) {
-            minX = Math.min(minX, p.x);
-            maxX = Math.max(maxX, p.x);
-            minY = Math.min(minY, p.y);
-            maxY = Math.max(maxY, p.y);
-        }
-       
-        return Math.max(maxX - minX, maxY - minY);
+        console.log(`\n📊 НАЙДЕНО НОВЫХ СООТВЕТСТВИЙ: ${newMatches.length}`);
+        return newMatches;
     }
 
     /**
      * Сравнивает морфологию двух точек
+     * @param {Object} morphA - морфология первой точки
+     * @param {Object} morphB - морфология второй точки
+     * @returns {number} - оценка сходства (0-1)
      */
     compareMorphology(morphA, morphB) {
         let score = 0;
         let checks = 0;
        
-        // Эксцентриситет
         if (morphA.eccentricity && morphB.eccentricity) {
             const ratio = Math.min(morphA.eccentricity, morphB.eccentricity) /
                          Math.max(morphA.eccentricity, morphB.eccentricity);
@@ -444,7 +364,6 @@ findNewMatches(graphA, graphB, existingMatches, transform, morphologyA, morpholo
             checks++;
         }
        
-        // Асимметрия
         if (morphA.asymmetry && morphB.asymmetry) {
             const ratio = Math.min(morphA.asymmetry, morphB.asymmetry) /
                          Math.max(morphA.asymmetry, morphB.asymmetry);
@@ -452,7 +371,6 @@ findNewMatches(graphA, graphB, existingMatches, transform, morphologyA, morpholo
             checks++;
         }
        
-        // Компактность (если есть)
         if (morphA.compactness && morphB.compactness) {
             const ratio = Math.min(morphA.compactness, morphB.compactness) /
                          Math.max(morphA.compactness, morphB.compactness);
