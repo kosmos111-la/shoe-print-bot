@@ -203,25 +203,7 @@ class RelativePositioning {
         console.log(`   🎯 Всего в фото: ${photoGraph.nodes.size} точек`);
         console.log(`   🎯 Сопоставлено всего: ${photoToModel.size}/${photoGraph.nodes.size}`);
 
-       // ===== ДЕДУПЛИКАЦИЯ: каждая точка модели получает максимум +1 =====
-const uniqueByModelId = new Map();
-for (const [photoId, match] of photoToModel) {
-    const existing = uniqueByModelId.get(match.modelId);
-    if (!existing || match.confidence > existing.confidence) {
-        uniqueByModelId.set(match.modelId, { photoId, match });
-    }
-}
-
-const deduplicatedMap = new Map();
-for (const [modelId, { photoId, match }] of uniqueByModelId) {
-    deduplicatedMap.set(photoId, match);
-}
-
-if (this.debug && photoToModel.size !== deduplicatedMap.size) {
-    console.log(`   🔧 Дедупликация positionPoints: ${photoToModel.size} → ${deduplicatedMap.size}`);
-}
-
-return deduplicatedMap;
+        return photoToModel;
     }
 
     /**
@@ -467,14 +449,14 @@ return deduplicatedMap;
                 }
                
                 if (bestMatch && bestScore > 0.7) {
-    candidates.push({
-        photoId,
-        modelId: bestMatch,
-        score: bestScore,
-        photoNode,
-        anchors: top3.map(a => a.id.substring(0,6)).join(',')
-    });
-}
+                    candidates.push({
+                        photoId,
+                        modelId: bestMatch,
+                        score: bestScore,
+                        photoNode,
+                        anchors: top3.map(a => a.id.substring(0,6)).join(',')
+                    });
+                }
             }
            
             // Взаимная проверка
@@ -504,35 +486,22 @@ return deduplicatedMap;
                 selectedCandidates.push(best);
             }
            
-            // ===== ДЕДУПЛИКАЦИЯ: каждая точка модели получает максимум +1 за итерацию =====
-const uniqueByModelId = new Map(); // modelId -> best candidate
-for (const cand of candidates) {
-    const existing = uniqueByModelId.get(cand.modelId);
-    if (!existing || cand.score > existing.score) {
-        uniqueByModelId.set(cand.modelId, cand);
-    }
-}
-const deduplicatedCandidates = Array.from(uniqueByModelId.values());
-
-if (this.debug && candidates.length !== deduplicatedCandidates.length) {
-    console.log(`   🔧 Дедупликация итеративной стабилизации: ${candidates.length} → ${deduplicatedCandidates.length}`);
-}
-
-for (const cand of deduplicatedCandidates) {
-    allMatches.set(cand.photoId, {
-        modelId: cand.modelId,
-        confidence: cand.score,
-        source: 'iterative'
-    });
-   
-    currentAnchors.set(cand.photoId, {
-        modelId: cand.modelId,
-        confidence: cand.score
-    });
-   
-    modelToPhoto.set(cand.modelId, cand.photoId);
-    newAnchorsAdded++;
-}
+            // Добавляем выбранных кандидатов
+            for (const cand of selectedCandidates) {
+                allMatches.set(cand.photoId, {
+                    modelId: cand.modelId,
+                    confidence: cand.score,
+                    source: 'iterative'
+                });
+               
+                currentAnchors.set(cand.photoId, {
+                    modelId: cand.modelId,
+                    confidence: cand.score
+                });
+               
+                modelToPhoto.set(cand.modelId, cand.photoId);
+                newAnchorsAdded++;
+            }
            
             console.log(`📊 Итерация ${iteration}: добавлено ${newAnchorsAdded} новых якорей`);
            
@@ -541,26 +510,8 @@ for (const cand of deduplicatedCandidates) {
         console.log(`\n🎯 ИТОГ ИТЕРАТИВНОЙ СТАБИЛИЗАЦИИ:`);
         console.log(`   Всего стабилизировано: ${currentAnchors.size} точек`);
         console.log(`   Выполнено итераций: ${iteration}`);
-
-        // ===== ФИНАЛЬНАЯ ДЕДУПЛИКАЦИЯ МЕЖДУ ИТЕРАЦИЯМИ =====
-        const finalUniqueByModelId = new Map();
-        for (const [photoId, match] of allMatches) {
-            const existing = finalUniqueByModelId.get(match.modelId);
-            if (!existing || match.confidence > existing.confidence) {
-                finalUniqueByModelId.set(match.modelId, { photoId, match });
-            }
-        }
-
-        const deduplicatedAllMatches = new Map();
-        for (const [modelId, { photoId, match }] of finalUniqueByModelId) {
-            deduplicatedAllMatches.set(photoId, match);
-        }
-
-        if (this.debug && allMatches.size !== deduplicatedAllMatches.size) {
-            console.log(`   🔧 Финальная дедупликация iterativeStabilization: ${allMatches.size} → ${deduplicatedAllMatches.size}`);
-        }
-
-        return deduplicatedAllMatches;
+       
+        return allMatches;
     }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ ====================
