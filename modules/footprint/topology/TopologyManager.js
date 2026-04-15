@@ -115,21 +115,15 @@ class TopologyManager {
     }
 
     // Передаём точки и контуры в аккумулятор
-        console.log(`\n🔍 TopologyManager: ПЕРЕД ВЫЗОВОМ accumulator.processPoints:`);
-console.log(`   modelId = ${modelId?.substring(0,20)}`);
-console.log(`   accumulator.currentModelId = ${this.accumulator.currentModelId?.substring(0,20)}`);
-console.log(`   accumulator.models.size = ${this.accumulator.models.size}`);
-
-// Передаём точки и контуры в аккумулятор
-const result = await this.accumulator.processPoints(points, {
-    modelId: modelId,
-    source: `photo_${photoInfo.photoId || Date.now()}`,
-    name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
-    footprintId: footprint.id,
-    photoInfo: photoInfo,
-    photoId: photoInfo.photoId,
-    contours: contours
-});
+        const result = await this.accumulator.processPoints(points, {
+            modelId: modelId,
+            source: `photo_${photoInfo.photoId || Date.now()}`,
+            name: photoInfo.name || `Фото_${new Date().toLocaleTimeString('ru-RU')}`,
+            footprintId: footprint.id,
+            photoInfo: photoInfo,
+            photoId: photoInfo.photoId,
+            contours: contours
+        });
 
         // 🔥 СОХРАНЯЕМ patternData И clusterData
         if (result.modelId && this.accumulator.models.has(result.modelId)) {
@@ -142,19 +136,11 @@ const result = await this.accumulator.processPoints(points, {
             }
         }
 
-        // 🔥 ВАЖНО: обновляем текущий modelId для следующих вызовов
-if (result.modelId) {
-    modelId = result.modelId;
-    if (!this.sandboxMode) {
-        this.linkedFootprints.set(footprint.id, result.modelId);
-        console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
-    }
-    // Также обновляем в аккумуляторе, если нужно
-    if (this.accumulator.currentModelId !== result.modelId) {
-        this.accumulator.currentModelId = result.modelId;
-        console.log(`🔄 Обновлён currentModelId в аккумуляторе: ${result.modelId}`);
-    }
-}
+        // Обновляем связь след-модель (только для продакшна)
+        if (!this.sandboxMode && result.modelId && result.modelId !== modelId) {
+            this.linkedFootprints.set(footprint.id, result.modelId);
+            console.log(`🔄 Обновлена связь: след ${footprint.id} → модель ${result.modelId}`);
+        }
 
         // Получаем обновленную информацию о модели
         const modelInfo = this.accumulator.getModelInfo(result.modelId);
