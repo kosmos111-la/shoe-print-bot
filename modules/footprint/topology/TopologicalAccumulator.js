@@ -4507,6 +4507,54 @@ mergeDuplicatePoints(graph, threshold = 3) {
     return mergedCount;
 }
 
+ // ==================== ВРЕМЕННЫЕ МЕТОДЫ-ОБЁРТКИ (ДО ПОЛНОГО РЕФАКТОРИНГА) ====================
+
+/**
+* Временная обёртка для совместимости
+*/
+calcDistance(p1, p2) {
+    return GeometryUtils.distance(p1, p2);
+}
+
+/**
+* Временная обёртка для совместимости
+*/
+findNodeNeighbors(nodeId, graph) {
+    return GraphUtils.findNodeNeighbors(nodeId, graph);
+}
+
+/**
+* Временная обёртка для совместимости
+*/
+applyTransform(point, transform) {
+    return GeometryUtils.applyTransform(point, transform);
+}
+
+/**
+* Временная обёртка для совместимости
+*/
+calcAngleInTriangle(a, b, c) {
+    return GeometryUtils.angleBetween(a, b, c);
+}
+
+/**
+* Временная обёртка для совместимости
+*/
+graphDistance(nodeA, nodeB, graph) {
+    return GraphUtils.graphDistance(nodeA, nodeB, graph);
+}
+
+/**
+* Временная обёртка для совместимости
+*/
+getNodeRoleSimple(nodeId, graph) {
+    return this.roleClassifier.classifySimple(nodeId, graph);
+}
+
+ areConnected(aId, bId, graph) {
+    return GraphUtils.areConnected(aId, bId, graph);
+}
+ 
     clear() {
         this.models.clear();
         this.currentModelId = null;
