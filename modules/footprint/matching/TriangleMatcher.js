@@ -34,16 +34,9 @@ class TriangleMatcher {
     /**
      * Основной метод поиска соответствий
      */
-    findMatches(pointsA, pointsB, delaunayA, delaunayB, options = {}) {
-    // Сохраняем синие точки для диагностики и fallback
-    this.bluePointIds = options.bluePointIds || new Set();
-   
-    if (this.debug && this.bluePointIds.size > 0) {
-        console.log(`\n🔵 В МАТЧЕРЕ: ${this.bluePointIds.size} синих точек`);
-    }
-   
-    // Только самое важное - количество точек
-    console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
+    findMatches(pointsA, pointsB, delaunayA, delaunayB) {
+        // Только самое важное - количество точек
+        console.log(`📊 Точек в А: ${pointsA.length}, в Б: ${pointsB.length}`);
 
         // ШАГ 1-4 выполняем, но логи под if(this.debug)
         if (this.debug) {
@@ -58,60 +51,7 @@ class TriangleMatcher {
 
         const trianglesA = this.buildTopologicalTriangles(delaunayA, pointsA);
         const trianglesB = this.buildTopologicalTriangles(delaunayB, pointsB);
- // (сразу после построения trianglesA и trianglesB)
-   
-    if (this.debug && this.bluePointIds.size > 0) {
-        console.log(`\n🔵 ДИАГНОСТИКА СИНИХ ТОЧЕК В МАТЧЕРЕ:`);
-        console.log(`   • Синих точек в модели: ${this.bluePointIds.size}`);
-       
-        // Проверяем, есть ли эти точки в pointsB (граф модели)
-        let foundInPointsB = 0;
-        let notFoundInPointsB = [];
-        for (const blueId of this.bluePointIds) {
-            const pointB = pointsB.find(p => p.id === blueId);
-            if (pointB) {
-                foundInPointsB++;
-            } else {
-                notFoundInPointsB.push(blueId.substring(0,12));
-            }
-        }
-        console.log(`   • Найдено в pointsB: ${foundInPointsB} / ${this.bluePointIds.size}`);
-        if (notFoundInPointsB.length > 0) {
-            console.log(`   • НЕ найдены в pointsB: ${notFoundInPointsB.join(', ')}`);
-        }
-       
-        // Проверяем, попадают ли они в треугольники B
-        let blueInTriangles = 0;
-        const blueTriangles = [];
-        for (const tri of trianglesB) {
-            const points = [tri.p1.id, tri.p2.id, tri.p3.id];
-            for (const blueId of this.bluePointIds) {
-                if (points.includes(blueId)) {
-                    blueInTriangles++;
-                    blueTriangles.push({
-                        triangleId: tri.id,
-                        points: points.map(p => p.substring(0,12)).join(',')
-                    });
-                    break;
-                }
-            }
-        }
-        console.log(`   • Синих точек в треугольниках B: ${blueInTriangles} / ${this.bluePointIds.size}`);
-       
-        // Если ни одна синяя точка не попала в треугольники - показываем координаты
-        if (blueInTriangles === 0 && this.bluePointIds.size > 0) {
-            console.log(`   ⚠️ НИ ОДНА синяя точка не попала в треугольники!`);
-            console.log(`   📍 Координаты синих точек (первые 5):`);
-            let shown = 0;
-            for (const blueId of this.bluePointIds) {
-                const point = pointsB.find(p => p.id === blueId);
-                if (point && shown < 5) {
-                    console.log(`      - ${blueId.substring(0,12)}: (${point.x.toFixed(1)}, ${point.y.toFixed(1)})`);
-                    shown++;
-                }
-            }
-        }
-    }
+
         this.stats.totalTrianglesA = trianglesA.length;
         this.stats.totalTrianglesB = trianglesB.length;
 
@@ -191,20 +131,7 @@ if (this.debug) {
     console.log(`\n📊 РАДИАЛЬНЫЙ ПРОФИЛЬ В СРАВНЕНИИ:`);
     console.log(`   • Совпадений радиального профиля: ${radialMatches}/${totalChecked} (${(radialMatches/totalChecked*100).toFixed(1)}%)`);
 }
-        // Диагностика: сколько синих точек попало в matches
-    if (this.debug && this.bluePointIds.size > 0) {
-        const matchedBlue = pointMatches.filter(m => this.bluePointIds.has(m.pointB));
-        console.log(`\n🔵 СИНИЕ ТОЧКИ В РЕЗУЛЬТАТЕ:`);
-        console.log(`   • В matches: ${matchedBlue.length} / ${this.bluePointIds.size}`);
-       
-        if (matchedBlue.length === 0 && this.bluePointIds.size > 0) {
-            console.log(`   ⚠️ ВНИМАНИЕ: НИ ОДНА синяя точка не попала в matches!`);
-            console.log(`   → Причина: синие точки имеют другую топологическую структуру`);
-            console.log(`   → Буду использовать fallback-сопоставление по расстоянию`);
-        }
-    }
-       
-    return {
+        return {
     matches: pointMatches,
     triangles: trianglesA,  // 🔥 ВОЗВРАЩАЕМ ВСЕ ТРЕУГОЛЬНИКИ
     stats: this.stats
@@ -766,130 +693,6 @@ buildNeighbors(triangles) {
     }
 
     return pointMatches;
-}
-
-  /**
-* Fallback-сопоставление для синих точек, которые не попали в треугольники
-* @param {Array} pointsA - точки из фото
-* @param {Array} pointsB - точки из модели (синие)
-* @param {Array} existingMatches - уже найденные соответствия
-* @param {Object} transform - вычисленное преобразование (опционально)
-* @returns {Array} - новые соответствия
-*/
-findBluePointMatches(pointsA, pointsB, existingMatches, transform = null) {
-    const blueIds = this.bluePointIds || new Set();
-   
-    if (blueIds.size === 0) {
-        return [];
-    }
-   
-    console.log(`\n🔵 FALLBACK: поиск соответствий для ${blueIds.size} синих точек...`);
-   
-    const existingModelIds = new Set(existingMatches.map(m => m.pointB));
-    const existingPhotoIds = new Set(existingMatches.map(m => m.pointA));
-   
-    // Синие точки без пары
-    const unmatchedBlue = Array.from(blueIds)
-        .filter(id => !existingModelIds.has(id))
-        .map(id => pointsB.find(p => p.id === id))
-        .filter(p => p);
-   
-    if (unmatchedBlue.length === 0) {
-        console.log(`   • Все синие точки уже сопоставлены`);
-        return [];
-    }
-   
-    console.log(`   • Несопоставленных синих точек: ${unmatchedBlue.length}`);
-   
-    // Точки фото без пары
-    const unmatchedPhoto = pointsA.filter(p => !existingPhotoIds.has(p.id));
-   
-    if (unmatchedPhoto.length === 0) {
-        console.log(`   • Нет свободных точек в фото`);
-        return [];
-    }
-   
-    console.log(`   • Свободных точек в фото: ${unmatchedPhoto.length}`);
-   
-    const newMatches = [];
-    const searchRadius = 25; // пикселей
-   
-    for (const bluePoint of unmatchedBlue) {
-        let bestMatch = null;
-        let bestDist = Infinity;
-       
-        for (const photoPoint of unmatchedPhoto) {
-            let dist;
-           
-            if (transform) {
-                const projected = {
-                    x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
-                       photoPoint.y * transform.scale * Math.sin(transform.rotation) +
-                       transform.translation.x,
-                    y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
-                       photoPoint.y * transform.scale * Math.cos(transform.rotation) +
-                       transform.translation.y
-                };
-                const dx = projected.x - bluePoint.x;
-                const dy = projected.y - bluePoint.y;
-                dist = Math.sqrt(dx*dx + dy*dy);
-            } else {
-                const dx = photoPoint.x - bluePoint.x;
-                const dy = photoPoint.y - bluePoint.y;
-                dist = Math.sqrt(dx*dx + dy*dy);
-            }
-           
-            if (dist < bestDist && dist < searchRadius) {
-                bestDist = dist;
-                bestMatch = photoPoint;
-            }
-        }
-       
-        if (bestMatch) {
-            const morphScore = this.compareMorphologySimple(
-                bestMatch.eccentricity, bluePoint.eccentricity,
-                bestMatch.asymmetry, bluePoint.asymmetry
-            );
-           
-            if (morphScore >= 0.45) {
-                newMatches.push({
-                    pointA: bestMatch.id,
-                    pointB: bluePoint.id,
-                    confidence: 1 - (bestDist / searchRadius) * 0.5,
-                    method: 'blue_fallback',
-                    status: 'blue_confirmed'
-                });
-                if (this.debug) {
-                    console.log(`   ✅ Синяя точка ${bluePoint.id.substring(0,12)} → ${bestMatch.id.substring(0,12)} (${bestDist.toFixed(1)}px, морф ${(morphScore*100).toFixed(0)}%)`);
-                }
-            }
-        }
-    }
-   
-    console.log(`   • Найдено fallback-соответствий: ${newMatches.length}`);
-    return newMatches;
-}
-
-/**
-* Упрощённое сравнение морфологии для fallback
-*/
-compareMorphologySimple(ecc1, ecc2, asym1, asym2) {
-    let score = 0;
-    let checks = 0;
-   
-    if (ecc1 !== undefined && ecc2 !== undefined && ecc1 > 0 && ecc2 > 0) {
-        const ratio = Math.min(ecc1, ecc2) / Math.max(ecc1, ecc2);
-        score += ratio;
-        checks++;
-    }
-   
-    if (asym1 !== undefined && asym2 !== undefined && asym1 > 0 && asym2 > 0) {
-        const ratio = Math.min(asym1, asym2) / Math.max(asym1, asym2);
-        score += ratio;
-        checks++;
-    }
-   
-    return checks > 0 ? score / checks : 0.5;
 }
     /**
      * Печать статистики
