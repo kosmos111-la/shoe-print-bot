@@ -14,6 +14,9 @@ const ClusterAnalyzer = require('../analysis/ClusterAnalyzer');
 const ValidationModule = require('../validation/ValidationModule');
 const StructureManager = require('./StructureManager');
 const AffineRefiner = require('./AffineRefiner');
+const GeometryUtils = require('./utils/GeometryUtils');
+const GraphUtils = require('./utils/GraphUtils');
+const RoleClassifier = require('./utils/RoleClassifier');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -2667,44 +2670,17 @@ const finalResult = {
     }
 
     /**
-     * Упрощенное определение роли
-     */
-    getNodeRoleSimple(nodeId, graph) {
-        const node = graph.nodes.get(nodeId);
-        if (!node) return 'R';
-        const degree = node.degree || 0;
-        if (degree >= 6) return 'H';
-        if (degree === 1) return 'L';
-        return 'R';
-    }
-
-    /**
      * Получить роли соседей
      */
     getNeighborRolesForPoint(nodeId, graph) {
-        const neighbors = this.findNodeNeighbors(nodeId, graph);
-        const roles = [];
-        for (const neighbor of neighbors) {
-            roles.push(this.getNodeRoleSimple(neighbor.id, graph));
-        }
-        return roles.sort().join('');
-    }
+    const neighbors = GraphUtils.findNodeNeighbors(nodeId, graph);
+    const roles = [];
+    for (const neighbor of neighbors) {
+        roles.push(this.roleClassifier.classifySimple(neighbor.id, graph));
+    }
+    return roles.sort().join('');
+}
 
-    /** 
-     * Поиск соседей в графе
-     */
-    findNodeNeighbors(nodeId, graph) {
-        const neighbors = [];
-        // 🔥 Преобразуем Set в массив для итерации
-        const edges = Array.isArray(graph.edges) ? graph.edges : Array.from(graph.edges);
-
-        for (const edge of edges) {
-            const [a, b] = edge.split('--');
-            if (a === nodeId) neighbors.push({id: b});
-            if (b === nodeId) neighbors.push({id: a});
-        }
-        return neighbors;
-    }
 
     // ==================== ОСТАЛЬНЫЕ МЕТОДЫ ====================
 
@@ -3190,7 +3166,7 @@ const finalResult = {
             if (compactnessDiff < this.duplicateCompactnessThreshold &&
                 areaDiff < this.duplicateAreaThreshold) {
 
-                const graphDist = this.graphDistance(newNode.id, existingId, modelGraph);
+                const graphDist = GraphUtils.graphDistance(newNode.id, existingId, modelGraph);
 
                 if (graphDist <= this.duplicateGraphDistance) {
                     return true;
@@ -3201,25 +3177,8 @@ const finalResult = {
     }
 
     graphDistance(nodeA, nodeB, graph) {
-        if (nodeA === nodeB) return 0;
-
-        const queue = [{id: nodeA, dist: 0}];
-        const visited = new Set([nodeA]);
-
-        while (queue.length > 0) {
-            const {id, dist} = queue.shift();
-
-            const neighbors = this.findNodeNeighbors(id, graph);
-            for (const neighbor of neighbors) {
-                if (neighbor.id === nodeB) return dist + 1;
-                if (!visited.has(neighbor.id)) {
-                    visited.add(neighbor.id);
-                    queue.push({id: neighbor.id, dist: dist + 1});
-                }
-            }
-        }
-        return Infinity;
-    }
+    return GraphUtils.graphDistance(nodeA, nodeB, graph);
+}
 
     cleanUnconfirmedNodes(modelId, minConfirmations = 2, maxAge = 3) {
         const model = this.models.get(modelId);
@@ -3690,7 +3649,7 @@ generateStructureColors(structures) {
             const pB = data.pointB;
 
             // Находим соседей точки A в графе
-            const neighborsA = this.findNodeNeighbors(pA, graphA);
+            const neighborsA = GraphUtils.findNodeNeighbors(pA, graphA);
             const neighborAnchorsA = neighborsA.filter(n => pointMap.has(n.id)).map(n => n.id);
 
             // Находим соседей точки B в графе
@@ -3838,7 +3797,7 @@ generateStructureColors(structures) {
             const pointB = match.pointB;
 
             // Находим всех соседей-якорей для точки A
-            const neighborsA = this.findNodeNeighbors(pointA, graphA);
+            const neighborsA = GraphUtils.findNodeNeighbors(pointA, graphA);
             const anchorNeighborsA = neighborsA.filter(n => anchorMap.has(n.id));
 
             // Находим всех соседей-якорей для точки B
@@ -3860,7 +3819,7 @@ generateStructureColors(structures) {
                 const nA = anchorNeighborsA[i];
                 const nB = anchorNeighborsB[i];
 
-                const distA = this.graphDistance(pointA, nA.id, graphA);
+                const distA = GraphUtils.graphDistance(pointA, nA.id, graphA);
                 const distB = this.graphDistance(pointB, nB.id, graphB);
 
                 if (Math.abs(distA - distB) > 1) {
@@ -3989,9 +3948,11 @@ generateStructureColors(structures) {
     * @returns {Array} - массив треугольников {p1, p2, p3}
     */
     extractTrianglesFromGraph(graph) {
-    const triangles = [];
-    const nodeIds = Array.from(graph.nodes.keys());
-    const edges = graph.edges;
+    // 🔥 Используем GraphUtils для подсчета треугольников
+    // (логика остается, но теперь может использовать GraphUtils.countTriangles)
+    const triangles = [];
+    const nodeIds = Array.from(graph.nodes.keys());
+    const edges = graph.edges;
 
     for (let i = 0; i < nodeIds.length; i++) {
         for (let j = i + 1; j < nodeIds.length; j++) {
@@ -4128,14 +4089,14 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
 
     let modelC;
     if (structure.transform) {
-        const projected = this.applyTransform(photoC, structure.transform);
+        const projected = GeometryUtils.applyTransform(photoC, structure.transform);
         modelC = { x: projected.x, y: projected.y };
     } else {
         return false;
     }
 
     // ========== ПРОВЕРКИ ==========
-    const anglePhoto = this.calcAngleInTriangle(photoA, photoC, photoB);
+    const anglePhoto = GeometryUtils.angleBetween(photoA, photoC, photoB);
     const angleModel = this.calcAngleInTriangle(modelA, modelC, modelB);
     const angleDiff = Math.abs(anglePhoto - angleModel);
     const angleTolerance = Math.min(25, 12 + Math.floor(structure.triangleIds.size / 3));
@@ -4145,7 +4106,7 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
         return false;
     }
 
-    const sidePhoto1 = this.calcDistance(photoA, photoC);
+    const sidePhoto1 = GeometryUtils.distance(photoA, photoC);
     const sidePhoto2 = this.calcDistance(photoB, photoC);
     const sidePhoto3 = this.calcDistance(photoA, photoB);
     const sideModel1 = this.calcDistance(modelA, modelC);
@@ -4219,22 +4180,8 @@ tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, mode
 * Вычисляет угол между тремя точками (вершина в точке b)
 */
 calcAngleInTriangle(a, b, c) {
-    if (!a || !b || !c) return 0;
-    if (typeof a.x !== 'number' || typeof b.x !== 'number' || typeof c.x !== 'number') return 0;
-   
-    const v1x = a.x - b.x;
-    const v1y = a.y - b.y;
-    const v2x = c.x - b.x;
-    const v2y = c.y - b.y;
-   
-    const mag1 = Math.sqrt(v1x * v1x + v1y * v1y);
-    const mag2 = Math.sqrt(v2x * v2x + v2y * v2y);
-   
-    if (mag1 === 0 || mag2 === 0) return 0;
-   
-    const dot = v1x * v2x + v1y * v2y;
-    const cos = Math.max(-1, Math.min(1, dot / (mag1 * mag2)));
-    return Math.acos(cos) * 180 / Math.PI;
+    // Делегируем в GeometryUtils
+    return GeometryUtils.angleBetween(a, b, c);
 }
 
 /**
@@ -4245,25 +4192,7 @@ findModelPointForPhoto(photoPointId, structure) {
     const anchor = anchors.find(a => a.pointA === photoPointId);
     return anchor ? anchor.pointB : null;
 }
-
-/**
-* Вычисляет расстояние между двумя точками
-*/
-calcDistance(p1, p2) {
-    if (!p1 || !p2) {
-        if (this.debug) console.log(`      ⚠️ calcDistance: undefined точки`);
-        return 0;
-    }
-    if (typeof p1.x !== 'number' || typeof p1.y !== 'number' ||
-        typeof p2.x !== 'number' || typeof p2.y !== 'number') {
-        if (this.debug) console.log(`      ⚠️ calcDistance: координаты не числа`);
-        return 0;
-    }
-    const dx = p1.x - p2.x;
-    const dy = p1.y - p2.y;
-    return Math.sqrt(dx * dx + dy * dy);
-}
-  
+ 
 /**
 * Находит общее ребро между треугольником и структурой
 */
@@ -4293,19 +4222,6 @@ getModelPointFromStructure(pointId, structure) {
         }
     }
     return null;
-}
-
-/**
-* Применяет трансформацию к точке
-*/
-applyTransform(point, transform) {
-    const { scale, rotation, translation } = transform;
-    const xRot = point.x * Math.cos(rotation) - point.y * Math.sin(rotation);
-    const yRot = point.x * Math.sin(rotation) + point.y * Math.cos(rotation);
-    return {
-        x: xRot * scale + translation.x,
-        y: yRot * scale + translation.y
-    };
 }
 
     /**
