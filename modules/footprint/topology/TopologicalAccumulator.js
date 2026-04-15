@@ -82,7 +82,13 @@ this.affineRefiner = new AffineRefiner({
     useRansac: true,
     ransacThreshold: 5
 });
-     
+
+ this.roleClassifier = new RoleClassifier({
+            hubThreshold: options.hubThreshold || 6,
+            bridgeThreshold: options.bridgeThreshold || 2,
+            cliqueThreshold: options.cliqueThreshold || 3
+        });
+      
         // 🔥 АНАЛИЗАТОРЫ
         this.patternAnalyzer = new PatternAnalyzer({ debug: this.debug });
         this.clusterAnalyzer = new ClusterAnalyzer({ debug: this.debug });
@@ -810,7 +816,7 @@ const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10
         // 🔥 Если точка далеко — пробуем найти правильную с топологической проверкой
         if (dist >= threshold) {
             // Находим всех соседей точки A в графе фото
-            const photoNeighbors = this.findNodeNeighbors(match.pointA, photoGraph);
+            const photoNeighbors = GraphUtils.findNodeNeighbors(match.pointA, photoGraph);
             const matchedNeighbors = photoNeighbors.filter(n => matchedPhotoMap.has(n.id));
            
             // 🔥 Если у точки нет сопоставленных соседей — не можем проверить топологию, пропускаем
@@ -1175,7 +1181,7 @@ const remainingModelPoints = Array.from(existingModel.graph.nodes.values())
 for (const photoPoint of remainingPhotoPoints) {
     if (!photoPoint || !photoPoint.id) continue;
    
-    const projected = this.applyTransform(photoPoint, finalTransform);
+    const projected = GeometryUtils.applyTransform(photoPoint, finalTransform);
    
     let bestMatch = null;
     let bestDist = Infinity;
@@ -2473,7 +2479,7 @@ const finalResult = {
                 id: nodeId,
                 x: node.x,
                 y: node.y,
-                role: this.getNodeRoleSimple(nodeId, graph),
+                role: this.roleClassifier.classifySimple(nodeId, graph),
                 degree: node.degree || 0,
                 triangles: node.triangles || 0,
 
@@ -3028,7 +3034,7 @@ const finalResult = {
             const morph = morphologyMap.get(point.id) || {};
             features.set(point.id, {
                 id: point.id,
-                role: this.getNodeRoleSimple(point.id, exactGraph),
+                role: this.roleClassifier.classifySimple(point.id, exactGraph),
                 degree: point.degree || 0,
                 triangles: point.triangles || 0,
                 morphology: morph,
