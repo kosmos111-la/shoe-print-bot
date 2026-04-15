@@ -8,8 +8,11 @@ const ValidationModule = require('../../validation/ValidationModule');
 const AffineRefiner = require('../AffineRefiner');
 const LocalGroupSignature = require('../LocalGroupSignature');
 const MorphologyEncoder = require('../MorphologyEncoder');
-const StructureManager = require('../structures/StructureManager');
+const StructureManager = require('../StructureManager');
 const TriangleMatcher = require('../../matching/TriangleMatcher');
+const StructureBuilder = require('../StructureBuilder');
+const Structure = require('../Structure');
+
 
 class ModelEnhancer {
     constructor(options = {}) {
