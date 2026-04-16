@@ -41,6 +41,45 @@ class ModelEnhancer {
     }
    
     // ==================== ПРИВАТНЫЕ МЕТОДЫ (БУДУТ ДОБАВЛЯТЬСЯ ПО ШАГАМ) ====================
+
+/**
+     * Извлекает все треугольники из графа
+     */
+    extractTrianglesFromGraph(graph) {
+        const triangles = [];
+        const nodeIds = Array.from(graph.nodes.keys());
+        const edges = graph.edges;
+       
+        for (let i = 0; i < nodeIds.length; i++) {
+            for (let j = i + 1; j < nodeIds.length; j++) {
+                for (let k = j + 1; k < nodeIds.length; k++) {
+                    const a = nodeIds[i];
+                    const b = nodeIds[j];
+                    const c = nodeIds[k];
+                   
+                    if (edges.has([a, b].sort().join('--')) &&
+                        edges.has([b, c].sort().join('--')) &&
+                        edges.has([c, a].sort().join('--'))) {
+                       
+                        const p1 = graph.nodes.get(a);
+                        const p2 = graph.nodes.get(b);
+                        const p3 = graph.nodes.get(c);
+                       
+                        if (p1 && p2 && p3) {
+                            triangles.push({ p1, p2, p3, id: `tri_${a}_${b}_${c}` });
+                        }
+                    }
+                }
+            }
+        }
+       
+        if (this.debug) {
+            console.log(`   📐 Извлечено треугольников: ${triangles.length}`);
+        }
+       
+        return triangles;
+    }  
+
 }
 
 module.exports = ModelEnhancer;
