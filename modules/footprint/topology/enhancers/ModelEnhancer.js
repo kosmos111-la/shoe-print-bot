@@ -1114,7 +1114,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
     // ===== ШАГ 7: ПОСТРОЕНИЕ ТОПОЛОГИЧЕСКИХ СТРУКТУР =====
     console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
 
-    const StructureManager = require('../structures/StructureManager');
+    const StructureManager = require('../StructureManager');
     const structureManager = new StructureManager(this.validator, {
         debug: this.debug,
         minConfidence: 0.7,
