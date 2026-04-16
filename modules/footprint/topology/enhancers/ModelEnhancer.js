@@ -80,6 +80,63 @@ class ModelEnhancer {
         return triangles;
     }  
 
-}
+/**
+     * Сливает дублирующиеся точки в графе
+     */
+    mergeDuplicatePoints(graph, threshold = 5) {
+        const points = Array.from(graph.nodes.values());
+        const merged = new Set();
+        let mergedCount = 0;
+        let edgesToUpdate = new Map();
+       
+        for (let i = 0; i < points.length; i++) {
+            if (merged.has(points[i].id)) continue;
+           
+            for (let j = i + 1; j < points.length; j++) {
+                if (merged.has(points[j].id)) continue;
+               
+                const dx = points[i].x - points[j].x;
+                const dy = points[i].y - points[j].y;
+                const dist = Math.sqrt(dx*dx + dy*dy);
+               
+                if (dist < threshold) {
+                    const avgX = (points[i].x + points[j].x) / 2;
+                    const avgY = (points[i].y + points[j].y) / 2;
+                    points[i].x = avgX;
+                    points[i].y = avgY;
+                    points[i].confirmationCount = (points[i].confirmationCount || 1) + (points[j].confirmationCount || 1);
+                   
+                    edgesToUpdate.set(points[j].id, points[i].id);
+                    graph.nodes.delete(points[j].id);
+                    merged.add(points[j].id);
+                    mergedCount++;
+                }
+            }
+        }
+       
+        if (edgesToUpdate.size > 0) {
+            const newEdges = new Set();
+            for (const edge of graph.edges) {
+                let [a, b] = edge.split('--');
+                if (edgesToUpdate.has(a)) a = edgesToUpdate.get(a);
+                if (edgesToUpdate.has(b)) b = edgesToUpdate.get(b);
+                if (a !== b) {
+                    newEdges.add([a, b].sort().join('--'));
+                }
+            }
+            graph.edges = newEdges;
+           
+            for (const node of graph.nodes.values()) node.degree = 0;
+            for (const edge of graph.edges) {
+                const [a, b] = edge.split('--');
+                if (graph.nodes.has(a)) graph.nodes.get(a).degree++;
+                if (graph.nodes.has(b)) graph.nodes.get(b).degree++;
+            }
+        }
+       
+        return mergedCount;
+    }
 
+  
+}
 module.exports = ModelEnhancer;
