@@ -1708,6 +1708,53 @@ _updateModel(model, newGraph, matches, newMorphology) {
    
     return { confirmedExisting, newNodesAdded };
 } 
+
+ /**
+* Извлекает все треугольники из графа
+*/
+_extractTrianglesFromGraph(graph) {
+    const triangles = [];
+    const nodeIds = Array.from(graph.nodes.keys());
+    const edges = graph.edges;
+   
+    for (let i = 0; i < nodeIds.length; i++) {
+        for (let j = i + 1; j < nodeIds.length; j++) {
+            for (let k = j + 1; k < nodeIds.length; k++) {
+                const a = nodeIds[i];
+                const b = nodeIds[j];
+                const c = nodeIds[k];
+               
+                const edgeAB = [a, b].sort().join('--');
+                const edgeBC = [b, c].sort().join('--');
+                const edgeCA = [c, a].sort().join('--');
+               
+                if (edges.has(edgeAB) && edges.has(edgeBC) && edges.has(edgeCA)) {
+                    const p1 = graph.nodes.get(a);
+                    const p2 = graph.nodes.get(b);
+                    const p3 = graph.nodes.get(c);
+                   
+                    if (p1 && p2 && p3) {
+                        triangles.push({
+                            p1, p2, p3,
+                            id: `tri_${a}_${b}_${c}`,
+                            edges: [
+                                { v1: p1, v2: p2, externalPoint: null, neighborTriangles: [] },
+                                { v1: p2, v2: p3, externalPoint: null, neighborTriangles: [] },
+                                { v1: p3, v2: p1, externalPoint: null, neighborTriangles: [] }
+                            ]
+                        });
+                    }
+                }
+            }
+        }
+    }
+   
+    if (this.debug) {
+        console.log(`   📐 Извлечено треугольников: ${triangles.length}`);
+    }
+   
+    return triangles;
+}
  
 }
 module.exports = ModelEnhancer;
