@@ -741,25 +741,209 @@ if (existingModel) {
                     // ===== ШАГ 3.6: Финальное притягивание близких точек с топологической проверкой =====
                     if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
 
-/**
-* Притягивание близких точек с топологической проверкой
-*/
 const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null) => {
-    if (!this.modelEnhancer) {
-        const ModelEnhancer = require('./enhancers/ModelEnhancer');
-        this.modelEnhancer = new ModelEnhancer({ debug: this.debug });
-    }
-    return this.modelEnhancer._magneticPull(matches, photoGraph, modelGraph, transform, threshold);
+    const pulledMatches = [];
+    const usedPhotoPoints = new Set();
+    const usedModelPoints = new Set();
+    let pulledCount = 0;
+    let topologyCheckedCount = 0;
+    let topologyRejectedCount = 0;
+
+    // Сортируем matches по уверенности
+    const sortedMatches = [...matches].sort((a, b) => b.confidence - a.confidence);
+
+    // Строим карту уже сопоставленных точек для быстрого доступа
+    const matchedPhotoMap = new Map(); // photoId -> modelId
+    const matchedModelMap = new Map(); // modelId -> photoId
+    for (const match of sortedMatches) {
+        matchedPhotoMap.set(match.pointA, match.pointB);
+        matchedModelMap.set(match.pointB, match.pointA);
+    }
+
+    for (const match of sortedMatches) {
+        const photoPoint = photoGraph?.nodes?.get(match.pointA);
+        const modelPoint = modelGraph?.nodes?.get(match.pointB);
+
+        if (!photoPoint || !modelPoint) continue;
+
+        // Проецируем точку фото в пространство модели
+        const projected = {
+            x: photoPoint.x * transform.scale * Math.cos(transform.rotation) -
+               photoPoint.y * transform.scale * Math.sin(transform.rotation) +
+               transform.translation.x,
+            y: photoPoint.x * transform.scale * Math.sin(transform.rotation) +
+               photoPoint.y * transform.scale * Math.cos(transform.rotation) +
+               transform.translation.y
+        };
+
+        // Вычисляем расстояние до точки модели
+        const dx = projected.x - modelPoint.x;
+        const dy = projected.y - modelPoint.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+
+        // 🔥 Если точка уже близко — просто сохраняем
+        if (dist < threshold && dist > 0.5) {
+            // Точки рядом — притягиваем!
+            if (this.debug && dist > 1) {
+                console.log(`   🧲 Точки рядом (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)}`);
+            }
+
+            // Усредняем позицию (взвешенно по уверенности)
+            const weight = match.confidence || 0.5;
+            const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
+            const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
+
+            // Обновляем модель
+            modelPoint.x = avgX;
+            modelPoint.y = avgY;
+            modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
+            modelPoint.pulled = true;
+            modelPoint.pullDistance = dist;
+
+            pulledMatches.push({
+                ...match,
+                pulled: true,
+                pullDistance: dist,
+                newPosition: { x: avgX, y: avgY },
+                topologyChecked: false
+            });
+
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+            pulledCount++;
+            continue;
+        }
+
+        // 🔥 Если точка далеко — пробуем найти правильную с топологической проверкой
+        if (dist >= threshold) {
+            // Находим всех соседей точки A в графе фото
+            const photoNeighbors = GraphUtils.findNodeNeighbors(match.pointA, photoGraph);
+            const matchedNeighbors = photoNeighbors.filter(n => matchedPhotoMap.has(n.id));
+           
+            // 🔥 Если у точки нет сопоставленных соседей — не можем проверить топологию, пропускаем
+            if (matchedNeighbors.length < 2) {
+                if (this.debug && dist > threshold * 2) {
+                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - мало соседей для проверки`);
+                }
+                pulledMatches.push(match);
+                usedPhotoPoints.add(match.pointA);
+                usedModelPoints.add(match.pointB);
+                continue;
+            }
+
+            // 🔥 Ищем кандидатов среди точек модели в расширенном радиусе
+            const candidates = [];
+            for (const [candidateId, candidatePoint] of modelGraph.nodes) {
+                if (usedModelPoints.has(candidateId)) continue;
+               
+                const candidateDx = projected.x - candidatePoint.x;
+                const candidateDy = projected.y - candidatePoint.y;
+                const candidateDist = Math.sqrt(candidateDx*candidateDx + candidateDy*candidateDy);
+               
+                if (candidateDist < threshold * 2) { // радиус поиска в 2 раза больше
+                    candidates.push({ id: candidateId, point: candidatePoint, dist: candidateDist });
+                }
+            }
+           
+            // Сортируем по расстоянию
+            candidates.sort((a, b) => a.dist - b.dist);
+           
+            let bestCandidate = null;
+            let bestTopologyScore = 0;
+           
+            // Проверяем каждого кандидата на топологию
+            for (const candidate of candidates) {
+                const modelNeighbors = GraphUtils.findNodeNeighbors(candidate.id, modelGraph);
+                const matchedModelNeighbors = modelNeighbors.filter(n => matchedModelMap.has(n.id));
+               
+                // Количество сопоставленных соседей должно совпадать
+                if (matchedModelNeighbors.length !== matchedNeighbors.length) continue;
+               
+                // Проверяем, что соседи соответствуют друг другу
+                let topologyScore = 0;
+                for (const photoNeighbor of matchedNeighbors) {
+                    const expectedModelId = matchedPhotoMap.get(photoNeighbor.id);
+                    if (matchedModelNeighbors.some(n => n.id === expectedModelId)) {
+                        topologyScore++;
+                    }
+                }
+               
+                const matchRatio = topologyScore / matchedNeighbors.length;
+                if (matchRatio > bestTopologyScore && matchRatio >= 0.7) { // минимум 70% совпадения
+                    bestTopologyScore = matchRatio;
+                    bestCandidate = candidate;
+                }
+            }
+           
+            if (bestCandidate) {
+                // Нашли правильную точку! Притягиваем
+                topologyCheckedCount++;
+               
+                if (this.debug) {
+                    console.log(`   🧲 Топологический магнит: ${match.pointA.substring(0,12)} → ${bestCandidate.id.substring(0,12)} (${bestCandidate.dist.toFixed(1)}px, совпадение ${(bestTopologyScore*100).toFixed(0)}%)`);
+                }
+               
+                const weight = match.confidence || 0.5;
+                const avgX = (projected.x * weight + bestCandidate.point.x * (1 - weight));
+                const avgY = (projected.y * weight + bestCandidate.point.y * (1 - weight));
+               
+                bestCandidate.point.x = avgX;
+                bestCandidate.point.y = avgY;
+                bestCandidate.point.confirmationCount = (bestCandidate.point.confirmationCount || 1) + 1;
+                bestCandidate.point.pulled = true;
+                bestCandidate.point.pullDistance = bestCandidate.dist;
+               
+                pulledMatches.push({
+                    pointA: match.pointA,
+                    pointB: bestCandidate.id,
+                    confidence: match.confidence,
+                    pulled: true,
+                    pullDistance: bestCandidate.dist,
+                    topologyChecked: true,
+                    topologyScore: bestTopologyScore,
+                    originalPointB: match.pointB
+                });
+               
+                usedPhotoPoints.add(match.pointA);
+                usedModelPoints.add(bestCandidate.id);
+                pulledCount++;
+            } else {
+                // Не нашли подходящего кандидата — оставляем как есть
+                topologyRejectedCount++;
+                if (this.debug && dist > threshold * 2) {
+                    console.log(`   ⚠️ Точки далеко (${dist.toFixed(1)}px): ${match.pointA.substring(0,12)} ↔ ${match.pointB.substring(0,12)} - нет подходящего кандидата`);
+                }
+                pulledMatches.push(match);
+                usedPhotoPoints.add(match.pointA);
+                usedModelPoints.add(match.pointB);
+            }
+        } else {
+            // Точки уже почти совпадают
+            pulledMatches.push(match);
+            usedPhotoPoints.add(match.pointA);
+            usedModelPoints.add(match.pointB);
+        }
+    }
+
+    if (this.debug) {
+        console.log(`\n📊 РЕЗУЛЬТАТ ПРИТЯГИВАНИЯ:`);
+        console.log(`   • Притянуто точек: ${pulledCount}`);
+        console.log(`   • Топологически проверено: ${topologyCheckedCount}`);
+        console.log(`   • Отвергнуто топологией: ${topologyRejectedCount}`);
+        console.log(`   • Осталось без изменений: ${pulledMatches.length - pulledCount}`);
+    }
+
+    return { pulledMatches, pulledCount };
 };
                     // Применяем притягивание если есть transform и matches
                     if (finalTransform && finalValidatedMatches && finalValidatedMatches.length > 0) {
-                        const { pulledMatches, pulledCount } = this._magneticPull(
-    finalValidatedMatches,
-    exactGraph,
-    existingModel.graph,
-    finalTransform,
-    25
-);
+                        const { pulledMatches, pulledCount } = magneticPull(
+                            finalValidatedMatches,
+                            exactGraph,
+                            existingModel.graph,
+                            finalTransform,
+                            25
+                        );
 
                         if (pulledCount > 0) {
                             if (this.debug) console.log(`\n✅ Притянуто ${pulledCount} точек!`);
@@ -1508,13 +1692,13 @@ if (this.debug && refinementIteration > 1) {
                                     // 🔥 ДОБАВЛЯЕМ МАГНИТ ДЛЯ НОВЫХ ПАР
                                     if (this.debug) console.log(`\n🧲 ДОПОЛНИТЕЛЬНОЕ ПРИТЯГИВАНИЕ НОВЫХ ПАР`);
 
-                                    const { pulledMatches, pulledCount } = this._magneticPull(
-    finalValidatedMatches,
-    exactGraph,
-    existingModel.graph,
-    finalTransform,
-    20
-);
+                                    const { pulledMatches, pulledCount } = magneticPull(
+                                        finalValidatedMatches,
+                                        exactGraph,
+                                        existingModel.graph,
+                                        finalTransform,
+                                        20 // порог в пикселях
+                                    );
 
                                     if (pulledCount > 0) {
                                         if (this.debug) console.log(`\n✅ Притянуто ещё ${pulledCount} новых пар!`);
