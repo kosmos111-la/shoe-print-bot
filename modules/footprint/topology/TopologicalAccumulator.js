@@ -744,7 +744,7 @@ if (existingModel) {
 /**
 * Притягивание близких точек с топологической проверкой
 */
-_magneticPull(matches, photoGraph, modelGraph, transform, threshold = 10) {
+const magneticPull = (matches, photoGraph, modelGraph, transform, threshold = 10, structure = null) => {
     if (!this.modelEnhancer) {
         const ModelEnhancer = require('./enhancers/ModelEnhancer');
         this.modelEnhancer = new ModelEnhancer({ debug: this.debug });
