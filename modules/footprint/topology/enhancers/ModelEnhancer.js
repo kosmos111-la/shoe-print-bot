@@ -1368,17 +1368,31 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
     }
 
     // ===== ШАГ 11: ПОИСК НОВЫХ ПАР =====
-    const matchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
-    const matchedPointsB = new Set(finalValidatedMatches?.map(m => m?.pointB) || []);
+const matchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
+const matchedPointsB = new Set(finalValidatedMatches?.map(m => m?.pointB) || []);
 
-    const unmatchedPhotoPoints = originalPoints.filter(p => !matchedPointsA.has(p.id));
-    const unmatchedModelPoints = Array.from(existingModel.graph.nodes.values())
-        .filter(p => !matchedPointsB.has(p.id));
+const unmatchedPhotoPoints = originalPoints.filter(p => !matchedPointsA.has(p.id));
 
-    let newPairsFound = 0;
-    const newPairs = [];
+// 🔥 ИСПРАВЛЕНИЕ: создаём Map, а не массив
+const unmatchedModelPoints = new Map();
+if (existingModel?.graph?.nodes) {
+    for (const [id, node] of existingModel.graph.nodes) {
+        if (!matchedPointsB.has(id)) {
+            unmatchedModelPoints.set(id, node);
+        }
+    }
+}
 
+let newPairsFound = 0;
+const newPairs = [];
+
+// 🔥 ПРОВЕРКА: если нет несопоставленных точек модели - пропускаем
+if (unmatchedModelPoints.size === 0) {
+    console.log(`   ⚠️ Нет несопоставленных точек модели для поиска новых пар`);
+} else {
     for (const photoPoint of unmatchedPhotoPoints) {
+        if (!photoPoint || !photoPoint.id) continue;
+       
         const projected = {
             x: photoPoint.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
                photoPoint.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
@@ -1391,7 +1405,8 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         let bestMatch = null;
         let bestDist = Infinity;
 
-        for (const [modelId, modelPoint] of unmatchedModelPoints) {
+        // 🔥 ИСПРАВЛЕНИЕ: используем Map.entries() для итерации
+        for (const [modelId, modelPoint] of unmatchedModelPoints.entries()) {
             const dx = projected.x - modelPoint.x;
             const dy = projected.y - modelPoint.y;
             const dist = Math.sqrt(dx*dx + dy*dy);
@@ -1438,11 +1453,14 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
             }
         }
     }
+}
 
-    if (newPairsFound > 0) {
-        console.log(`\n✅ Найдено ${newPairsFound} новых пар среди несопоставленных точек!`);
-        finalValidatedMatches = [...finalValidatedMatches, ...newPairs];
-    }
+if (newPairsFound > 0) {
+    console.log(`\n✅ Найдено ${newPairsFound} новых пар среди несопоставленных точек!`);
+    finalValidatedMatches = [...finalValidatedMatches, ...newPairs];
+} else {
+    if (this.debug) console.log(`\n⚠️ Новых пар не найдено`);
+}
 
     // ===== ШАГ 12: КОРРЕКЦИЯ ПО BOUNDING BOX =====
     if (finalValidatedMatches.length >= 3 && finalTransform) {
