@@ -569,6 +569,176 @@ checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
         }
     };
 } 
-  
+
+/**
+* Двухэтапная достройка точек на основе согласованных якорей
+* @param {Array} anchors - согласованные якоря (точки)
+* @param {Array} allMatches - все найденные matches
+* @param {Object} graphA - граф первого следа
+* @param {Object} graphB - граф второго следа
+* @param {Map} morphologyMap - морфология точек первого следа
+* @param {Map} modelMorphology - морфология точек модели
+* @returns {Array} - достроенные соответствия
+*/
+twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology) {
+    if (this.debug) console.log(`\n🔧 ДВУХЭТАПНАЯ ДОСТРОЙКА ТОЧЕК`);
+
+    // ===== ШАГ 1: Разделяем точки на категории =====
+    if (this.debug) console.log(`\n📊 РАЗДЕЛЕНИЕ ТОЧЕК ПО КАТЕГОРИЯМ:`);
+
+    const anchorSet = new Set(anchors.map(a => a.pointA));
+    const allPointsA = new Set(allMatches.map(m => m.pointA));
+
+    const confusedPoints = [];
+    for (const match of allMatches) {
+        if (!anchorSet.has(match.pointA)) {
+            confusedPoints.push(match);
+        }
+    }
+
+    if (this.debug) {
+        console.log(`   • Якорей: ${anchors.length} точек`);
+        console.log(`   • Путающихся кандидатов: ${confusedPoints.length} точек`);
+    }
+
+    // ===== ШАГ 2: Строим карту якорей для быстрого доступа =====
+    const anchorMap = new Map();
+    for (const anchor of anchors) {
+        anchorMap.set(anchor.pointA, {
+            pointB: anchor.pointB,
+            confidence: anchor.confidence
+        });
+    }
+
+    // ===== ШАГ 3: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК =====
+    if (this.debug) console.log(`\n🔍 ЭТАП 1: УТОЧНЕНИЕ ПУТАЮЩИХСЯ ТОЧЕК`);
+
+    const confirmedFromConfused = [];
+    const stillConfused = [];
+
+    for (const match of confusedPoints) {
+        const pointA = match.pointA;
+        const pointB = match.pointB;
+
+        const neighborsA = GraphUtils.findNodeNeighbors(pointA, graphA);
+        const anchorNeighborsA = neighborsA.filter(n => anchorMap.has(n.id));
+
+        const neighborsB = GraphUtils.findNodeNeighbors(pointB, graphB);
+        const anchorNeighborsB = neighborsB.filter(n =>
+            Array.from(anchorMap.values()).some(a => a.pointB === n.id)
+        );
+
+        if (anchorNeighborsA.length === 0 || anchorNeighborsB.length === 0) {
+            stillConfused.push(match);
+            continue;
+        }
+
+        let consistent = true;
+        const minNeighbors = Math.min(anchorNeighborsA.length, anchorNeighborsB.length);
+
+        for (let i = 0; i < minNeighbors; i++) {
+            const nA = anchorNeighborsA[i];
+            const nB = anchorNeighborsB[i];
+
+            const distA = GraphUtils.graphDistance(pointA, nA.id, graphA);
+            const distB = GraphUtils.graphDistance(pointB, nB.id, graphB);
+
+            if (Math.abs(distA - distB) > 1) {
+                consistent = false;
+                break;
+            }
+        }
+
+        if (consistent) {
+            confirmedFromConfused.push({
+                pointA: pointA,
+                pointB: pointB,
+                confidence: match.confidence * 0.9
+            });
+            if (this.debug) console.log(`   ✅ Уточнена: ${pointA.substring(0,12)} ↔ ${pointB.substring(0,12)}`);
+        } else {
+            stillConfused.push(match);
+        }
+    }
+
+    if (this.debug) {
+        console.log(`\n📊 ИТОГ ЭТАПА 1:`);
+        console.log(`   • Уточнено: ${confirmedFromConfused.length} точек`);
+        console.log(`   • Осталось путающихся: ${stillConfused.length} точек`);
+    }
+
+    // ===== ШАГ 4: ПОДГОТОВКА ЯКОРЕЙ ДЛЯ ДОСТРОЙКИ =====
+    const allConfirmed = [...anchors, ...confirmedFromConfused];
+    if (this.debug) console.log(`\n🔧 Всего подтвержденных точек для достройки: ${allConfirmed.length}`);
+
+    const confirmedMap = new Map();
+    for (const point of allConfirmed) {
+        confirmedMap.set(point.pointA, point.pointB);
+    }
+
+    // ===== ШАГ 5: ДОСТРОЙКА НОВЫХ ТОЧЕК =====
+    if (this.debug) console.log(`\n🔍 ЭТАП 2: ДОСТРОЙКА НОВЫХ ТОЧЕК`);
+
+    const allPointsInA = Array.from(graphA.nodes.keys());
+    const pointsToPosition = allPointsInA.filter(p => !confirmedMap.has(p));
+
+    if (this.debug) console.log(`   • Точек для достройки: ${pointsToPosition.length}`);
+
+    const anchorMatches = new Map();
+    for (const point of allConfirmed) {
+        anchorMatches.set(point.pointA, {
+            modelId: point.pointB,
+            confidence: point.confidence
+        });
+    }
+
+    // Используем переданный relativePositioning или создаём новый
+    const RelativePositioning = require('../RelativePositioning');
+    const relativePositioning = this.relativePositioning || new RelativePositioning({ debug: this.debug });
+
+    const positionedMatches = relativePositioning.positionPoints(
+        graphA,
+        graphB,
+        anchorMatches,
+        morphologyMap,
+        modelMorphology,
+        { confidenceThreshold: 0.5 }
+    );
+
+    if (this.debug) console.log(`\n📊 ИТОГ ЭТАПА 2:`);
+    if (this.debug) console.log(`   • Достроено: ${positionedMatches.size} точек`);
+
+    // ===== ШАГ 6: ФОРМИРУЕМ ФИНАЛЬНЫЙ РЕЗУЛЬТАТ =====
+    const finalMatches = [];
+
+    for (const point of allConfirmed) {
+        finalMatches.push({
+            pointA: point.pointA,
+            pointB: point.pointB,
+            confidence: point.confidence
+        });
+    }
+
+    for (const [pointA, match] of positionedMatches) {
+        if (!confirmedMap.has(pointA)) {
+            finalMatches.push({
+                pointA: pointA,
+                pointB: match.modelId,
+                confidence: match.confidence
+            });
+        }
+    }
+
+    if (this.debug) {
+        console.log(`\n🎯 ФИНАЛЬНЫЙ РЕЗУЛЬТАТ:`);
+        console.log(`   • Всего соответствий: ${finalMatches.length} точек`);
+        console.log(`   • Из них якорей: ${anchors.length}`);
+        console.log(`   • Уточнено путающихся: ${confirmedFromConfused.length}`);
+        console.log(`   • Достроено новых: ${finalMatches.length - allConfirmed.length}`);
+    }
+
+    return finalMatches;
+}
+ 
 }
 module.exports = ModelEnhancer;
