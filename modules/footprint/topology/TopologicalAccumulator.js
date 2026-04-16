@@ -17,7 +17,6 @@ const AffineRefiner = require('./AffineRefiner');
 const GeometryUtils = require('./utils/GeometryUtils');
 const GraphUtils = require('./utils/GraphUtils');
 const RoleClassifier = require('./utils/RoleClassifier');
-const ModelEnhancer = require('./enhancers/ModelEnhancer');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -4554,20 +4553,6 @@ getNodeRoleSimple(nodeId, graph) {
 
  areConnected(aId, bId, graph) {
     return GraphUtils.areConnected(aId, bId, graph);
-}
-
-async _callEnhancerMethod(methodName, ...args) {
-    const enhancer = new ModelEnhancer({
-        debug: this.debug,
-        fastMode: this.fastMode,
-        validator: this.validator
-    });
-    return enhancer[methodName](...args);
-}
-
-checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
-    // ВРЕМЕННО: используем старую логику
-    // Потом заменим на вызов enhancer
 }
  
     clear() {
