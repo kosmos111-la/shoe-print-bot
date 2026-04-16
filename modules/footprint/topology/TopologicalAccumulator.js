@@ -1793,7 +1793,8 @@ return {
     structureCount: structures.length,
     message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
 };
-
+}
+                 
 // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
 
     async compareByTriangleMatching(model1, model2, options = {}) {
