@@ -17,7 +17,6 @@ const AffineRefiner = require('./AffineRefiner');
 const GeometryUtils = require('./utils/GeometryUtils');
 const GraphUtils = require('./utils/GraphUtils');
 const RoleClassifier = require('./utils/RoleClassifier');
-const ModelEnhancer = require('./enhancers/ModelEnhancer');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -106,25 +105,12 @@ this.affineRefiner = new AffineRefiner({
         this.photoToModel = new Map();
 
  // 🔥 ДОБАВИТЬ ВАЛИДАТОР
-    // 🔥 ДОБАВИТЬ ВАЛИДАТОР
-const ValidationModule = require('../validation/ValidationModule');
-this.validator = new ValidationModule({
-    debug: this.debug,
-    positionThreshold: 0.15,
-    morphologyThreshold: 0.85
-});
-
-// 🔥 ДОБАВИТЬ ENHANCER
-this.enhancer = new ModelEnhancer({
-    debug: this.debug,
-    fastMode: this.fastMode,
-    validator: this.validator,
-    roleClassifier: this.roleClassifier,
-    positionThreshold: 0.15,
-    morphologyThreshold: 0.85,
-    softThreshold: 20,
-    maxRefinements: 3
-});
+    const ValidationModule = require('../validation/ValidationModule');
+    this.validator = new ValidationModule({
+        debug: this.debug,
+        positionThreshold: 0.15,
+        morphologyThreshold: 0.85
+    });
       
         // Статистика
         this.stats = {
@@ -174,130 +160,503 @@ this.enhancer = new ModelEnhancer({
         const morphologyMap = this.morphologyEncoder.encode(points, contours);
         const knnFingerprints = this.fingerprinter.computeGraphFingerprints(knnGraph);
 
-        // 🔥 2. Если есть существующая модель - используем ModelEnhancer
-if (modelIdHint && this.models.has(modelIdHint)) {
-    console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю ModelEnhancer...`);
+        // 🔥 2. Если есть существующая модель - пробуем треугольное сравнение
+        if (modelIdHint && this.models.has(modelIdHint)) {
+            console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю треугольный матчер...`);
+
+            const existingModel = this.models.get(modelIdHint);
+
+            // Создаем временную модель из нового фото
+            const tempModel = {
+                graph: exactGraph,
+                morphologyMap: morphologyMap,
+                metadata: { name: 'temp' }
+            };
+
+            if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${modelIdHint.slice(0,12)}...`);
+            const triangleResult = await this.compareByTriangleMatching(tempModel, existingModel);
+
+            // 🔥 ВРЕМЕННО: срабатывает даже с 1 точкой
+            if (triangleResult.count >= 1) {
+                console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
+
+                // ===== ШАГ 1: СОЗДАЁМ ВРЕМЕННЫЕ ЯКОРЯ ИЗ MATCHES =====
+                if (this.debug) console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
+
+                // Так как все ID одинаковые, группируем просто по порядку (каждые 3 точки)
+                const tempAnchors = [];
+                const matches = triangleResult.matches;
+
+                for (let i = 0; i < matches.length; i += 3) {
+                    if (i + 2 < matches.length) {
+                        const group = [
+                            matches[i],
+                            matches[i+1],
+                            matches[i+2]
+                        ];
+
+                        tempAnchors.push({
+                            aIndex: -1,
+                            bIndex: -1,
+                            geometryScore: Math.min(...group.map(m => m.confidence)),
+                            points: group.map(m => ({
+                                pointA: m.pointA,
+                                pointB: m.pointB,
+                                confidence: m.confidence
+                            }))
+                        });
+                    }
+                }
+
+                if (this.debug) console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
+
+                // Получаем треугольники из графов (ПЕРЕД проверкой!)
+                if (this.debug) console.log(`\n🔍 ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ГРАФОВ`);
+                const trianglesA = this.extractTrianglesFromGraph(exactGraph);
+                const trianglesB = this.extractTrianglesFromGraph(existingModel.graph);
+
+                if (this.debug) {
+                    console.log(`   • Треугольников в A: ${trianglesA.length}`);
+                    console.log(`   • Треугольников в B: ${trianglesB.length}`);
+                }
+
+                // ===== ШАГ 2: ГЛОБАЛЬНАЯ ПРОВЕРКА =====
+                if (this.debug) console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
+
+                const consistent = this.checkGlobalConsistency(
+                    tempAnchors,
+                    trianglesA,
+                    trianglesB,
+                    exactGraph,
+                    existingModel.graph
+                );
+
+                // ===== ШАГ 3: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
+                const finalMatches = this.twoStagePositioning(
+                    consistent.points,
+                    triangleResult.matches,
+                    exactGraph,
+                    existingModel.graph,
+                    morphologyMap,
+                    existingModel.morphologyMap
+                );
+
+                if (this.debug) {
+                    console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
+                    console.log(`   • Было matches: ${triangleResult.matches.length}`);
+                    console.log(`   • Стало matches: ${finalMatches.length}`);
+                }
+
+                // ===== ШАГ 3.5: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
+                console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
+
+                const ValidationModule = require('../validation/ValidationModule');
+                const validator = new ValidationModule({
+                    debug: this.debug,
+                    positionThreshold: 0.15,
+                    morphologyThreshold: 0.85
+                });
+
+                // 🔥 ИСПРАВЛЕНИЕ: Используем ТОЛЬКО согласованные якоря для вычисления transform
+                let anchorsForValidation = [];
+
+// Пытаемся получить треугольники из triangleResult
+if (triangleResult && triangleResult.triangles && triangleResult.triangles.length > 0) {
+    console.log(`\n🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (${triangleResult.triangles.length} шт)`);
    
-    const existingModel = this.models.get(modelIdHint);
+    for (const tri of triangleResult.triangles) {
+        // Проверяем, что у треугольника есть соответствия
+        if (tri.pB1 && tri.pB2 && tri.pB3) {
+            anchorsForValidation.push({
+                pointA: tri.p1.id,
+                pointB: tri.pB1.id,
+                confidence: tri.confidence || 0.9,
+                triangleId: tri.id
+            });
+            anchorsForValidation.push({
+                pointA: tri.p2.id,
+                pointB: tri.pB2.id,
+                confidence: tri.confidence || 0.9,
+                triangleId: tri.id
+            });
+            anchorsForValidation.push({
+                pointA: tri.p3.id,
+                pointB: tri.pB3.id,
+                confidence: tri.confidence || 0.9,
+                triangleId: tri.id
+            });
+        }
+    }
    
-    // Получаем треугольное сравнение (через TriangleMatcher)
-    const triangleResult = await this.compareByTriangleMatching(
-        { graph: exactGraph, morphologyMap: morphologyMap },
-        existingModel
-    );
-   
-    // Создаём временные якоря для enhancer'а (если нужно)
-    const anchorsForEnhancer = [];
-    if (triangleResult.triangles) {
-        for (const tri of triangleResult.triangles) {
-            if (tri.pB1 && tri.pB2 && tri.pB3) {
-                anchorsForEnhancer.push({
-                    pointA: tri.p1.id,
-                    pointB: tri.pB1.id,
-                    confidence: tri.confidence || 0.9,
-                    triangleId: tri.id
-                });
-                anchorsForEnhancer.push({
-                    pointA: tri.p2.id,
-                    pointB: tri.pB2.id,
-                    confidence: tri.confidence || 0.9,
-                    triangleId: tri.id
-                });
-                anchorsForEnhancer.push({
-                    pointA: tri.p3.id,
-                    pointB: tri.pB3.id,
-                    confidence: tri.confidence || 0.9,
-                    triangleId: tri.id
-                });
-            }
-        }
-    }
-   
-    // Запускаем улучшение через ModelEnhancer
-    const enhancerResult = await this.enhancer.enhance(
-        existingModel,
-        exactGraph,
-        morphologyMap,
-        points,
-        {
-            photoId: photoId,
-            contours: contours,
-            triangleResult: triangleResult,
-            outlineContour: outlineContour
-        }
-    );
-   
-    if (!enhancerResult.success) {
-        console.log(`⚠️ ModelEnhancer не смог улучшить модель: ${enhancerResult.reason}`);
-        // Продолжаем как обычно? Или возвращаем ошибку?
-        // Пока возвращаем fallback
-        return {
-            status: 'enhancement_failed',
-            modelId: modelIdHint,
-            similarity: triangleResult?.similarity || 0,
-            message: `ModelEnhancer failed: ${enhancerResult.reason}`
-        };
-    }
-   
-    // Обновляем модель результатами
-    if (enhancerResult.transform) {
-        existingModel.transform = enhancerResult.transform;
-    }
-   
-    if (enhancerResult.structures) {
-        existingModel.structures = enhancerResult.structures;
-        existingModel.pointToStructure = this.enhancer._buildPointToStructureMap(enhancerResult.structures);
-    }
-   
-    // Обновляем метаданные
-    existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 0) + 1;
-    existingModel.metadata.lastEnhanced = new Date();
-   
-    // Создаём matchMap для визуализации
-    const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-        { matches: enhancerResult.matches || [] },
-        modelIdHint
-    );
-   
-    if (existingModel) {
-        existingModel.lastTriangleResult = {
-            ...(existingModel.lastTriangleResult || {}),
-            modelMatchMap: modelMatchMap,
-            matchMap: matchMap,
-            globalConsistency: { points: enhancerResult.matches?.length || 0 }
-        };
-    }
-   
-    // Статистика
-    const confirmedInModel = enhancerResult.matches?.length || 0;
-    const uniquePoints = existingModel?.graph?.nodes?.size || 0;
-   
-    let confirmedPointsCount = 0;
-    for (const node of existingModel.graph.nodes.values()) {
-        if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
-    }
-    const stability = uniquePoints > 0 ? (confirmedPointsCount / uniquePoints * 100).toFixed(1) : 0;
-   
-    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ ПОСЛЕ ENHANCER'А:`);
-    console.log(`   • Подтвержденных (2+ фото): ${confirmedInModel}`);
-    console.log(`   • Всего в модели теперь: ${uniquePoints}`);
-    console.log(`   • Стабильность: ${stability}%`);
-   
-    this.photoToModel.set(photoId, modelIdHint);
-   
-    return {
-        status: 'enhanced_by_enhancer',
-        modelId: modelIdHint,
-        similarity: triangleResult?.similarity || 0,
-        matches: enhancerResult.matches,
-        newNodesAdded: enhancerResult.newNodesAdded || 0,
-        matchMap: matchMap,
-        modelMatchMap: modelMatchMap,
-        transform: enhancerResult.transform,
-        structures: enhancerResult.structures,
-        message: `ModelEnhancer: добавлено ${enhancerResult.newNodesAdded || 0} новых точек`
-    };
+    if (anchorsForValidation.length > 0) {
+        console.log(`   ✅ Создано ${anchorsForValidation.length} якорей из ${anchorsForValidation.length/3} треугольников`);
+    }
 }
+
+// Если не получилось — используем consistent.points
+if (anchorsForValidation.length === 0) {
+    console.log(`   ⚠️ Нет треугольников, использую consistent.points`);
+    anchorsForValidation = consistent.points.map(p => ({
+        pointA: p.pointA,
+        pointB: p.pointB,
+        confidence: p.confidence
+    }));
+}
+
+                if (this.debug) console.log(`\n🔍 ЭТАП 1: Вычисление базового transform по ${anchorsForValidation.length} надёжным якорям`);
+
+                // Сначала вычисляем transform по надёжным якорям
+                const baseTransform = validator.calculateTransform(
+                    anchorsForValidation,
+                    exactGraph,
+                    existingModel.graph
+                );
+
+                if (!baseTransform) {
+                    console.log(`❌ Не удалось вычислить базовый transform`);
+                    return {
+                        status: 'transform_failed',
+                        modelId: modelIdHint,
+                        similarity: triangleResult?.similarity || 0,
+                        message: 'Не удалось вычислить transform по якорям'
+                    };
+                }
+
+                if (this.debug) {
+                    console.log(`\n📐 БАЗОВЫЙ TRANSFORM (${anchorsForValidation.length} якорей):`);
+                    console.log(`   • Масштаб: ${baseTransform.scale.toFixed(3)}`);
+                    console.log(`   • Поворот: ${(baseTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                    console.log(`   • Сдвиг: (${baseTransform.translation.x.toFixed(1)}, ${baseTransform.translation.y.toFixed(1)})`);
+                }
+
+              // 🔥 ЭТАП 2: Построение топологических структур (НОВЫЙ ПОДХОД)
+console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
+
+// Создаём менеджер структур
+const structureManager = new StructureManager(validator, {
+    debug: this.debug,
+    minConfidence: 0.7,
+    maxScaleDeviation: 0.1,
+    maxRotationDeviation: 5
+});
+
+// 🔥 ПОЛУЧАЕМ ВСЕ ТРЕУГОЛЬНИКИ ИЗ ГРАФА
+const allGraphTriangles = this.extractTrianglesFromGraph(exactGraph);
+console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
+console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
+console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
+
+// Проверяем, есть ли externalPoint в исходных треугольниках
+if (triangleResult.triangles && triangleResult.triangles.length > 0) {
+    let trianglesWithExternal = 0;
+    let edgesWithExternal = 0;
+    for (const tri of triangleResult.triangles) {
+        if (tri.edges) {
+            for (const e of tri.edges) {
+                if (e.externalPoint) edgesWithExternal++;
+            }
+            if (tri.edges.some(e => e.externalPoint)) trianglesWithExternal++;
+        }
+    }
+    console.log(`   • В triangleResult: ${trianglesWithExternal}/${triangleResult.triangles.length} треугольников с лучами, ${edgesWithExternal} рёбер с externalPoint`);
+}
+
+// 🔥 ГРУППИРУЕМ ЯКОРЯ ПО triangleId
+const anchorsByTriangle = new Map();
+
+for (const anchor of anchorsForValidation) {
+    const triId = anchor.triangleId;
+    if (!triId) {
+        if (this.debug) console.log(`   ⚠️ Якорь без triangleId: ${anchor.pointA}`);
+        continue;
+    }
+
+    if (!anchorsByTriangle.has(triId)) {
+        anchorsByTriangle.set(triId, []);
+    }
+    anchorsByTriangle.get(triId).push(anchor);
+}
+
+console.log(`   • Найдено уникальных треугольников-якорей: ${anchorsByTriangle.size}`);
+
+// 🔥 СОЗДАЁМ МАПУ ЯКОРНЫХ ТРЕУГОЛЬНИКОВ (только те, у которых есть 3 якоря)
+const anchorTrianglesMap = new Map();      // якорные треугольники (24 шт)
+const anchorTriangleIds = new Set();       // ID якорных треугольников
+
+for (const [triId, anchors] of anchorsByTriangle) {
+    if (anchors.length !== 3) continue;
+
+    // Находим оригинальный треугольник из triangleResult
+    const originalTriangle = triangleResult.triangles?.find(t => t.id === triId);
+
+    const a1 = anchors[0];
+    const a2 = anchors[1];
+    const a3 = anchors[2];
+
+    const p1 = exactGraph.nodes.get(a1.pointA);
+    const p2 = exactGraph.nodes.get(a2.pointA);
+    const p3 = exactGraph.nodes.get(a3.pointA);
+
+    const pB1 = existingModel.graph.nodes.get(a1.pointB);
+    const pB2 = existingModel.graph.nodes.get(a2.pointB);
+    const pB3 = existingModel.graph.nodes.get(a3.pointB);
+
+    if (p1.id === p2.id || p1.id === p3.id || p2.id === p3.id) continue;
+
+    // Создаём рёбра с сохранением externalPoint
+    const edges = [];
+    if (originalTriangle && originalTriangle.edges) {
+        for (let i = 0; i < originalTriangle.edges.length; i++) {
+            const origEdge = originalTriangle.edges[i];
+            edges.push({
+                v1: [p1, p2, p3][i],
+                v2: [p1, p2, p3][(i+1) % 3],
+                neighborTriangles: [],
+                externalPoint: origEdge.externalPoint || null
+            });
+        }
+    } else {
+        edges = [
+            { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
+            { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
+            { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
+        ];
+    }
+
+    // Сохраняем якорный треугольник
+    const anchorTriangle = {
+        id: triId,
+        p1, p2, p3,
+        pB1, pB2, pB3,
+        confidence: (a1.confidence + a2.confidence + a3.confidence) / 3,
+        edges: edges
+    };
+   
+    anchorTrianglesMap.set(triId, anchorTriangle);
+    anchorTriangleIds.add(triId);
+}
+
+console.log(`   • Создано якорных треугольников: ${anchorTrianglesMap.size}`);
+
+// 🔥 СОЗДАЁМ МАПУ ТРЕУГОЛЬНИКОВ-КАНДИДАТОВ (все остальные, без якорей)
+// Это треугольники, которые НЕ входят в якорные, но могут быть присоединены геометрически
+const candidateTriangles = allGraphTriangles.filter(t => !anchorTriangleIds.has(t.id));
+console.log(`   • Треугольников-кандидатов для расширения: ${candidateTriangles.length}`);
+
+// 🔥 ПЕРЕДАЁМ В STRUCTUREBUILDER ТОЛЬКО ЯКОРНЫЕ ТРЕУГОЛЬНИКИ (24 шт)
+// Структура строится ТОЛЬКО из них, без мусора
+console.log(`\n📊 ПЕРЕДАЮ В STRUCTUREBUILDER: ${anchorTrianglesMap.size} якорных треугольников`);
+
+const structures = structureManager.buildStructures(
+    anchorsForValidation,
+    Array.from(anchorTrianglesMap.values()),  // ← только 24 якоря!
+    exactGraph,
+    existingModel.graph,
+    morphologyMap,
+    existingModel.morphologyMap
+);
+
+// ==================== ЭТАП 2: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ ====================
+if (structures.length > 0 && !this.fastMode) {
+    console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
+
+    // Берём главную структуру (самую большую)
+    const mainStructure = structures[0];
+    console.log(`   • Исходная структура: ${mainStructure.triangleIds.size} треугольников`);
+
+    // Расширяем структуру, используя ТОЛЬКО треугольники-кандидаты (без якорей)
+    let expanded = true;
+    let iteration = 0;
+    const maxIterations = 10;
+
+    while (expanded && iteration < maxIterations) {
+        expanded = false;
+        iteration++;
+
+        // Получаем граничные рёбра структуры
+        const boundaryEdges = this.getBoundaryEdgesFromStructure(mainStructure);
+        console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
+
+        for (const edge of boundaryEdges) {
+            // Ищем соседний треугольник СРЕДИ КАНДИДАТОВ (не в структуре)
+            const neighbor = this.findNeighborTriangleInGraph(
+                edge,
+                candidateTriangles,  // ← ищем только среди кандидатов!
+                mainStructure
+            );
+
+            if (neighbor) {
+                // Пытаемся добавить геометрически
+                const added = this.tryAddGeometricTriangle(
+                    neighbor, mainStructure, exactGraph, existingModel.graph,
+                    morphologyMap, existingModel.morphologyMap
+                );
+
+                if (added) {
+                    expanded = true;
+                    // 🔥 Удаляем добавленный треугольник из кандидатов
+                    const idx = candidateTriangles.findIndex(t => t.id === neighbor.id);
+                    if (idx !== -1) candidateTriangles.splice(idx, 1);
+                    console.log(`      ✅ Добавлен треугольник ${neighbor.id.substring(0,12)} (осталось кандидатов: ${candidateTriangles.length})`);
+                }
+            }
+        }
+    }
+
+    console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
+    console.log(`   • Осталось кандидатов: ${candidateTriangles.length}`);
+}   
+             
+// Сохраняем структуры в модель
+if (existingModel) {
+    existingModel.structures = structures.map(s => ({
+        id: s.id,
+        triangleIds: Array.from(s.triangleIds),
+        pointIds: Array.from(s.pointIds),
+        transform: s.transform,
+        confidence: s.calculateConfidence(),
+        rays: s.rays || [],
+        // 🔥 ДОБАВЛЯЕМ САМИ ТРЕУГОЛЬНИКИ
+        triangles: Array.from(s.triangles.values()).map(t => ({
+            id: t.id,
+            p1: t.p1,
+            p2: t.p2,
+            p3: t.p3,
+            pB1: t.pB1,
+            pB2: t.pB2,
+            pB3: t.pB3,
+            confidence: t.confidence,
+            edges: t.edges ? t.edges.map(e => ({
+                v1: e.v1,
+                v2: e.v2,
+                externalPoint: e.externalPoint
+            })) : []
+        }))
+    }));
+
+    existingModel.pointToStructure = new Map();
+    for (const structure of structures) {
+        for (const pointId of structure.pointIds) {
+            existingModel.pointToStructure.set(pointId, structure.id);
+        }
+    }
+
+    console.log(`   💾 Сохранено структур: ${structures.length}, всего лучей: ${structures.reduce((sum, s) => sum + (s.rays?.length || 0), 0)}`);
+    console.log(`   💾 Сохранено треугольников: ${structures.reduce((sum, s) => sum + s.triangles.size, 0)}`);
+}
+             
+                console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
+
+                // Анализируем отношения между структурами
+                const relations = structureManager.analyzeRelations();
+                if (relations.count > 1 && this.debug) {
+                    console.log(`\n🔍 ОБНАРУЖЕНО ${relations.count} НЕЗАВИСИМЫХ СТРУКТУР:`);
+                    relations.relations.forEach((r, i) => {
+                        console.log(`   • Структуры ${i+1}: разница масштаба ${(r.scaleDiff*100).toFixed(1)}%, поворота ${r.rotationDiff.toFixed(1)}°`);
+                    });
+                }
+
+                // Сохраняем transform'ы структур в модель
+                if (!existingModel.structures) {
+                    existingModel.structures = [];
+                }
+                for (const structure of structures) {
+                    existingModel.structures.push({
+                        id: structure.id,
+                        transform: structure.transform,
+                        points: Array.from(structure.pointIds),
+                        confidence: structure.calculateConfidence()
+                    });
+                }
+
+                // Для обратной совместимости - используем transform самой уверенной структуры
+                let primaryTransform = null;
+                if (structures.length > 0) {
+                    const best = structureManager.getBestStructure();
+                    primaryTransform = best?.transform || null;
+                    if (this.debug && structures.length > 1) {
+                        console.log(`\n🎯 Выбрана главная структура с уверенностью ${(best.calculateConfidence()*100).toFixed(1)}%`);
+                    }
+                }
+
+                // ===== ЭТАП 3: Финальная валидация =====
+                console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
+
+                let finalValidationResult = null;
+                let allValidatedPoints = [];
+                let finalTransform = null;
+
+                // Валидируем каждую структуру отдельно
+                for (const structure of structures) {
+                    if (structure.triangleIds.size === 0) continue;
+
+                    const structureAnchors = structure.getAnchors();
+                    if (structureAnchors.length === 0) continue;
+
+                    console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
+                   
+                    // 🔥 ДИАГНОСТИКА: показываем первые якоря структуры
+                    if (this.debug && structureAnchors.length > 0) {
+                        console.log(`      🔍 Первые 3 якоря структуры:`);
+                        structureAnchors.slice(0, 3).forEach((a, i) => {
+                            const pA = exactGraph.nodes.get(a.pointA);
+                            const pB = existingModel.graph.nodes.get(a.pointB);
+                            if (pA && pB) {
+                                console.log(`         ${i+1}: A(${pA.x.toFixed(1)},${pA.y.toFixed(1)}) ↔ B(${pB.x.toFixed(1)},${pB.y.toFixed(1)}) [${(a.confidence*100).toFixed(0)}%]`);
+                            } else {
+                                console.log(`         ${i+1}: точка не найдена! A=${!!pA}, B=${!!pB}`);
+                            }
+                        });
+                    }
+
+                    const validationResult = validator.validateAll(
+                        exactGraph,
+                        existingModel.graph,
+                        structureAnchors,
+                        morphologyMap,
+                        existingModel.morphologyMap
+                    );
+                   
+                    // 🔥 ДИАГНОСТИКА: результат валидации
+                    if (this.debug) {
+                        console.log(`      📊 Результат валидации: success=${validationResult.success}`);
+                        if (validationResult.results) {
+                            console.log(`         Якорей: ${validationResult.results.anchors?.length || 0}`);
+                            console.log(`         Подтверждено: ${validationResult.results.confirmed?.length || 0}`);
+                            console.log(`         Кандидатов: ${validationResult.results.candidates?.length || 0}`);
+                            console.log(`         Отвергнуто: ${validationResult.results.rejected?.length || 0}`);
+                        }
+                        if (validationResult.transform) {
+                            console.log(`         Transform: масштаб ${validationResult.transform.scale.toFixed(3)}, поворот ${(validationResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                        }
+                    }
+
+                    if (validationResult.success) {
+                        if (validationResult.results) {
+                            allValidatedPoints.push(...validationResult.results.confirmed);
+                            allValidatedPoints.push(...validationResult.results.anchors);
+                        }
+
+                        structure.transform = validationResult.transform;
+
+                        if (!finalValidationResult || (validationResult.transform &&
+                            Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
+                            finalValidationResult = validationResult;
+                            finalTransform = validationResult.transform;
+                        }
+                       
+                        if (this.debug) {
+                            console.log(`      ✅ Структура ${structure.id} успешно валидирована`);
+                        }
+                    } else {
+                        if (this.debug) {
+                            console.log(`      ⚠️ Структура ${structure.id} НЕ прошла валидацию!`);
+                            if (validationResult.error) {
+                                console.log(`         Ошибка: ${validationResult.error}`);
+                            }
+                        }
+                    }
+                }
 
                 // Если не удалось ни одной структуры - используем якоря
                 if (!finalValidationResult) {
@@ -1752,7 +2111,7 @@ if (this.debug) {
 
 // 🔥 НОВОЕ: считаем стабильность модели
 const uniquePoints = existingModel?.graph?.nodes?.size || 0;
-let confirmedPointsCount = 0;
+let confirmedPointsCount = 0;  // ← другое имя
 for (const node of existingModel.graph.nodes.values()) {
     if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
 }
@@ -1768,34 +2127,340 @@ console.log(`   • Уникальных точек: ${uniquePoints}`);
 console.log(`   • Подтверждено (2+ фото): ${confirmedPointsCount}`);
 console.log(`   • Стабильность: ${stability}%`);
 
-this.photoToModel.set(photoId, modelIdHint);
+                    this.photoToModel.set(photoId, modelIdHint);
 
-return {
-    status: 'consistent_anchors',
-    modelId: modelIdHint,
-    similarity: triangleResult?.similarity || 0,
-    centerMatches: finalMatches?.length || 0,
-    totalMatches: finalMatches?.length || 0,
-    newNodesAdded: updateResult?.newNodesAdded || 0,
-    nodesRemoved: cleanResult?.removed || 0,
-    matchMap: matchMap,
-    modelMatchMap: modelMatchMap,
-    consistency: consistent?.stats,
-    originalPhotoPoints: points,
-    transform: finalTransform,
-    structures: structures.map(s => ({
-        id: s.id,
-        triangleCount: s.triangleIds.size,
-        pointCount: s.pointIds.size,
-        confidence: s.calculateConfidence(),
-        transform: s.transform
-    })),
-    structureCount: structures.length,
-    message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
-};
+                    return {
+                        status: 'consistent_anchors',
+                        modelId: modelIdHint,
+                        similarity: triangleResult?.similarity || 0,
+                        centerMatches: finalMatches?.length || 0,
+                        totalMatches: finalMatches?.length || 0,
+                        newNodesAdded: updateResult?.newNodesAdded || 0,
+                        nodesRemoved: cleanResult?.removed || 0,
+                        matchMap: matchMap,
+                        modelMatchMap: modelMatchMap,
+                        consistency: consistent?.stats,
+                        originalPhotoPoints: points,
+                        transform: finalTransform,
+                        structures: structures.map(s => ({
+                            id: s.id,
+                            triangleCount: s.triangleIds.size,
+                            pointCount: s.pointIds.size,
+                            confidence: s.calculateConfidence(),
+                            transform: s.transform
+                        })),
+                        structureCount: structures.length,
+                        message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
+                    };
+                } else {
+                    console.log(`\n⚠️ Финальная валидация не удалась`);
+                    return {
+                        status: 'validation_failed',
+                        modelId: modelIdHint,
+                        similarity: triangleResult?.similarity || 0,
+                        message: 'Финальная валидация не удалась'
+                    };
+                }
+            } else {
+                if (this.debug) console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
+            }
+        } else {
+            if (this.debug) {
+                console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
+                console.log(`   modelIdHint: ${modelIdHint}`);
+                console.log(`   models.has: ${this.models.has(modelIdHint)}`);
+            }
+        }
+
+        // Если это первое фото вообще - создаём первую модель
+        if (this.models.size === 0) {
+            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
+            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
+    ...options,
+    outlineContour: outlineContour  // 🔥 ПЕРЕДАЁМ КОНТУР
+});
+            this.photoToModel.set(photoId, result.modelId);
+            return {
+                ...result,
+                isFirstModel: true,
+                totalModels: this.models.size
+            };
+        }
+
+        // Если быстрый путь не сработал - идем по стандартному пути
+        if (this.debug) console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
+
+        // Сравниваем со ВСЕМИ существующими моделями
+        if (this.debug) console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
+
+        const comparisons = [];
+
+        for (const [modelId, model] of this.models) {
+            if (this.debug) console.log(`   Проверяю модель ${modelId.slice(0, 12)}...`);
+
+            const comparison = this.fingerprinter.compareGraphs(
+                model.knnGraph,
+                model.knnFingerprints,
+                knnGraph,
+                knnFingerprints
+            );
+
+            comparisons.push({
+                modelId,
+                similarity: comparison.similarity,
+                exactMatches: comparison.exactMatches.length,
+                similarMatches: comparison.similarMatches.length,
+                model
+            });
+        }
+
+        comparisons.sort((a, b) => b.similarity - a.similarity);
+        const bestMatch = comparisons[0];
+
+        if (this.debug) {
+            console.log(`\n📊 Лучшее совпадение:`);
+            console.log(`   Модель: ${bestMatch.modelId.slice(0, 12)}...`);
+            console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
+        }
+
+        // Если сходство выше порога - улучшаем существующую модель
+        if (bestMatch.similarity >= this.similarityThreshold) {
+            console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
+
+            this.switchToModel(bestMatch.modelId);
+
+            if (!this.fastMode) {
+                const enhancedResult = await this.enhanceExistingModel(
+                    bestMatch.modelId,
+                    exactGraph,
+                    knnGraph,
+                    knnFingerprints,
+                    morphologyMap,
+                    options
+                );
+
+                this.photoToModel.set(photoId, bestMatch.modelId);
+
+                return {
+                    status: 'enhanced',
+                    modelId: bestMatch.modelId,
+                    similarity: bestMatch.similarity,
+                    ...enhancedResult,
+                    totalModels: this.models.size,
+                    matchedModel: bestMatch.modelId
+                };
+            } else {
+                this.photoToModel.set(photoId, bestMatch.modelId);
+
+                return {
+                    status: 'matched_fast',
+                    modelId: bestMatch.modelId,
+                    similarity: bestMatch.similarity,
+                    exactMatches: bestMatch.exactMatches,
+                    similarMatches: bestMatch.similarMatches,
+                    totalModels: this.models.size,
+                    matchedModel: bestMatch.modelId,
+                    message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
+                };
+            }
+        }
+        // Если сходство ниже порога - создаём НОВУЮ модель
+        else {
+            console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
+            console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
+
+            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
+                ...options,
+                comparedWith: bestMatch.modelId,
+                reason: 'different_footprint'
+            });
+
+            this.modelRelations.set(result.modelId, {
+                related: [bestMatch.modelId],
+                type: 'different',
+                similarity: bestMatch.similarity
+            });
+
+            const existingRel = this.modelRelations.get(bestMatch.modelId);
+            this.modelRelations.set(bestMatch.modelId, {
+                related: [...(existingRel?.related || []), result.modelId],
+                type: 'different',
+                similarity: bestMatch.similarity
+            });
+
+            this.photoToModel.set(photoId, result.modelId);
+            this.stats.differentFootprintsDetected++;
+
+              if (this.models.has(modelIdHint)) {
+    const model = this.models.get(modelIdHint);
+    if (outlineContour && !model.metadata.outlineContour) {
+        // Сохраняем только если ещё нет (или обновляем)
+        model.metadata.outlineContour = outlineContour;
+        console.log(`💾 Контур следа сохранён в модель ${modelIdHint.substring(0,12)}`);
+        console.log(`   точек в контуре: ${outlineContour.points.length}`);
+    } else if (outlineContour && model.metadata.outlineContour) {
+        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
+    } else if (!outlineContour) {
+        console.log(`⚠️ Нет контура для сохранения`);
+    }
 }
-                 
 
+    // В возвращаемом результате также передаём контур
+    return {
+                status: 'created_new',
+                modelId: result.modelId,
+                similarity: bestMatch.similarity,
+                comparedWith: bestMatch.modelId,
+                totalModels: this.models.size,
+     outlineContour: outlineContour,
+                isDifferentFootprint: true,
+                message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
+            };
+        }
+    }
+
+    // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
+
+    async compareByTriangleMatching(model1, model2, options = {}) {
+        const startTime = Date.now();
+        if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
+
+        // Извлекаем точки из моделей
+        const points1 = this.extractPointsFromModel(model1);
+        const points2 = this.extractPointsFromModel(model2);
+
+        if (this.debug) console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
+
+        // Создаем треугольный матчер
+        const triangleMatcher = new TriangleMatcher({
+            debug: false,  // ← уже выключено
+            compactnessThreshold: 0.4,
+            eccentricityThreshold: 0.2,
+            areaThreshold: 0.5,
+            ratioThreshold: 0.25
+        });
+
+        // 🔥 ЗАЩИТА: проверяем, что точки не пустые
+        if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
+            if (this.debug) console.log(`❌ Нет точек для сопоставления`);
+            return {
+                success: false,
+                matches: [],
+                count: 0,
+                sufficient: false,
+                similarity: 0,
+                time: Date.now() - startTime,
+                ambiguous: [],
+                noMatchA: points1?.map(p => p.id) || [],
+                noMatchB: points2?.map(p => p.id) || [],
+                stats: {}
+            };
+        }
+
+        // Запускаем треугольный поиск
+        if (this.debug) console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
+        let result;
+        try {
+            result = triangleMatcher.findMatches(
+                points1,
+                points2,
+                model1.graph,
+                model2.graph
+            );
+        } catch (error) {
+            if (this.debug) {
+                console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
+                console.log(error.stack);
+            }
+            return {
+                success: false,
+                matches: [],
+                count: 0,
+                sufficient: false,
+                similarity: 0,
+                time: Date.now() - startTime,
+                ambiguous: [],
+                noMatchA: points1.map(p => p.id),
+                noMatchB: points2.map(p => p.id),
+                stats: {}
+            };
+        }
+
+        if (!result) {
+            if (this.debug) console.log(`❌ triangleMatcher.findMatches вернул null/undefined`);
+            return {
+                success: false,
+                matches: [],
+                count: 0,
+                sufficient: false,
+                similarity: 0,
+                time: Date.now() - startTime,
+                ambiguous: [],
+                noMatchA: points1.map(p => p.id),
+                noMatchB: points2.map(p => p.id),
+                stats: {}
+            };
+        }
+
+        if (!result.matches) {
+            if (this.debug) {
+                console.log(`❌ result.matches = undefined`);
+                console.log(`   result =`, result);
+                console.log(`   keys =`, Object.keys(result));
+            }
+            return {
+                success: false,
+                matches: [],
+                count: 0,
+                sufficient: false,
+                similarity: 0,
+                time: Date.now() - startTime,
+                ambiguous: [],
+                noMatchA: points1.map(p => p.id),
+                noMatchB: points2.map(p => p.id),
+                stats: result.stats || {}
+            };
+        }
+
+        if (this.debug) console.log(`✅ triangleMatcher.findMatches выполнен, matches: ${result.matches.length}`);
+
+        // Находим точки без пары
+        const matchedPointA = new Set(result.matches.map(m => m.pointA));
+        const matchedPointB = new Set(result.matches.map(m => m.pointB));
+
+        const noMatchA = points1
+            .filter(p => !matchedPointA.has(p.id))
+            .map(p => p.id);
+
+        const noMatchB = points2
+            .filter(p => !matchedPointB.has(p.id))
+            .map(p => p.id);
+
+const finalResult = {
+    success: true,
+    matches: result.matches,
+    triangles: result.triangles,  // 🔥 ПЕРЕДАЁМ ДАЛЬШЕ
+    count: result.matches.length,
+    sufficient: result.matches.length >= 12,
+    similarity: result.matches.length / Math.min(points1.length, points2.length),
+    time: Date.now() - startTime,
+    ambiguous: [],
+    noMatchA,
+    noMatchB,
+    stats: result.stats
+};
+
+        if (this.debug) {
+            console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
+            console.log(`   • Найдено соответствий: ${finalResult.count}`);
+            console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
+            console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
+            console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
+            console.log(`   • Время: ${finalResult.time}ms`);
+        }
+
+        return finalResult;
+    }
 
     // ==================== ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ ====================
 
@@ -3889,152 +4554,7 @@ getNodeRoleSimple(nodeId, graph) {
  areConnected(aId, bId, graph) {
     return GraphUtils.areConnected(aId, bId, graph);
 }
-
-
-// ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
-
-    async compareByTriangleMatching(model1, model2, options = {}) {
-        const startTime = Date.now();
-        if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
-
-        // Извлекаем точки из моделей
-        const points1 = this.extractPointsFromModel(model1);
-        const points2 = this.extractPointsFromModel(model2);
-
-        if (this.debug) console.log(`📊 Точек: ${points1.length} ↔ ${points2.length}`);
-
-        // Создаем треугольный матчер
-        const triangleMatcher = new TriangleMatcher({
-            debug: false,  // ← уже выключено
-            compactnessThreshold: 0.4,
-            eccentricityThreshold: 0.2,
-            areaThreshold: 0.5,
-            ratioThreshold: 0.25
-        });
-
-        // 🔥 ЗАЩИТА: проверяем, что точки не пустые
-        if (!points1 || !points2 || points1.length === 0 || points2.length === 0) {
-            if (this.debug) console.log(`❌ Нет точек для сопоставления`);
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1?.map(p => p.id) || [],
-                noMatchB: points2?.map(p => p.id) || [],
-                stats: {}
-            };
-        }
-
-        // Запускаем треугольный поиск
-        if (this.debug) console.log(`🔍 Запуск TriangleMatcher.findMatches...`);
-        let result;
-        try {
-            result = triangleMatcher.findMatches(
-                points1,
-                points2,
-                model1.graph,
-                model2.graph
-            );
-        } catch (error) {
-            if (this.debug) {
-                console.log(`❌ Ошибка в triangleMatcher.findMatches:`, error.message);
-                console.log(error.stack);
-            }
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: {}
-            };
-        }
-
-        if (!result) {
-            if (this.debug) console.log(`❌ triangleMatcher.findMatches вернул null/undefined`);
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: {}
-            };
-        }
-
-        if (!result.matches) {
-            if (this.debug) {
-                console.log(`❌ result.matches = undefined`);
-                console.log(`   result =`, result);
-                console.log(`   keys =`, Object.keys(result));
-            }
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime,
-                ambiguous: [],
-                noMatchA: points1.map(p => p.id),
-                noMatchB: points2.map(p => p.id),
-                stats: result.stats || {}
-            };
-        }
-
-        if (this.debug) console.log(`✅ triangleMatcher.findMatches выполнен, matches: ${result.matches.length}`);
-
-        // Находим точки без пары
-        const matchedPointA = new Set(result.matches.map(m => m.pointA));
-        const matchedPointB = new Set(result.matches.map(m => m.pointB));
-
-        const noMatchA = points1
-            .filter(p => !matchedPointA.has(p.id))
-            .map(p => p.id);
-
-        const noMatchB = points2
-            .filter(p => !matchedPointB.has(p.id))
-            .map(p => p.id);
-
-const finalResult = {
-    success: true,
-    matches: result.matches,
-    triangles: result.triangles,  // 🔥 ПЕРЕДАЁМ ДАЛЬШЕ
-    count: result.matches.length,
-    sufficient: result.matches.length >= 12,
-    similarity: result.matches.length / Math.min(points1.length, points2.length),
-    time: Date.now() - startTime,
-    ambiguous: [],
-    noMatchA,
-    noMatchB,
-    stats: result.stats
-};
-
-        if (this.debug) {
-            console.log(`\n📊 РЕЗУЛЬТАТ ТРЕУГОЛЬНОГО СОПОСТАВЛЕНИЯ:`);
-            console.log(`   • Найдено соответствий: ${finalResult.count}`);
-            console.log(`   • Новых в А: ${finalResult.noMatchA.length}`);
-            console.log(`   • Новых в Б: ${finalResult.noMatchB.length}`);
-            console.log(`   • Достаточно для якорей: ${finalResult.sufficient ? '✅' : '❌'}`);
-            console.log(`   • Время: ${finalResult.time}ms`);
-        }
-
-        return finalResult;
-    }     
-
-     
+ 
     clear() {
         this.models.clear();
         this.currentModelId = null;
@@ -4061,7 +4581,6 @@ const finalResult = {
 
         console.log('🧹 Аккумулятор очищен');
     }
-    
 }
 
 module.exports = TopologicalAccumulator;
