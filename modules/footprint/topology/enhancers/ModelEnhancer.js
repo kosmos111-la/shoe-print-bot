@@ -335,7 +335,240 @@ _magneticPull(matches, photoGraph, modelGraph, transform, threshold = 10) {
 
     return { pulledMatches, pulledCount };
 }
-  
+
+ /**
+* Глобальная проверка согласованности всех найденных якорей
+* @param {Array} anchors - массив якорей (треугольников)
+* @param {Array} trianglesA - все треугольники из первого следа
+* @param {Array} trianglesB - все треугольники из второго следа
+* @param {Object} graphA - граф первого следа
+* @param {Object} graphB - граф второго следа
+* @returns {Object} - согласованные якоря и статистика
+*/
+checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
+    if (this.debug) {
+        console.log(`\n🔍 ГЛОБАЛЬНАЯ ПРОВЕРКА СОГЛАСОВАННОСТИ`);
+        console.log(`   • Всего кандидатов: ${anchors.length} треугольников (${anchors.length * 3} точек)`);
+    }
+
+    // ===== ШАГ 1: Собираем все уникальные соответствия точек =====
+    const pointPairs = new Map();
+    const reversePairs = new Map();
+    let skippedAnchors = 0;
+
+    for (const anchor of anchors) {
+        if (anchor.aIndex === -1 || anchor.bIndex === -1) {
+            for (const point of anchor.points) {
+                const pA = point.pointA;
+                const pB = point.pointB;
+
+                if (pointPairs.has(pA)) {
+                    if (pointPairs.get(pA).pointB !== pB) {
+                        if (this.debug) console.log(`   ⚠️ Конфликт точки ${pA.substring(0,12)}`);
+                    }
+                    continue;
+                }
+
+                if (reversePairs.has(pB)) {
+                    if (this.debug) console.log(`   ⚠️ Конфликт точки ${pB.substring(0,12)}`);
+                    continue;
+                }
+
+                pointPairs.set(pA, {
+                    pointB: pB,
+                    confidence: point.confidence || anchor.geometryScore
+                });
+                reversePairs.set(pB, pA);
+            }
+        } else {
+            if (anchor.aIndex >= trianglesA.length || anchor.bIndex >= trianglesB.length) {
+                skippedAnchors++;
+                continue;
+            }
+
+            const tA = trianglesA[anchor.aIndex];
+            const tB = trianglesB[anchor.bIndex];
+
+            if (!tA || !tB) {
+                skippedAnchors++;
+                continue;
+            }
+
+            const pointsA = [tA.p1.id, tA.p2.id, tA.p3.id];
+            const pointsB = [tB.p1.id, tB.p2.id, tB.p3.id];
+
+            for (let i = 0; i < 3; i++) {
+                const pA = pointsA[i];
+                const pB = pointsB[i];
+
+                if (pointPairs.has(pA)) {
+                    if (pointPairs.get(pA).pointB !== pB) {
+                        if (this.debug) console.log(`   ⚠️ Конфликт точки ${pA.substring(0,12)}`);
+                    }
+                    continue;
+                }
+
+                if (reversePairs.has(pB)) {
+                    if (this.debug) console.log(`   ⚠️ Конфликт точки ${pB.substring(0,12)}`);
+                    continue;
+                }
+
+                pointPairs.set(pA, {
+                    pointB: pB,
+                    confidence: anchor.geometryScore
+                });
+                reversePairs.set(pB, pA);
+            }
+        }
+    }
+
+    if (this.debug) {
+        console.log(`\n📊 УНИКАЛЬНЫХ СООТВЕТСТВИЙ ТОЧЕК: ${pointPairs.size}`);
+        if (skippedAnchors > 0) {
+            console.log(`   • Пропущено якорей: ${skippedAnchors}`);
+        }
+    }
+
+    // ===== ШАГ 2: Анализируем распределение уверенностей =====
+    const confidences = Array.from(pointPairs.values()).map(p => p.confidence);
+    if (confidences.length === 0) {
+        if (this.debug) console.log(`\n⚠️ Нет соответствий для анализа`);
+        return {
+            anchors: [],
+            points: [],
+            stats: {
+                original: anchors.length,
+                final: 0,
+                originalPoints: 0,
+                finalPoints: 0,
+                inconsistent: 0,
+                lowConfidence: 0
+            }
+        };
+    }
+
+    confidences.sort((a, b) => b - a);
+
+    if (this.debug) {
+        console.log(`\n📈 РАСПРЕДЕЛЕНИЕ УВЕРЕННОСТЕЙ:`);
+        console.log(`   • Максимальная: ${(confidences[0]*100).toFixed(1)}%`);
+        console.log(`   • Минимальная: ${(confidences[confidences.length-1]*100).toFixed(1)}%`);
+        console.log(`   • Медианная: ${(confidences[Math.floor(confidences.length/2)]*100).toFixed(1)}%`);
+    }
+
+    let threshold = 0.90;
+    for (let i = 1; i < confidences.length; i++) {
+        if (confidences[i-1] - confidences[i] > 0.05) {
+            threshold = confidences[i-1] - 0.01;
+            if (this.debug) console.log(`   • Естественный разрыв на ${(threshold*100).toFixed(1)}%`);
+            break;
+        }
+    }
+
+    // ===== ШАГ 3: ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА =====
+    if (this.debug) console.log(`\n🔍 ТОПОЛОГИЧЕСКАЯ ПРОВЕРКА:`);
+
+    const consistentPoints = new Set();
+    const inconsistentPoints = new Set();
+
+    const pointMap = new Map();
+    for (const [pA, data] of pointPairs) {
+        pointMap.set(pA, data.pointB);
+    }
+
+    for (const [pA, data] of pointPairs) {
+        const pB = data.pointB;
+
+        const neighborsA = GraphUtils.findNodeNeighbors(pA, graphA);
+        const neighborAnchorsA = neighborsA.filter(n => pointMap.has(n.id)).map(n => n.id);
+
+        const neighborsB = GraphUtils.findNodeNeighbors(pB, graphB);
+        const neighborAnchorsB = neighborsB.filter(n => reversePairs.has(n.id)).map(n => n.id);
+
+        if (neighborAnchorsA.length !== neighborAnchorsB.length) {
+            if (this.debug) console.log(`   ⚠️ Точка ${pA.substring(0,12)}: соседей-якорей ${neighborAnchorsA.length} vs ${neighborAnchorsB.length}`);
+            inconsistentPoints.add(pA);
+            continue;
+        }
+
+        let allMatch = true;
+        for (const nA of neighborAnchorsA) {
+            const nB = pointMap.get(nA);
+            if (!neighborsB.some(n => n.id === nB)) {
+                allMatch = false;
+                break;
+            }
+        }
+
+        if (allMatch) {
+            consistentPoints.add(pA);
+            if (this.debug && consistentPoints.size <= 5) {
+                console.log(`   ✅ Точка ${pA.substring(0,12)}: топология согласована`);
+            }
+        } else {
+            if (this.debug) console.log(`   ⚠️ Точка ${pA.substring(0,12)}: несоответствие соседей`);
+            inconsistentPoints.add(pA);
+        }
+    }
+
+    // ===== ШАГ 4: ФИЛЬТРАЦИЯ ПО УВЕРЕННОСТИ =====
+    if (this.debug) console.log(`\n🔍 ФИЛЬТРАЦИЯ ПО УВЕРЕННОСТИ (порог ${(threshold*100).toFixed(1)}%):`);
+
+    const highConfidencePoints = [];
+    const lowConfidencePoints = [];
+
+    for (const [pA, data] of pointPairs) {
+        if (data.confidence >= threshold) {
+            highConfidencePoints.push(pA);
+        } else {
+            lowConfidencePoints.push(pA);
+        }
+    }
+
+    if (this.debug) {
+        console.log(`   • Высокая уверенность: ${highConfidencePoints.length} точек`);
+        console.log(`   • Низкая уверенность: ${lowConfidencePoints.length} точек`);
+    }
+
+    // ===== ШАГ 5: ФИНАЛЬНЫЙ ОТБОР =====
+    if (this.debug) console.log(`\n🎯 ФИНАЛЬНЫЙ ОТБОР СОГЛАСОВАННЫХ ТОЧЕК:`);
+
+    const finalPoints = [];
+    for (const pA of consistentPoints) {
+        if (pointPairs.get(pA).confidence >= threshold) {
+            finalPoints.push({
+                pointA: pA,
+                pointB: pointPairs.get(pA).pointB,
+                confidence: pointPairs.get(pA).confidence
+            });
+        }
+    }
+
+    if (this.debug) {
+        console.log(`   • Прошли все проверки: ${finalPoints.length} точек`);
+        console.log(`   • Отсеяно топологией: ${inconsistentPoints.size} точек`);
+        console.log(`   • Отсеяно по уверенности: ${lowConfidencePoints.length} точек`);
+    }
+
+    if (this.debug) {
+        console.log(`\n📊 ИТОГ ГЛОБАЛЬНОЙ ПРОВЕРКИ:`);
+        console.log(`   • Исходных якорей (треугольников): ${anchors.length}`);
+        console.log(`   • Согласованных точек: ${finalPoints.length}`);
+    }
+
+    return {
+        anchors: [],
+        points: finalPoints,
+        stats: {
+            original: anchors.length,
+            final: 0,
+            originalPoints: pointPairs.size,
+            finalPoints: finalPoints.length,
+            inconsistent: inconsistentPoints.size,
+            lowConfidence: lowConfidencePoints.length
+        }
+    };
+} 
   
 }
 module.exports = ModelEnhancer;
