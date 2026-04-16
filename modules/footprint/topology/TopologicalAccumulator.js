@@ -17,6 +17,7 @@ const AffineRefiner = require('./AffineRefiner');
 const GeometryUtils = require('./utils/GeometryUtils');
 const GraphUtils = require('./utils/GraphUtils');
 const RoleClassifier = require('./utils/RoleClassifier');
+const ModelEnhancer = require('./enhancers/ModelEnhancer');
 
 class TopologicalAccumulator {
     constructor(options = {}) {
@@ -3953,67 +3954,14 @@ generateStructureColors(structures) {
     * @param {Object} graph - граф с nodes и edges
     * @returns {Array} - массив треугольников {p1, p2, p3}
     */
-    extractTrianglesFromGraph(graph) {
-    // 🔥 Используем GraphUtils для подсчета треугольников
-    // (логика остается, но теперь может использовать GraphUtils.countTriangles)
-    const triangles = [];
-    const nodeIds = Array.from(graph.nodes.keys());
-    const edges = graph.edges;
-
-    for (let i = 0; i < nodeIds.length; i++) {
-        for (let j = i + 1; j < nodeIds.length; j++) {
-            for (let k = j + 1; k < nodeIds.length; k++) {
-                const a = nodeIds[i];
-                const b = nodeIds[j];
-                const c = nodeIds[k];
-
-                if (edges.has([a, b].sort().join('--')) &&
-                    edges.has([b, c].sort().join('--')) &&
-                    edges.has([c, a].sort().join('--'))) {
-
-                    const p1 = graph.nodes.get(a);
-                    const p2 = graph.nodes.get(b);
-                    const p3 = graph.nodes.get(c);
-
-                    // 🔥 ДИАГНОСТИКА
-                    if (!p1 || !p2 || !p3) {
-                        if (this.debug) console.log(`⚠️ Треугольник ${a},${b},${c}: одна из точек не найдена`);
-                        continue;
-                    }
-                   
-                    if (typeof p1.x !== 'number' || typeof p2.x !== 'number' || typeof p3.x !== 'number') {
-                        if (this.debug) {
-                            console.log(`⚠️ Треугольник ${a},${b},${c}: координаты не числа`);
-                            console.log(`   p1: ${p1?.x},${p1?.y}`);
-                            console.log(`   p2: ${p2?.x},${p2?.y}`);
-                            console.log(`   p3: ${p3?.x},${p3?.y}`);
-                        }
-                        continue;
-                    }
-
-                    const triangleEdges = [
-                        { v1: p1, v2: p2, externalPoint: null, neighborTriangles: [] },
-                        { v1: p2, v2: p3, externalPoint: null, neighborTriangles: [] },
-                        { v1: p3, v2: p1, externalPoint: null, neighborTriangles: [] }
-                    ];
-
-                    triangles.push({
-                        p1, p2, p3,
-                        edges: triangleEdges,
-                        id: `tri_${a}_${b}_${c}`,
-                        confidence: 0.5
-                    });
-                }
-            }
-        }
-    }
-   
-    if (this.debug) {
-        console.log(`📊 extractTrianglesFromGraph: найдено ${triangles.length} треугольников`);
-    }
-   
-    return triangles;
-}
+extractTrianglesFromGraph(graph) {
+        // Временно делегируем в ModelEnhancer (после импорта)
+        if (!this.modelEnhancer) {
+            const ModelEnhancer = require('./enhancers/ModelEnhancer');
+            this.modelEnhancer = new ModelEnhancer({ debug: this.debug });
+        }
+        return this.modelEnhancer.extractTrianglesFromGraph(graph);
+    }
 
 /**
 * Получает граничные рёбра структуры
