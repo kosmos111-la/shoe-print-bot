@@ -1,3 +1,4 @@
+// modules/footprint/topology/enhancers/ModelEnhancer.js
 // 🚀 УЛУЧШАТЕЛЬ МОДЕЛИ - ПОШАГОВЫЙ РЕФАКТОРИНГ
 
 const GeometryUtils = require('../utils/GeometryUtils');
