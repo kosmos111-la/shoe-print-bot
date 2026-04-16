@@ -950,6 +950,134 @@ _getModelPointFromStructure(pointId, structure) {
     }
     return null;
 }
+
+/**
+* Главный метод — улучшить существующую модель новым фото
+* @param {Object} existingModel - существующая модель
+* @param {Object} newExactGraph - граф нового фото
+* @param {Map} newMorphology - морфология нового фото
+* @param {Array} originalPoints - исходные точки фото
+* @param {Object} options - дополнительные опции
+* @returns {Object} - результат улучшения
+*/
+async enhance(existingModel, newExactGraph, newMorphology, originalPoints, options = {}) {
+    const { photoId, contours, triangleResult: externalTriangleResult, fastMode = false } = options;
+   
+    console.log(`\n🚀 ModelEnhancer: улучшение модели ${existingModel.id?.substring(0,12)}...`);
+
+    // ===== ШАГ 1: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ =====
+    let triangleResult = externalTriangleResult;
+    if (!triangleResult) {
+        triangleResult = await this._compareByTriangles(existingModel, newExactGraph);
+    }
+
+    if (!triangleResult || triangleResult.count < 1) {
+        console.log(`⚠️ Недостаточно треугольных соответствий (${triangleResult?.count || 0})`);
+        return { success: false, reason: 'insufficient_triangles', similarity: triangleResult?.similarity || 0 };
+    }
+
+    console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
+
+    // ===== ШАГ 2: СОЗДАНИЕ ЯКОРЕЙ =====
+    const anchors = this._createAnchorsFromTriangles(triangleResult, newExactGraph, existingModel.graph);
+
+    // ===== ШАГ 3: ГЛОБАЛЬНАЯ ПРОВЕРКА =====
+    const trianglesA = this._extractTrianglesFromGraph(newExactGraph);
+    const trianglesB = this._extractTrianglesFromGraph(existingModel.graph);
+
+    const consistent = this.checkGlobalConsistency(
+        anchors, trianglesA, trianglesB,
+        newExactGraph, existingModel.graph
+    );
+
+    // ===== ШАГ 4: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
+    const finalMatches = this.twoStagePositioning(
+        consistent.points,
+        triangleResult.matches,
+        newExactGraph,
+        existingModel.graph,
+        newMorphology,
+        existingModel.morphologyMap
+    );
+
+    // ===== ШАГ 5: ВАЛИДАЦИЯ =====
+    const validationResult = await this._validateMatches(
+        finalMatches, newExactGraph, existingModel.graph,
+        newMorphology, existingModel.morphologyMap
+    );
+
+    if (!validationResult.success) {
+        console.log(`⚠️ Валидация не удалась: ${validationResult.reason}`);
+        return { success: false, reason: 'validation_failed', similarity: triangleResult.similarity };
+    }
+
+    // ===== ШАГ 6: ПРИТЯГИВАНИЕ ТОЧЕК =====
+    const { pulledMatches, pulledCount } = this._magneticPull(
+        finalMatches, newExactGraph, existingModel.graph,
+        validationResult.transform, this.softThreshold
+    );
+    this.stats.magneticPulls += pulledCount;
+
+    // ===== ШАГ 7: ПОИСК НОВЫХ ПАР =====
+    const newPairs = await this._findNewPairs(
+        pulledMatches, newExactGraph, existingModel.graph,
+        validationResult.transform, newMorphology, existingModel.morphologyMap
+    );
+
+    const allMatches = [...pulledMatches, ...newPairs];
+
+    // ===== ШАГ 8: ИТЕРАТИВНОЕ УТОЧНЕНИЕ =====
+    const refinedResult = await this._iterativeRefinement(
+        allMatches, newExactGraph, existingModel.graph,
+        newMorphology, existingModel.morphologyMap,
+        validationResult.transform
+    );
+
+    // ===== ШАГ 9: ПОСТРОЕНИЕ СТРУКТУР =====
+    let structures = [];
+    if (!fastMode) {
+        structures = await this._buildAndExpandStructures(
+            refinedResult.anchors, newExactGraph, existingModel.graph,
+            newMorphology, existingModel.morphologyMap, triangleResult
+        );
+        this.stats.geometricExpansions += structures.length;
+    }
+
+    // ===== ШАГ 10: ОБНОВЛЕНИЕ МОДЕЛИ =====
+    const updateResult = this._updateModel(
+        existingModel, newExactGraph, refinedResult.matches, newMorphology
+    );
+
+    // ===== ШАГ 11: СЛИЯНИЕ ДУБЛИКАТОВ =====
+    const mergedCount = this._mergeDuplicatePoints(existingModel.graph, 5);
+    this.stats.mergedPoints += mergedCount;
+
+    // ===== ШАГ 12: СОХРАНЕНИЕ РЕЗУЛЬТАТОВ =====
+    if (structures.length > 0) {
+        existingModel.structures = structures;
+        existingModel.pointToStructure = this._buildPointToStructureMap(structures);
+    }
+    existingModel.transform = refinedResult.transform;
+
+    this.stats.enhancements++;
+    this.stats.validatedPoints += refinedResult.matches.length;
+
+    console.log(`\n✅ ModelEnhancer: улучшение завершено`);
+    console.log(`   • Подтверждено точек: ${refinedResult.matches.length}`);
+    console.log(`   • Добавлено новых: ${updateResult.newNodesAdded}`);
+    console.log(`   • Слито дубликатов: ${mergedCount}`);
+
+    return {
+        success: true,
+        matches: refinedResult.matches,
+        transform: refinedResult.transform,
+        anchors: refinedResult.anchors,
+        structures: structures,
+        newNodesAdded: updateResult.newNodesAdded,
+        similarity: triangleResult.similarity,
+        stats: this.stats
+    };
+}
  
 }
 module.exports = ModelEnhancer;
