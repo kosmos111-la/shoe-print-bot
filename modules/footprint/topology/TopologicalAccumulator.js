@@ -1752,7 +1752,7 @@ if (this.debug) {
 
 // 🔥 НОВОЕ: считаем стабильность модели
 const uniquePoints = existingModel?.graph?.nodes?.size || 0;
-let confirmedPointsCount = 0;  // ← другое имя
+let confirmedPointsCount = 0;
 for (const node of existingModel.graph.nodes.values()) {
     if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
 }
@@ -1768,199 +1768,33 @@ console.log(`   • Уникальных точек: ${uniquePoints}`);
 console.log(`   • Подтверждено (2+ фото): ${confirmedPointsCount}`);
 console.log(`   • Стабильность: ${stability}%`);
 
-                    this.photoToModel.set(photoId, modelIdHint);
+this.photoToModel.set(photoId, modelIdHint);
 
-                    return {
-                        status: 'consistent_anchors',
-                        modelId: modelIdHint,
-                        similarity: triangleResult?.similarity || 0,
-                        centerMatches: finalMatches?.length || 0,
-                        totalMatches: finalMatches?.length || 0,
-                        newNodesAdded: updateResult?.newNodesAdded || 0,
-                        nodesRemoved: cleanResult?.removed || 0,
-                        matchMap: matchMap,
-                        modelMatchMap: modelMatchMap,
-                        consistency: consistent?.stats,
-                        originalPhotoPoints: points,
-                        transform: finalTransform,
-                        structures: structures.map(s => ({
-                            id: s.id,
-                            triangleCount: s.triangleIds.size,
-                            pointCount: s.pointIds.size,
-                            confidence: s.calculateConfidence(),
-                            transform: s.transform
-                        })),
-                        structureCount: structures.length,
-                        message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
-                    };
-                } else {
-                    console.log(`\n⚠️ Финальная валидация не удалась`);
-                    return {
-                        status: 'validation_failed',
-                        modelId: modelIdHint,
-                        similarity: triangleResult?.similarity || 0,
-                        message: 'Финальная валидация не удалась'
-                    };
-                }
-            } else {
-                if (this.debug) console.log(`\n⚠️ Треугольное сравнение дало только ${triangleResult.count} пар - пропускаем`);
-            }
-        } else {
-            if (this.debug) {
-                console.log(`\n❌ МОДЕЛЬ НЕ НАЙДЕНА, создаю новую...`);
-                console.log(`   modelIdHint: ${modelIdHint}`);
-                console.log(`   models.has: ${this.models.has(modelIdHint)}`);
-            }
-        }
+return {
+    status: 'consistent_anchors',
+    modelId: modelIdHint,
+    similarity: triangleResult?.similarity || 0,
+    centerMatches: finalMatches?.length || 0,
+    totalMatches: finalMatches?.length || 0,
+    newNodesAdded: updateResult?.newNodesAdded || 0,
+    nodesRemoved: cleanResult?.removed || 0,
+    matchMap: matchMap,
+    modelMatchMap: modelMatchMap,
+    consistency: consistent?.stats,
+    originalPhotoPoints: points,
+    transform: finalTransform,
+    structures: structures.map(s => ({
+        id: s.id,
+        triangleCount: s.triangleIds.size,
+        pointCount: s.pointIds.size,
+        confidence: s.calculateConfidence(),
+        transform: s.transform
+    })),
+    structureCount: structures.length,
+    message: `Построено ${structures.length} структур, согласовано: ${finalValidatedMatches.length} точек`
+};
 
-        // Если это первое фото вообще - создаём первую модель
-        if (this.models.size === 0) {
-            console.log(`🆕 Первое фото в сессии, создаю первую модель`);
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-    ...options,
-    outlineContour: outlineContour  // 🔥 ПЕРЕДАЁМ КОНТУР
-});
-            this.photoToModel.set(photoId, result.modelId);
-            return {
-                ...result,
-                isFirstModel: true,
-                totalModels: this.models.size
-            };
-        }
-
-        // Если быстрый путь не сработал - идем по стандартному пути
-        if (this.debug) console.log(`\n🔍 Быстрый путь не сработал, запускаю полный анализ...`);
-
-        // Сравниваем со ВСЕМИ существующими моделями
-        if (this.debug) console.log(`\n🔍 Сравниваю с ${this.models.size} существующими моделями...`);
-
-        const comparisons = [];
-
-        for (const [modelId, model] of this.models) {
-            if (this.debug) console.log(`   Проверяю модель ${modelId.slice(0, 12)}...`);
-
-            const comparison = this.fingerprinter.compareGraphs(
-                model.knnGraph,
-                model.knnFingerprints,
-                knnGraph,
-                knnFingerprints
-            );
-
-            comparisons.push({
-                modelId,
-                similarity: comparison.similarity,
-                exactMatches: comparison.exactMatches.length,
-                similarMatches: comparison.similarMatches.length,
-                model
-            });
-        }
-
-        comparisons.sort((a, b) => b.similarity - a.similarity);
-        const bestMatch = comparisons[0];
-
-        if (this.debug) {
-            console.log(`\n📊 Лучшее совпадение:`);
-            console.log(`   Модель: ${bestMatch.modelId.slice(0, 12)}...`);
-            console.log(`   Сходство: ${(bestMatch.similarity * 100).toFixed(1)}%`);
-        }
-
-        // Если сходство выше порога - улучшаем существующую модель
-        if (bestMatch.similarity >= this.similarityThreshold) {
-            console.log(`\n✅ СОВПАДЕНИЕ! Улучшаю модель ${bestMatch.modelId.slice(0, 12)}...`);
-
-            this.switchToModel(bestMatch.modelId);
-
-            if (!this.fastMode) {
-                const enhancedResult = await this.enhanceExistingModel(
-                    bestMatch.modelId,
-                    exactGraph,
-                    knnGraph,
-                    knnFingerprints,
-                    morphologyMap,
-                    options
-                );
-
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'enhanced',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    ...enhancedResult,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId
-                };
-            } else {
-                this.photoToModel.set(photoId, bestMatch.modelId);
-
-                return {
-                    status: 'matched_fast',
-                    modelId: bestMatch.modelId,
-                    similarity: bestMatch.similarity,
-                    exactMatches: bestMatch.exactMatches,
-                    similarMatches: bestMatch.similarMatches,
-                    totalModels: this.models.size,
-                    matchedModel: bestMatch.modelId,
-                    message: `Фото соответствует модели (сходство ${(bestMatch.similarity * 100).toFixed(1)}%)`
-                };
-            }
-        }
-        // Если сходство ниже порога - создаём НОВУЮ модель
-        else {
-            console.log(`\n⚠️ НИЗКОЕ СХОДСТВО (${(bestMatch.similarity * 100).toFixed(1)}% < ${this.similarityThreshold * 100}%)`);
-            console.log(`🆕 Создаю НОВУЮ модель для другого следа...`);
-
-            const result = this.createNewModel(exactGraph, knnFingerprints, morphologyMap, points, {
-                ...options,
-                comparedWith: bestMatch.modelId,
-                reason: 'different_footprint'
-            });
-
-            this.modelRelations.set(result.modelId, {
-                related: [bestMatch.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            const existingRel = this.modelRelations.get(bestMatch.modelId);
-            this.modelRelations.set(bestMatch.modelId, {
-                related: [...(existingRel?.related || []), result.modelId],
-                type: 'different',
-                similarity: bestMatch.similarity
-            });
-
-            this.photoToModel.set(photoId, result.modelId);
-            this.stats.differentFootprintsDetected++;
-
-              if (this.models.has(modelIdHint)) {
-    const model = this.models.get(modelIdHint);
-    if (outlineContour && !model.metadata.outlineContour) {
-        // Сохраняем только если ещё нет (или обновляем)
-        model.metadata.outlineContour = outlineContour;
-        console.log(`💾 Контур следа сохранён в модель ${modelIdHint.substring(0,12)}`);
-        console.log(`   точек в контуре: ${outlineContour.points.length}`);
-    } else if (outlineContour && model.metadata.outlineContour) {
-        console.log(`⚠️ Контур уже существует в модели, не перезаписываю`);
-    } else if (!outlineContour) {
-        console.log(`⚠️ Нет контура для сохранения`);
-    }
-}
-
-    // В возвращаемом результате также передаём контур
-    return {
-                status: 'created_new',
-                modelId: result.modelId,
-                similarity: bestMatch.similarity,
-                comparedWith: bestMatch.modelId,
-                totalModels: this.models.size,
-     outlineContour: outlineContour,
-                isDifferentFootprint: true,
-                message: `Обнаружен ДРУГОЙ след! Создана новая модель.`
-            };
-        }
-    }
-
-    // ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
+// ==================== НОВЫЙ МЕТОД: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
 
     async compareByTriangleMatching(model1, model2, options = {}) {
         const startTime = Date.now();
