@@ -739,6 +739,217 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
 
     return finalMatches;
 }
+
+// ==================== МЕТОДЫ ДЛЯ РАБОТЫ СО СТРУКТУРАМИ ====================
+
+_getBoundaryEdgesFromStructure(structure) {
+    const edges = [];
+    if (!structure || !structure.boundaryEdges) return edges;
+   
+    for (const [edgeKey, edgeData] of structure.boundaryEdges) {
+        edges.push({
+            key: edgeKey,
+            v1: edgeData.v1,
+            v2: edgeData.v2
+        });
+    }
+    return edges;
+}
+
+_findNeighborTriangleInGraph(edge, allTriangles, structure) {
+    const edgeKey = [edge.v1.id, edge.v2.id].sort().join('--');
+
+    for (const triangle of allTriangles) {
+        if (structure.triangleIds.has(triangle.id)) continue;
+        if (!triangle.edges) continue;
+
+        for (const triEdge of triangle.edges) {
+            if (!triEdge.v1 || !triEdge.v2) continue;
+            const triEdgeKey = [triEdge.v1.id, triEdge.v2.id].sort().join('--');
+            if (triEdgeKey === edgeKey) {
+                return {
+                    id: triangle.id,
+                    p1: triangle.p1,
+                    p2: triangle.p2,
+                    p3: triangle.p3,
+                    edges: triangle.edges,
+                    confidence: triangle.confidence || 0.5
+                };
+            }
+        }
+    }
+    return null;
+}
+
+_findCommonEdgeInTriangle(triangle, structure) {
+    for (const edge of triangle.edges) {
+        if (structure.pointIds.has(edge.v1.id) && structure.pointIds.has(edge.v2.id)) {
+            return edge;
+        }
+    }
+    return null;
+}
+
+_compareTrianglesGeometrically(tPhoto, tModel, structure) {
+    // Углы
+    const anglePhoto1 = GeometryUtils.angleBetween(tPhoto.p1, tPhoto.p2, tPhoto.p3);
+    const anglePhoto2 = GeometryUtils.angleBetween(tPhoto.p2, tPhoto.p3, tPhoto.p1);
+    const anglePhoto3 = GeometryUtils.angleBetween(tPhoto.p3, tPhoto.p1, tPhoto.p2);
+  
+    const angleModel1 = GeometryUtils.angleBetween(tModel.p1, tModel.p2, tModel.p3);
+    const angleModel2 = GeometryUtils.angleBetween(tModel.p2, tModel.p3, tModel.p1);
+    const angleModel3 = GeometryUtils.angleBetween(tModel.p3, tModel.p1, tModel.p2);
+  
+    const angleDiff = (Math.abs(anglePhoto1 - angleModel1) +
+                       Math.abs(anglePhoto2 - angleModel2) +
+                       Math.abs(anglePhoto3 - angleModel3)) / 3;
+  
+    const angleTolerance = Math.min(20, 10 + Math.floor(structure.triangleIds.size / 5));
+    if (angleDiff > angleTolerance) return false;
+  
+    // Пропорции сторон
+    const sidesPhoto = [
+        GeometryUtils.distance(tPhoto.p1, tPhoto.p2),
+        GeometryUtils.distance(tPhoto.p2, tPhoto.p3),
+        GeometryUtils.distance(tPhoto.p3, tPhoto.p1)
+    ].sort((a, b) => a - b);
+  
+    const sidesModel = [
+        GeometryUtils.distance(tModel.p1, tModel.p2),
+        GeometryUtils.distance(tModel.p2, tModel.p3),
+        GeometryUtils.distance(tModel.p3, tModel.p1)
+    ].sort((a, b) => a - b);
+  
+    const ratiosPhoto = [sidesPhoto[0] / sidesPhoto[2], sidesPhoto[1] / sidesPhoto[2]];
+    const ratiosModel = [sidesModel[0] / sidesModel[2], sidesModel[1] / sidesModel[2]];
+  
+    const ratioDiff = (Math.abs(ratiosPhoto[0] - ratiosModel[0]) +
+                       Math.abs(ratiosPhoto[1] - ratiosModel[1])) / 2;
+  
+    if (ratioDiff > 0.2) return false;
+  
+    // Масштаб
+    const scalePhoto = (sidesPhoto[0] + sidesPhoto[1] + sidesPhoto[2]) / 3;
+    const scaleModel = (sidesModel[0] + sidesModel[1] + sidesModel[2]) / 3;
+    const scaleEstimate = scaleModel / scalePhoto;
+    const scaleDiff = Math.abs(scaleEstimate - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
+  
+    if (scaleDiff > 0.2) return false;
+  
+    return true;
+}
+
+_findNearestModelPoint(point, graphB, threshold = 15) {
+    let bestPoint = null;
+    let bestDist = Infinity;
+  
+    for (const [id, modelPoint] of graphB.nodes) {
+        const dx = modelPoint.x - point.x;
+        const dy = modelPoint.y - point.y;
+        const dist = Math.sqrt(dx*dx + dy*dy);
+      
+        if (dist < bestDist && dist < threshold) {
+            bestDist = dist;
+            bestPoint = modelPoint;
+        }
+    }
+    return bestPoint;
+}
+
+_tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
+    if (!triangle || !triangle.edges) return false;
+
+    const commonEdge = this._findCommonEdgeInTriangle(triangle, structure);
+    if (!commonEdge) return false;
+
+    const newPoint = [triangle.p1, triangle.p2, triangle.p3].find(p =>
+        p.id !== commonEdge.v1.id && p.id !== commonEdge.v2.id
+    );
+    if (!newPoint) return false;
+
+    const photoA = graphA.nodes.get(commonEdge.v1.id);
+    const photoB = graphA.nodes.get(commonEdge.v2.id);
+    const photoC = graphA.nodes.get(newPoint.id);
+    if (!photoA || !photoB || !photoC) return false;
+
+    let modelA = this._getModelPointFromStructure(photoA.id, structure);
+    let modelB = this._getModelPointFromStructure(photoB.id, structure);
+    if (!modelA || !modelB) return false;
+
+    if (typeof modelA === 'string') {
+        const found = graphB.nodes.get(modelA);
+        if (!found) return false;
+        modelA = found;
+    }
+    if (typeof modelB === 'string') {
+        const found = graphB.nodes.get(modelB);
+        if (!found) return false;
+        modelB = found;
+    }
+
+    let modelC;
+    if (structure.transform) {
+        const projected = GeometryUtils.applyTransform(photoC, structure.transform);
+        modelC = { x: projected.x, y: projected.y };
+    } else {
+        return false;
+    }
+
+    const anglePhoto = GeometryUtils.angleBetween(photoA, photoC, photoB);
+    const angleModel = GeometryUtils.angleBetween(modelA, modelC, modelB);
+    const angleDiff = Math.abs(anglePhoto - angleModel);
+    const angleTolerance = Math.min(25, 12 + Math.floor(structure.triangleIds.size / 3));
+
+    if (angleDiff > angleTolerance) return false;
+
+    const sidePhoto1 = GeometryUtils.distance(photoA, photoC);
+    const sidePhoto2 = GeometryUtils.distance(photoB, photoC);
+    const ratioPhoto = sidePhoto1 / sidePhoto2;
+    const sideModel1 = GeometryUtils.distance(modelA, modelC);
+    const sideModel2 = GeometryUtils.distance(modelB, modelC);
+    const ratioModel = sideModel1 / sideModel2;
+    const ratioDiff = Math.abs(ratioPhoto - ratioModel) / Math.max(ratioModel, 0.001);
+
+    if (ratioDiff > 0.25) return false;
+
+    const sumPhoto = sidePhoto1 + sidePhoto2 + GeometryUtils.distance(photoA, photoB);
+    const sumModel = sideModel1 + sideModel2 + GeometryUtils.distance(modelA, modelB);
+    const scaleEstimate = sumModel / sumPhoto;
+    const scaleDiff = Math.abs(scaleEstimate - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
+
+    if (scaleDiff > 0.2) return false;
+
+    const photoMorph = morphologyMap?.get(photoC.id);
+    const modelIdForMorph = modelC.id || (modelC.pointB || modelC);
+    const modelMorph = modelMorphology?.get(modelIdForMorph);
+
+    if (photoMorph && modelMorph) {
+        let morphScore = 0, checks = 0;
+        if (photoMorph.eccentricity && modelMorph.eccentricity) {
+            morphScore += Math.min(photoMorph.eccentricity, modelMorph.eccentricity) / Math.max(photoMorph.eccentricity, modelMorph.eccentricity);
+            checks++;
+        }
+        if (photoMorph.asymmetry && modelMorph.asymmetry) {
+            morphScore += Math.min(photoMorph.asymmetry, modelMorph.asymmetry) / Math.max(photoMorph.asymmetry, modelMorph.asymmetry);
+            checks++;
+        }
+        const finalMorphScore = checks > 0 ? morphScore / checks : 0.5;
+        if (finalMorphScore < 0.6) return false;
+    }
+
+    structure.addTriangle(triangle);
+    return true;
+}
+
+_getModelPointFromStructure(pointId, structure) {
+    const anchors = structure.getAnchors();
+    for (const anchor of anchors) {
+        if (anchor.pointA === pointId) {
+            return anchor.pointB;
+        }
+    }
+    return null;
+}
  
 }
 module.exports = ModelEnhancer;
