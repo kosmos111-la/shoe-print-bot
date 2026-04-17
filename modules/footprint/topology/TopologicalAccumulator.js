@@ -221,9 +221,9 @@ if (enhanceResult.success) {
         this.stats.totalNodesRemoved += cleanResult.removed;
        
         const { matchMap, modelMatchMap } = this.buildTriangleMatchMap(
-            { matches: enhanceResult.matches },
-            modelIdHint
-        );
+    { matches: enhanceResult.matches || [] },  // ← убедитесь, что matches не пустые
+    modelIdHint
+);
        
         if (existingModel) {
             existingModel.lastTriangleResult = {
