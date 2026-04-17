@@ -1704,7 +1704,7 @@ _validateMatches(matches, graphA, graphB, morphologyMap, modelMorphology) {
 _updateModel(model, newGraph, matches, newMorphology) {
     let confirmedExisting = 0;
     let newNodesAdded = 0;
-   
+
     for (const match of matches) {
         const modelNode = model.graph.nodes.get(match.pointB);
         if (modelNode) {
@@ -1712,28 +1712,66 @@ _updateModel(model, newGraph, matches, newMorphology) {
             confirmedExisting++;
         }
     }
-   
+
+    // 🔥 ИСПРАВЛЕНИЕ: добавляем новые точки ТОЛЬКО если они есть и не дублируются
     if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
+        console.log(`   📸 Добавляем ${this.lastUniqueInPhoto.length} новых точек в модель`);
+       
         for (const photoPoint of this.lastUniqueInPhoto) {
+            // Проверяем, не слишком ли далеко точка от модели (возможно, ошибка трансформации)
+            let isTooFar = false;
+            let closestDist = Infinity;
+           
+            for (const [modelId, modelNode] of model.graph.nodes) {
+                const dist = GeometryUtils.distance(modelNode, photoPoint);
+                closestDist = Math.min(closestDist, dist);
+                if (dist < 10) {  // порог 10px
+                    isTooFar = false;
+                    break;
+                }
+                if (dist > 50) isTooFar = true;
+            }
+           
+            // Если точка слишком далеко от всех существующих - возможно, ошибка трансформации
+            if (closestDist > 50) {
+                console.log(`   ⚠️ Потенциальная ошибка: точка ${photoPoint.id?.substring(0,12)} далеко от модели (${closestDist.toFixed(1)}px)`);
+                // Не добавляем такие точки
+                continue;
+            }
+           
+            // Проверка на дубликат
             let isDuplicate = false;
             for (const [modelId, modelNode] of model.graph.nodes) {
                 const dist = GeometryUtils.distance(modelNode, photoPoint);
-                if (dist < 5) { isDuplicate = true; break; }
+                if (dist < 5) {
+                    isDuplicate = true;
+                    break;
+                }
             }
+           
             if (!isDuplicate) {
-                const newNodeId = `node_${Date.now()}_${newNodesAdded}`;
+                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
                 model.graph.nodes.set(newNodeId, {
-                    id: newNodeId, x: photoPoint.x, y: photoPoint.y,
-                    degree: 0, confirmationCount: 1,
-                    addedFrom: 'new_photo_point', addedAt: new Date()
+                    id: newNodeId,
+                    x: photoPoint.x,
+                    y: photoPoint.y,
+                    degree: 0,
+                    confirmationCount: 1,
+                    addedFrom: 'new_photo_point',
+                    addedAt: new Date(),
+                    originalPhotoId: photoPoint.id
                 });
                 newNodesAdded++;
+               
+                if (this.debug && newNodesAdded <= 5) {
+                    console.log(`      ✅ Добавлена новая точка: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+                }
             }
         }
     }
-   
+
     return { confirmedExisting, newNodesAdded };
-} 
+}
 
  /**
 * Извлекает все треугольники из графа
