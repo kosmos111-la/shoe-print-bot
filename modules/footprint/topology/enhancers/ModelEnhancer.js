@@ -1580,7 +1580,7 @@ if (newPairsFound > 0) {
     const updateResult = this._updateModel(existingModel, newExactGraph, finalValidatedMatches, newMorphology);
 
     // Слияние дубликатов
-    const mergedCount = this._mergeDuplicatePoints(existingModel.graph, 5);
+    const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
     if (this.debug && mergedCount > 0) {
         console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
     }
