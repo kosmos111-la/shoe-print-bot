@@ -1636,6 +1636,8 @@ return {
     stats: this.stats,
     uniquePhotoPoints: this.lastUniqueInPhoto  // ← передаём для аккумулятора
 };
+}
+ 
 
 /**
 * Сравнение по треугольникам
