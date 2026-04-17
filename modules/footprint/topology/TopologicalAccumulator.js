@@ -192,17 +192,17 @@ if (enhanceResult.success) {
     existingModel.structures = enhanceResult.structures;
    
     // 🔥 ВАЖНО: строим pointToStructure для визуализации треугольников
-    if (enhanceResult.structures && enhanceResult.structures.length > 0) {
+if (enhanceResult.structures && enhanceResult.structures.length > 0) {
     existingModel.pointToStructure = new Map();
     for (const structure of enhanceResult.structures) {
-        // pointIds могут быть в разных местах
+        // Пытаемся получить pointIds из разных мест
         let pointIds = [];
-        if (structure.pointIds && Array.isArray(structure.pointIds)) {
+       
+        if (structure.pointIds && Array.isArray(structure.pointIds) && structure.pointIds.length > 0) {
             pointIds = structure.pointIds;
         } else if (structure.points && Array.isArray(structure.points)) {
             pointIds = structure.points.map(p => p.id || p);
         } else if (structure.triangles && Array.isArray(structure.triangles)) {
-            // Собираем из треугольников
             const pointSet = new Set();
             for (const tri of structure.triangles) {
                 if (tri.p1?.id) pointSet.add(tri.p1.id);
