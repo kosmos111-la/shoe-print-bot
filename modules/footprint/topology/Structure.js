@@ -98,18 +98,33 @@ class TopologicalStructure {
     /**
      * Добавляет треугольник в структуру
      */
-    addTriangle(triangle) {
-    if (this.triangleIds.has(triangle.id)) {
-        return false;
+addTriangle(triangle) {
+    if (this.triangleIds.has(triangle.id)) return false;
+   
+    // 🔥 ДИАГНОСТИКА
+    if (this.debug) {
+        console.log(`   📐 addTriangle: ${triangle.id}`);
+        console.log(`      p1: ${triangle.p1?.id}, p2: ${triangle.p2?.id}, p3: ${triangle.p3?.id}`);
     }
    
     this.triangles.set(triangle.id, triangle);
     this.triangleIds.add(triangle.id);
    
-    // 🔥 ВАЖНО: добавляем точки в pointIds
-    if (triangle.p1 && triangle.p1.id) this.pointIds.add(triangle.p1.id);
-    if (triangle.p2 && triangle.p2.id) this.pointIds.add(triangle.p2.id);
-    if (triangle.p3 && triangle.p3.id) this.pointIds.add(triangle.p3.id);
+    // 🔥 ЯВНО ДОБАВЛЯЕМ ТОЧКИ
+    if (triangle.p1 && triangle.p1.id) {
+        this.pointIds.add(triangle.p1.id);
+        if (this.debug) console.log(`      added point: ${triangle.p1.id}`);
+    }
+    if (triangle.p2 && triangle.p2.id) {
+        this.pointIds.add(triangle.p2.id);
+        if (this.debug) console.log(`      added point: ${triangle.p2.id}`);
+    }
+    if (triangle.p3 && triangle.p3.id) {
+        this.pointIds.add(triangle.p3.id);
+        if (this.debug) console.log(`      added point: ${triangle.p3.id}`);
+    }
+   
+    if (this.debug) console.log(`      total pointIds: ${this.pointIds.size}`);
    
     this.updateBoundaries(triangle);
     this.stats.confidences.push(triangle.confidence || 0.5);
@@ -128,7 +143,7 @@ class TopologicalStructure {
     }
    
     return true;
-}
+  }
    
     /**
      * Обновляет граничные рёбра после добавления треугольника
