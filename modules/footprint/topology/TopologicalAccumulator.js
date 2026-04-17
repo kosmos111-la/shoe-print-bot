@@ -179,17 +179,22 @@ if (modelIdHint && this.models.has(modelIdHint)) {
     }
 
     const enhanceResult = await this.modelEnhancer.enhance(
-        existingModel,
-        exactGraph,
-        morphologyMap,
-        points,
-        { photoId, contours, outlineContour, fastMode: this.fastMode }
-    );
+    existingModel,
+    exactGraph,
+    morphologyMap,
+    points,
+    { photoId, contours, outlineContour, fastMode: this.fastMode }
+);
 
-    if (enhanceResult.success) {
-        // Обновляем модель
-        existingModel.transform = enhanceResult.transform;
-        existingModel.structures = enhanceResult.structures;
+if (enhanceResult.success) {
+    // Обновляем модель
+    existingModel.transform = enhanceResult.transform;
+    existingModel.structures = enhanceResult.structures;
+   
+    // 🔥 Сохраняем уникальные точки фото для последующего добавления
+    if (enhanceResult.uniquePhotoPoints) {
+        this.lastUniqueInPhoto = enhanceResult.uniquePhotoPoints;
+    }
        
         this.stats.triangleMatchesCount += enhanceResult.matches.length;
        
