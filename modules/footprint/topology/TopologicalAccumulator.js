@@ -196,9 +196,22 @@ if (enhanceResult.success) {
     existingModel.pointToStructure = new Map();
     for (const structure of enhanceResult.structures) {
         // pointIds могут быть в разных местах
-        const pointIds = structure.pointIds ||
-                        (structure.points?.map(p => p.id || p)) ||
-                        [];
+        let pointIds = [];
+        if (structure.pointIds && Array.isArray(structure.pointIds)) {
+            pointIds = structure.pointIds;
+        } else if (structure.points && Array.isArray(structure.points)) {
+            pointIds = structure.points.map(p => p.id || p);
+        } else if (structure.triangles && Array.isArray(structure.triangles)) {
+            // Собираем из треугольников
+            const pointSet = new Set();
+            for (const tri of structure.triangles) {
+                if (tri.p1?.id) pointSet.add(tri.p1.id);
+                if (tri.p2?.id) pointSet.add(tri.p2.id);
+                if (tri.p3?.id) pointSet.add(tri.p3.id);
+            }
+            pointIds = Array.from(pointSet);
+        }
+       
         for (const pointId of pointIds) {
             existingModel.pointToStructure.set(pointId, structure.id);
         }
