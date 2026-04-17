@@ -1560,76 +1560,82 @@ if (newPairsFound > 0) {
     }
 
     // ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ =====
-    console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
+console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
-    // Сохраняем уникальные точки фото для последующего добавления
-    this.lastUniqueInPhoto = originalPoints
-        .filter(p => !matchedPointsA.has(p.id))
-        .map(p => {
-            const projected = {
-                x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                   p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                   finalTransform.translation.x,
-                y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                   p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                   finalTransform.translation.y
-            };
-            return { id: p.id, x: projected.x, y: projected.y, type: 'unique_in_photo' };
-        });
+const updateResult = this._updateModel(existingModel, newExactGraph, finalValidatedMatches, newMorphology);
 
-    const updateResult = this._updateModel(existingModel, newExactGraph, finalValidatedMatches, newMorphology);
-
-    // Слияние дубликатов
-    const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
-    if (this.debug && mergedCount > 0) {
-        console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
-    }
-
-    // Сохраняем контур в модель
-    if (outlineContour && !existingModel.metadata.outlineContour) {
-        existingModel.metadata.outlineContour = outlineContour;
-        console.log(`💾 Контур следа сохранён в существующую модель`);
-    }
-
-    // Сохраняем transform и структуры
-    existingModel.transform = finalTransform;
-    existingModel.structures = structures.map(s => ({
-        id: s.id,
-        triangleIds: Array.from(s.triangleIds),
-        pointIds: Array.from(s.pointIds),
-        transform: s.transform,
-        confidence: s.calculateConfidence(),
-        rays: s.rays || []
-    }));
-
-    // Статистика
-    const confirmedInModel = finalValidatedMatches?.length || 0;
-    const uniquePoints = existingModel?.graph?.nodes?.size || 0;
-    let confirmedPointsCount = 0;
-    for (const node of existingModel.graph.nodes.values()) {
-        if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
-    }
-    const stability = uniquePoints > 0 ? (confirmedPointsCount / uniquePoints * 100).toFixed(1) : 0;
-
-    console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-    console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
-    console.log(`   • Всего в модели теперь: ${uniquePoints}`);
-    console.log(`   • Стабильность: ${stability}%`);
-
-    this.stats.enhancements++;
-    this.stats.magneticPulls += 1;
-
-    return {
-        success: true,
-        matches: finalValidatedMatches,
-        transform: finalTransform,
-        newNodesAdded: updateResult.newNodesAdded,
-        mergedCount: mergedCount,
-        similarity: triangleResult.similarity,
-        structures: structures,
-        stats: this.stats
-    };
+// Слияние дубликатов
+const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
+if (this.debug && mergedCount > 0) {
+    console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
 }
+
+// Сохраняем контур в модель
+if (outlineContour && !existingModel.metadata.outlineContour) {
+    existingModel.metadata.outlineContour = outlineContour;
+    console.log(`💾 Контур следа сохранён в существующую модель`);
+}
+
+// Сохраняем transform и структуры
+existingModel.transform = finalTransform;
+existingModel.structures = structures.map(s => ({
+    id: s.id,
+    triangleIds: Array.from(s.triangleIds),
+    pointIds: Array.from(s.pointIds),
+    transform: s.transform,
+    confidence: s.calculateConfidence(),
+    rays: s.rays || []
+}));
+
+// ===== 🔥 ВАЖНО: Сохраняем уникальные точки фото ПОСЛЕ всех обновлений finalTransform =====
+const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
+this.lastUniqueInPhoto = originalPoints
+    .filter(p => !finalMatchedPointsA.has(p.id))
+    .map(p => {
+        const projected = {
+            x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+               p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               finalTransform.translation.x,
+            y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+               finalTransform.translation.y
+        };
+        return {
+            id: p.id,
+            x: projected.x,
+            y: projected.y,
+            type: 'unique_in_photo'
+        };
+    });
+
+// Статистика
+const confirmedInModel = finalValidatedMatches?.length || 0;
+const uniquePoints = existingModel?.graph?.nodes?.size || 0;
+let confirmedPointsCount = 0;
+for (const node of existingModel.graph.nodes.values()) {
+    if ((node.confirmationCount || 0) >= 2) confirmedPointsCount++;
+}
+const stability = uniquePoints > 0 ? (confirmedPointsCount / uniquePoints * 100).toFixed(1) : 0;
+
+console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
+console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+console.log(`   • Всего в модели теперь: ${uniquePoints}`);
+console.log(`   • Стабильность: ${stability}%`);
+
+this.stats.enhancements++;
+this.stats.magneticPulls += 1;
+
+return {
+    success: true,
+    matches: finalValidatedMatches,
+    transform: finalTransform,
+    newNodesAdded: updateResult.newNodesAdded,
+    mergedCount: mergedCount,
+    similarity: triangleResult.similarity,
+    structures: structures,
+    stats: this.stats,
+    uniquePhotoPoints: this.lastUniqueInPhoto  // ← передаём для аккумулятора
+};
 
 /**
 * Сравнение по треугольникам
