@@ -1257,6 +1257,39 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
 
     console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
 
+// 🔥 ДИАГНОСТИКА И ВОССТАНОВЛЕНИЕ pointIds
+for (const structure of structures) {
+    // Проверяем, есть ли pointIds
+    let pointIdsSize = structure.pointIds?.size || 0;
+   
+    // Если pointIds пустые - собираем из треугольников
+    if (pointIdsSize === 0 && structure.triangles) {
+        console.log(`   🔧 Восстанавливаю pointIds для структуры ${structure.id}...`);
+       
+        for (const tri of structure.triangles.values()) {
+            if (tri.p1?.id) structure.pointIds.add(tri.p1.id);
+            if (tri.p2?.id) structure.pointIds.add(tri.p2.id);
+            if (tri.p3?.id) structure.pointIds.add(tri.p3.id);
+        }
+       
+        pointIdsSize = structure.pointIds?.size || 0;
+        console.log(`      ✅ Восстановлено ${pointIdsSize} точек`);
+    }
+   
+    // Также проверяем triangleIds
+    if (structure.triangleIds?.size === 0 && structure.triangles) {
+        for (const tri of structure.triangles.values()) {
+            if (tri.id) structure.triangleIds.add(tri.id);
+        }
+        console.log(`      ✅ Восстановлено ${structure.triangleIds.size} треугольников`);
+    }
+   
+    // Выводим статистику по структуре
+    if (this.debug) {
+        console.log(`   • Структура ${structure.id}: ${structure.triangleIds?.size || 0} треугольников, ${pointIdsSize} точек`);
+    }
+}
+
     // ===== ШАГ 9: ФИНАЛЬНАЯ ВАЛИДАЦИЯ СТРУКТУР =====
     console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
 
@@ -1583,11 +1616,9 @@ existingModel.structures = structures.map(s => {
     let pointIds = [];
     if (s.pointIds) {
         pointIds = s.pointIds instanceof Set ? Array.from(s.pointIds) : s.pointIds;
-    } else if (s.points) {
-        pointIds = s.points.map(p => p.id || p);
     }
    
-    // Также собираем точки из треугольников, если pointIds пуст
+    // Если pointIds всё ещё пустые - пробуем собрать из треугольников
     if (pointIds.length === 0 && s.triangles) {
         const pointSet = new Set();
         for (const tri of s.triangles.values()) {
@@ -1596,11 +1627,14 @@ existingModel.structures = structures.map(s => {
             if (tri.p3?.id) pointSet.add(tri.p3.id);
         }
         pointIds = Array.from(pointSet);
+        if (this.debug && pointIds.length > 0) {
+            console.log(`      🔧 При сохранении восстановлено pointIds: ${pointIds.length} точек`);
+        }
     }
    
     return {
         id: s.id,
-        triangleIds: s.triangleIds instanceof Set ? Array.from(s.triangleIds) : s.triangleIds || [],
+        triangleIds: s.triangleIds instanceof Set ? Array.from(s.triangleIds) : (s.triangleIds || []),
         pointIds: pointIds,
         transform: s.transform,
         confidence: s.calculateConfidence ? s.calculateConfidence() : 0.5,
