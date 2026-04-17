@@ -1719,6 +1719,40 @@ console.log(`   • Стабильность: ${stability}%`);
 this.stats.enhancements++;
 this.stats.magneticPulls += 1;
 
+const serializedStructures = structures.map(s => {
+    // Собираем pointIds из треугольников, если их нет
+    let pointIds = Array.from(s.pointIds || []);
+   
+    if (pointIds.length === 0 && s.triangles && s.triangles.size > 0) {
+        const pointSet = new Set();
+        for (const tri of s.triangles.values()) {
+            if (tri.p1?.id) pointSet.add(tri.p1.id);
+            if (tri.p2?.id) pointSet.add(tri.p2.id);
+            if (tri.p3?.id) pointSet.add(tri.p3.id);
+        }
+        pointIds = Array.from(pointSet);
+        console.log(`   🔧 Сериализация: для ${s.id} собрано ${pointIds.length} точек из треугольников`);
+    }
+   
+    return {
+        id: s.id,
+        triangleIds: Array.from(s.triangleIds || []),
+        pointIds: pointIds,
+        transform: s.transform,
+        confidence: s.calculateConfidence ? s.calculateConfidence() : 0.5,
+        rays: s.rays || [],
+        triangles: s.triangles ? Array.from(s.triangles.values()).map(t => ({
+            id: t.id,
+            p1: t.p1,
+            p2: t.p2,
+            p3: t.p3,
+            pB1: t.pB1,
+            pB2: t.pB2,
+            pB3: t.pB3
+        })) : []
+    };
+});
+
 return {
     success: true,
     matches: finalValidatedMatches,
@@ -1726,9 +1760,9 @@ return {
     newNodesAdded: updateResult.newNodesAdded,
     mergedCount: mergedCount,
     similarity: triangleResult.similarity,
-    structures: structures,
+    structures: serializedStructures,  // ← сериализованные структуры с pointIds
     stats: this.stats,
-    uniquePhotoPoints: this.lastUniqueInPhoto  // ← передаём для аккумулятора
+    uniquePhotoPoints: this.lastUniqueInPhoto
 };
 }
  
