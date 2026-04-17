@@ -1578,14 +1578,44 @@ if (outlineContour && !existingModel.metadata.outlineContour) {
 
 // Сохраняем transform и структуры
 existingModel.transform = finalTransform;
-existingModel.structures = structures.map(s => ({
-    id: s.id,
-    triangleIds: Array.from(s.triangleIds),
-    pointIds: Array.from(s.pointIds),
-    transform: s.transform,
-    confidence: s.calculateConfidence(),
-    rays: s.rays || []
-}));
+existingModel.structures = structures.map(s => {
+    // Гарантируем, что pointIds - это массив
+    let pointIds = [];
+    if (s.pointIds) {
+        pointIds = s.pointIds instanceof Set ? Array.from(s.pointIds) : s.pointIds;
+    } else if (s.points) {
+        pointIds = s.points.map(p => p.id || p);
+    }
+   
+    // Также собираем точки из треугольников, если pointIds пуст
+    if (pointIds.length === 0 && s.triangles) {
+        const pointSet = new Set();
+        for (const tri of s.triangles.values()) {
+            if (tri.p1?.id) pointSet.add(tri.p1.id);
+            if (tri.p2?.id) pointSet.add(tri.p2.id);
+            if (tri.p3?.id) pointSet.add(tri.p3.id);
+        }
+        pointIds = Array.from(pointSet);
+    }
+   
+    return {
+        id: s.id,
+        triangleIds: s.triangleIds instanceof Set ? Array.from(s.triangleIds) : s.triangleIds || [],
+        pointIds: pointIds,
+        transform: s.transform,
+        confidence: s.calculateConfidence ? s.calculateConfidence() : 0.5,
+        rays: s.rays || [],
+        triangles: s.triangles ? Array.from(s.triangles.values()).map(t => ({
+            id: t.id,
+            p1: t.p1,
+            p2: t.p2,
+            p3: t.p3,
+            pB1: t.pB1,
+            pB2: t.pB2,
+            pB3: t.pB3
+        })) : []
+    };
+});
 
 // ===== 🔥 ВАЖНО: Сохраняем уникальные точки фото ПОСЛЕ всех обновлений finalTransform =====
 const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
