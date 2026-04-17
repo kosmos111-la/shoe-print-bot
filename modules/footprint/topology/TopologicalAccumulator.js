@@ -193,6 +193,18 @@ if (enhanceResult.success) {
    
     // 🔥 ВАЖНО: строим pointToStructure для визуализации треугольников
     if (enhanceResult.structures && enhanceResult.structures.length > 0) {
+    existingModel.pointToStructure = new Map();
+    for (const structure of enhanceResult.structures) {
+        // pointIds могут быть в разных местах
+        const pointIds = structure.pointIds ||
+                        (structure.points?.map(p => p.id || p)) ||
+                        [];
+        for (const pointId of pointIds) {
+            existingModel.pointToStructure.set(pointId, structure.id);
+        }
+    }
+    console.log(`   🔗 Построено pointToStructure: ${existingModel.pointToStructure.size} записей`);
+}
    
     // 🔥 Сохраняем уникальные точки фото для последующего добавления
     if (enhanceResult.uniquePhotoPoints) {
