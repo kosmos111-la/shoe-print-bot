@@ -1625,6 +1625,78 @@ if (newPairsFound > 0) {
         }
     }
 
+// ===== КОРРЕКЦИЯ ПОЛОЖЕНИЯ НОВЫХ ТОЧЕК ПО ЯКОРЯМ =====
+if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForValidation.length >= 3) {
+    console.log(`\n🔧 КОРРЕКЦИЯ ПОЛОЖЕНИЯ ${this.lastUniqueInPhoto.length} НОВЫХ ТОЧЕК ПО ЯКОРЯМ...`);
+   
+    // Собираем якорные пары (точки, которые уже сопоставлены)
+    const anchorPairs = [];
+    for (const match of finalValidatedMatches) {
+        const photoPoint = newExactGraph.nodes.get(match.pointA);
+        const modelPoint = existingModel.graph.nodes.get(match.pointB);
+        if (photoPoint && modelPoint) {
+            anchorPairs.push({
+                photo: photoPoint,
+                model: modelPoint,
+                confidence: match.confidence || 0.5
+            });
+        }
+    }
+   
+    if (anchorPairs.length >= 3) {
+        // Вычисляем среднее смещение между фото и моделью по якорям
+        let totalDx = 0, totalDy = 0;
+        let totalWeight = 0;
+       
+        for (const pair of anchorPairs) {
+            // Проецируем фото-точку через текущий transform
+            const projected = {
+                x: pair.photo.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+                   pair.photo.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                   finalTransform.translation.x,
+                y: pair.photo.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                   pair.photo.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+                   finalTransform.translation.y
+            };
+           
+            // Смещение между спроецированной точкой и реальной точкой модели
+            const dx = pair.model.x - projected.x;
+            const dy = pair.model.y - projected.y;
+            const weight = pair.confidence;
+           
+            totalDx += dx * weight;
+            totalDy += dy * weight;
+            totalWeight += weight;
+        }
+       
+        const avgDx = totalWeight > 0 ? totalDx / totalWeight : 0;
+        const avgDy = totalWeight > 0 ? totalDy / totalWeight : 0;
+       
+        console.log(`   📊 Среднее смещение по якорям: dx=${avgDx.toFixed(2)}px, dy=${avgDy.toFixed(2)}px`);
+       
+        // Применяем коррекцию ко всем новым точкам
+        if (Math.abs(avgDx) > 0.5 || Math.abs(avgDy) > 0.5) {
+            let correctedCount = 0;
+            for (const point of this.lastUniqueInPhoto) {
+                point.x += avgDx;
+                point.y += avgDy;
+                correctedCount++;
+            }
+            console.log(`   ✅ Скорректировано ${correctedCount} новых точек (сдвиг компенсирован)`);
+           
+            // Также корректируем transform, чтобы следующие фото ложились точнее
+            finalTransform.translation.x += avgDx;
+            finalTransform.translation.y += avgDy;
+            console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+        } else {
+            console.log(`   ✅ Смещение минимально (${avgDx.toFixed(2)}, ${avgDy.toFixed(2)}), коррекция не требуется`);
+        }
+    } else {
+        console.log(`   ⚠️ Недостаточно якорей для коррекции (нужно минимум 3, есть ${anchorPairs.length})`);
+    }
+}
+
+ 
     // ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ =====
 console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
