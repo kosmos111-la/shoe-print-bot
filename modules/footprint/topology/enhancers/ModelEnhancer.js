@@ -1683,24 +1683,33 @@ existingModel.structures = structures.map(s => {
 
 // ===== 🔥 ВАЖНО: Сохраняем уникальные точки фото ПОСЛЕ всех обновлений finalTransform =====
 const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
-this.lastUniqueInPhoto = originalPoints
-    .filter(p => !finalMatchedPointsA.has(p.id))
-    .map(p => {
-        const projected = {
-            x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-               p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-               finalTransform.translation.x,
-            y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-               p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-               finalTransform.translation.y
-        };
-        return {
-            id: p.id,
-            x: projected.x,
-            y: projected.y,
-            type: 'unique_in_photo'
-        };
-    });
+const unmatchedPhotoPointsForModel = originalPoints.filter(p => !finalMatchedPointsA.has(p.id));
+console.log(`   📸 Несопоставленных точек фото для добавления в модель: ${unmatchedPhotoPointsForModel.length}`);
+
+this.lastUniqueInPhoto = unmatchedPhotoPointsForModel.map(p => {
+    const projected = {
+        x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+           p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+           finalTransform.translation.x,
+        y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+           p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+           finalTransform.translation.y
+    };
+   
+    // Диагностика первой точки
+    if (this.debug && this.lastUniqueInPhoto?.length === 0) {
+        console.log(`      Пример трансформации для добавления:`);
+        console.log(`         Исходная: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+        console.log(`         После: (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)})`);
+    }
+   
+    return {
+        id: p.id,
+        x: projected.x,
+        y: projected.y,
+        type: 'unique_in_photo'
+    };
+});
 
 // Статистика
 const confirmedInModel = finalValidatedMatches?.length || 0;
@@ -1841,36 +1850,19 @@ _updateModel(model, newGraph, matches, newMorphology) {
         }
     }
 
-    // 🔥 ИСПРАВЛЕНИЕ: добавляем новые точки ТОЛЬКО если они есть и не дублируются
+    // 🔥 ВАЖНО: lastUniqueInPhoto уже содержит трансформированные координаты
+    // НЕ ПРИМЕНЯЕМ ТРАНСФОРМАЦИЮ ПОВТОРНО!
     if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        console.log(`   📸 Добавляем ${this.lastUniqueInPhoto.length} новых точек в модель`);
+        console.log(`   📸 Добавляем ${this.lastUniqueInPhoto.length} новых точек в модель (уже трансформированных)`);
        
         for (const photoPoint of this.lastUniqueInPhoto) {
-            // Проверяем, не слишком ли далеко точка от модели (возможно, ошибка трансформации)
-            let isTooFar = false;
+            // Проверка на дубликат
+            let isDuplicate = false;
             let closestDist = Infinity;
            
             for (const [modelId, modelNode] of model.graph.nodes) {
                 const dist = GeometryUtils.distance(modelNode, photoPoint);
                 closestDist = Math.min(closestDist, dist);
-                if (dist < 10) {  // порог 10px
-                    isTooFar = false;
-                    break;
-                }
-                if (dist > 50) isTooFar = true;
-            }
-           
-            // Если точка слишком далеко от всех существующих - возможно, ошибка трансформации
-            if (closestDist > 50) {
-                console.log(`   ⚠️ Потенциальная ошибка: точка ${photoPoint.id?.substring(0,12)} далеко от модели (${closestDist.toFixed(1)}px)`);
-                // Не добавляем такие точки
-                continue;
-            }
-           
-            // Проверка на дубликат
-            let isDuplicate = false;
-            for (const [modelId, modelNode] of model.graph.nodes) {
-                const dist = GeometryUtils.distance(modelNode, photoPoint);
                 if (dist < 5) {
                     isDuplicate = true;
                     break;
@@ -1881,7 +1873,7 @@ _updateModel(model, newGraph, matches, newMorphology) {
                 const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
                 model.graph.nodes.set(newNodeId, {
                     id: newNodeId,
-                    x: photoPoint.x,
+                    x: photoPoint.x,  // ← УЖЕ трансформировано, просто используем
                     y: photoPoint.y,
                     degree: 0,
                     confirmationCount: 1,
@@ -1891,11 +1883,15 @@ _updateModel(model, newGraph, matches, newMorphology) {
                 });
                 newNodesAdded++;
                
-                if (this.debug && newNodesAdded <= 5) {
-                    console.log(`      ✅ Добавлена новая точка: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+                if (this.debug && newNodesAdded <= 3) {
+                    console.log(`      ✅ Добавлена точка: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
                 }
+            } else if (this.debug) {
+                console.log(`      ⏭️ Пропущен дубликат: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [dist=${closestDist.toFixed(1)}px]`);
             }
         }
+       
+        console.log(`   📊 Добавлено новых узлов: ${newNodesAdded}`);
     }
 
     return { confirmedExisting, newNodesAdded };
