@@ -979,7 +979,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         };
     }
 
-    console.log(`\n✅ Найдено ${triangleResult.count} треугольных соответствий!`);
+    console.log(`✅ Найдено ${triangleResult.matches?.length || 0} треугольных соответствий!`);
 
     // ===== ШАГ 2: СОЗДАНИЕ ЯКОРЕЙ =====
     if (this.debug) console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
