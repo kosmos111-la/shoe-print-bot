@@ -187,14 +187,18 @@ if (modelIdHint && this.models.has(modelIdHint)) {
     );
 
     if (enhanceResult.success) {
-        // ========== ЗДЕСЬ НАХОДИТСЯ БЛОК 6 ==========
-       
-        // Обновляем модель
-        existingModel.transform = enhanceResult.transform;
-       
-        // 🔥 БЛОК 6 - СОХРАНЕНИЕ СТРУКТУР
-        if (enhanceResult.structures && enhanceResult.structures.length > 0) {
-            existingModel.structures = enhanceResult.structures;
+    // Обновляем модель
+    existingModel.transform = enhanceResult.transform;
+   
+    // 🔥 ДИАГНОСТИКА ТРАНСФОРМАЦИИ
+    console.log(`\n📐 ПОЛУЧЕНА ТРАНСФОРМАЦИЯ ОТ ENHANCER:`);
+    console.log(`   • Масштаб: ${enhanceResult.transform.scale.toFixed(3)}`);
+    console.log(`   • Поворот: ${(enhanceResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   • Сдвиг: (${enhanceResult.transform.translation.x.toFixed(1)}, ${enhanceResult.transform.translation.y.toFixed(1)})`);
+   
+    // Сохраняем структуры
+    if (enhanceResult.structures && enhanceResult.structures.length > 0) {
+        existingModel.structures = enhanceResult.structures;
            
             // 🔥 ДИАГНОСТИКА
             for (const s of existingModel.structures) {
