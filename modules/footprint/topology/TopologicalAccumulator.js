@@ -179,30 +179,50 @@ if (modelIdHint && this.models.has(modelIdHint)) {
     }
 
     const enhanceResult = await this.modelEnhancer.enhance(
-    existingModel,
-    exactGraph,
-    morphologyMap,
-    points,
-    { photoId, contours, outlineContour, fastMode: this.fastMode }
-);
+        existingModel,
+        exactGraph,
+        morphologyMap,
+        points,
+        { photoId, contours, outlineContour, fastMode: this.fastMode }
+    );
 
-if (enhanceResult.success) {
-    // Обновляем модель
-    existingModel.transform = enhanceResult.transform;
-    existingModel.structures = enhanceResult.structures;
-   
-    // 🔥 ВАЖНО: строим pointToStructure для визуализации треугольников
+    if (enhanceResult.success) {
+        // ========== ЗДЕСЬ НАХОДИТСЯ БЛОК 6 ==========
+       
+        // Обновляем модель
+        existingModel.transform = enhanceResult.transform;
+       
+        // 🔥 БЛОК 6 - СОХРАНЕНИЕ СТРУКТУР
+        if (enhanceResult.structures && enhanceResult.structures.length > 0) {
+            existingModel.structures = enhanceResult.structures;
+           
+            // 🔥 ДИАГНОСТИКА
+            for (const s of existingModel.structures) {
+                console.log(`   📊 Структура ${s.id}: pointIds=${s.pointIds?.length || 0}, triangles=${s.triangles?.length || 0}`);
+            }
+        }
+       
+        // 🔥 БЛОК 7 - ПОСТРОЕНИЕ pointToStructure (расширенная версия)
 if (enhanceResult.structures && enhanceResult.structures.length > 0) {
     existingModel.pointToStructure = new Map();
+   
     for (const structure of enhanceResult.structures) {
-        // Пытаемся получить pointIds из разных мест
         let pointIds = [];
        
+        // 1. Пробуем взять из structure.pointIds
         if (structure.pointIds && Array.isArray(structure.pointIds) && structure.pointIds.length > 0) {
             pointIds = structure.pointIds;
-        } else if (structure.points && Array.isArray(structure.points)) {
+            console.log(`   🔍 Структура ${structure.id}: pointIds из массива: ${pointIds.length}`);
+        }
+       
+        // 2. Пробуем взять из structure.points
+        else if (structure.points && Array.isArray(structure.points)) {
             pointIds = structure.points.map(p => p.id || p);
-        } else if (structure.triangles && Array.isArray(structure.triangles)) {
+            console.log(`   🔍 Структура ${structure.id}: pointIds из points: ${pointIds.length}`);
+        }
+       
+        // 3. Пробуем собрать из structure.triangles
+        else if (structure.triangles && Array.isArray(structure.triangles)) {
             const pointSet = new Set();
             for (const tri of structure.triangles) {
                 if (tri.p1?.id) pointSet.add(tri.p1.id);
@@ -210,12 +230,32 @@ if (enhanceResult.structures && enhanceResult.structures.length > 0) {
                 if (tri.p3?.id) pointSet.add(tri.p3.id);
             }
             pointIds = Array.from(pointSet);
+            console.log(`   🔍 Структура ${structure.id}: pointIds из triangles: ${pointIds.length}`);
         }
        
+        // 4. Пробуем собрать из structure.triangles (если это Map)
+        else if (structure.triangles && typeof structure.triangles.forEach === 'function') {
+            const pointSet = new Set();
+            structure.triangles.forEach(tri => {
+                if (tri.p1?.id) pointSet.add(tri.p1.id);
+                if (tri.p2?.id) pointSet.add(tri.p2.id);
+                if (tri.p3?.id) pointSet.add(tri.p3.id);
+            });
+            pointIds = Array.from(pointSet);
+            console.log(`   🔍 Структура ${structure.id}: pointIds из triangles (Map): ${pointIds.length}`);
+        }
+       
+        // Добавляем в pointToStructure
         for (const pointId of pointIds) {
             existingModel.pointToStructure.set(pointId, structure.id);
         }
+       
+        if (pointIds.length === 0) {
+            console.log(`   ⚠️ Структура ${structure.id}: НЕ УДАЛОСЬ НАЙТИ pointIds!`);
+            console.log(`      Доступные ключи: ${Object.keys(structure).join(', ')}`);
+        }
     }
+   
     console.log(`   🔗 Построено pointToStructure: ${existingModel.pointToStructure.size} записей`);
 }
    
