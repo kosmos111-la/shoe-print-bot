@@ -99,35 +99,36 @@ class TopologicalStructure {
      * Добавляет треугольник в структуру
      */
     addTriangle(triangle) {
-        if (this.triangleIds.has(triangle.id)) {
-            return false;
-        }
-       
-        this.triangles.set(triangle.id, triangle);
-        this.triangleIds.add(triangle.id);
-       
-        if (triangle.p1 && triangle.p1.id) this.pointIds.add(triangle.p1.id);
-        if (triangle.p2 && triangle.p2.id) this.pointIds.add(triangle.p2.id);
-        if (triangle.p3 && triangle.p3.id) this.pointIds.add(triangle.p3.id);
-       
-        this.updateBoundaries(triangle);
-        this.stats.confidences.push(triangle.confidence || 0.5);
-       
-        // 🔥 Добавляем лучи из рёбер треугольника, если есть внешние точки
-        const edges = triangle.edges || [
-            { v1: triangle.p1, v2: triangle.p2, externalPoint: null },
-            { v1: triangle.p2, v2: triangle.p3, externalPoint: null },
-            { v1: triangle.p3, v2: triangle.p1, externalPoint: null }
-        ];
-       
-        for (const edge of edges) {
-            if (edge.externalPoint) {
-                this.addSuccessRay(triangle, edge, edge.externalPoint);
-            }
-        }
-       
-        return true;
+    if (this.triangleIds.has(triangle.id)) {
+        return false;
     }
+   
+    this.triangles.set(triangle.id, triangle);
+    this.triangleIds.add(triangle.id);
+   
+    // 🔥 ВАЖНО: добавляем точки в pointIds
+    if (triangle.p1 && triangle.p1.id) this.pointIds.add(triangle.p1.id);
+    if (triangle.p2 && triangle.p2.id) this.pointIds.add(triangle.p2.id);
+    if (triangle.p3 && triangle.p3.id) this.pointIds.add(triangle.p3.id);
+   
+    this.updateBoundaries(triangle);
+    this.stats.confidences.push(triangle.confidence || 0.5);
+   
+    // Добавляем лучи из рёбер треугольника
+    const edges = triangle.edges || [
+        { v1: triangle.p1, v2: triangle.p2, externalPoint: null },
+        { v1: triangle.p2, v2: triangle.p3, externalPoint: null },
+        { v1: triangle.p3, v2: triangle.p1, externalPoint: null }
+    ];
+   
+    for (const edge of edges) {
+        if (edge.externalPoint) {
+            this.addSuccessRay(triangle, edge, edge.externalPoint);
+        }
+    }
+   
+    return true;
+}
    
     /**
      * Обновляет граничные рёбра после добавления треугольника
