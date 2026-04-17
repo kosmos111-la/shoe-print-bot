@@ -1257,6 +1257,39 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
 
     console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
 
+// 🔥 ПРИНУДИТЕЛЬНОЕ ЗАПОЛНЕНИЕ pointIds ИЗ ТРЕУГОЛЬНИКОВ
+for (const structure of structures) {
+    // Собираем pointIds из треугольников
+    if (structure.triangles && structure.triangles.size > 0) {
+        let addedCount = 0;
+        for (const tri of structure.triangles.values()) {
+            if (tri.p1?.id && !structure.pointIds.has(tri.p1.id)) {
+                structure.pointIds.add(tri.p1.id);
+                addedCount++;
+            }
+            if (tri.p2?.id && !structure.pointIds.has(tri.p2.id)) {
+                structure.pointIds.add(tri.p2.id);
+                addedCount++;
+            }
+            if (tri.p3?.id && !structure.pointIds.has(tri.p3.id)) {
+                structure.pointIds.add(tri.p3.id);
+                addedCount++;
+            }
+        }
+        if (addedCount > 0) {
+            console.log(`   🔧 Структура ${structure.id}: добавлено ${addedCount} точек в pointIds (всего ${structure.pointIds.size})`);
+        }
+    }
+   
+    // Также собираем triangleIds, если пусто
+    if (structure.triangleIds.size === 0 && structure.triangles) {
+        for (const tri of structure.triangles.values()) {
+            if (tri.id) structure.triangleIds.add(tri.id);
+        }
+        console.log(`   🔧 Структура ${structure.id}: восстановлено triangleIds: ${structure.triangleIds.size}`);
+    }
+}
+
 // 🔥 ДИАГНОСТИКА И ВОССТАНОВЛЕНИЕ pointIds
 for (const structure of structures) {
     // Проверяем, есть ли pointIds
@@ -1612,14 +1645,11 @@ if (outlineContour && !existingModel.metadata.outlineContour) {
 // Сохраняем transform и структуры
 existingModel.transform = finalTransform;
 existingModel.structures = structures.map(s => {
-    // Гарантируем, что pointIds - это массив
-    let pointIds = [];
-    if (s.pointIds) {
-        pointIds = s.pointIds instanceof Set ? Array.from(s.pointIds) : s.pointIds;
-    }
+    // Гарантируем, что pointIds не пустые
+    let pointIds = Array.from(s.pointIds || []);
    
-    // Если pointIds всё ещё пустые - пробуем собрать из треугольников
-    if (pointIds.length === 0 && s.triangles) {
+    // Если всё ещё пусто - последняя попытка собрать из треугольников
+    if (pointIds.length === 0 && s.triangles && s.triangles.size > 0) {
         const pointSet = new Set();
         for (const tri of s.triangles.values()) {
             if (tri.p1?.id) pointSet.add(tri.p1.id);
@@ -1627,14 +1657,14 @@ existingModel.structures = structures.map(s => {
             if (tri.p3?.id) pointSet.add(tri.p3.id);
         }
         pointIds = Array.from(pointSet);
-        if (this.debug && pointIds.length > 0) {
-            console.log(`      🔧 При сохранении восстановлено pointIds: ${pointIds.length} точек`);
+        if (pointIds.length > 0) {
+            console.log(`      🔧 При сохранении восстановлено pointIds: ${pointIds.length} точек для ${s.id}`);
         }
     }
    
     return {
         id: s.id,
-        triangleIds: s.triangleIds instanceof Set ? Array.from(s.triangleIds) : (s.triangleIds || []),
+        triangleIds: Array.from(s.triangleIds || []),
         pointIds: pointIds,
         transform: s.transform,
         confidence: s.calculateConfidence ? s.calculateConfidence() : 0.5,
