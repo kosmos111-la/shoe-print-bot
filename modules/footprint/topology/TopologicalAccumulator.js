@@ -178,19 +178,19 @@ if (outlineContour) {
                 console.log(`   • Граф перестроен: ${shouldRebuild ? '✅ ДА' : '❌ НЕТ'}`);
 
                 return {
-                    status: 'enhanced',
-                    modelId: modelIdHint,
-                    similarity: enhanceResult.similarity,
-                    matches: enhanceResult.matches,
-                    newNodesAdded: enhanceResult.newNodesAdded,
-                    nodesRemoved: cleanResult.removed,
-                    matchMap,
-                    modelMatchMap,
-                    transform: existingModel.transform,
-                    structures: existingModel.structures,
-                    graphRebuilt: shouldRebuild,
-                    message: `Модель улучшена: +${enhanceResult.newNodesAdded} точек`
-                };
+    status: 'enhanced',
+    modelId: modelIdHint,
+    similarity: enhanceResult.similarity,
+    matches: enhanceResult.matches,
+    newNodesAdded: enhanceResult.newNodesAdded,
+    nodesRemoved: cleanResult.removed,
+    matchMap,
+    modelMatchMap,
+    transform: enhanceResult.transform || existingModel.transform,  // <-- СНАЧАЛА ИЗ РЕЗУЛЬТАТА
+    structures: existingModel.structures,
+    graphRebuilt: shouldRebuild,
+    message: `Модель улучшена: +${enhanceResult.newNodesAdded} точек`
+};
             } else {
                 console.log(`\n⚠️ Улучшение модели не удалось: ${enhanceResult.reason}`);
                 return {
@@ -216,14 +216,16 @@ if (outlineContour) {
                 }
             );
 
-            // 🔥 Инициализируем массив контуров
-            if (outlineContour) {
-                modelData.metadata.outlineContours = [{
-                    photoId: photoId,
-                    points: outlineContour.points
-                }];
-                delete modelData.metadata.outlineContour;
-            }
+            // Инициализируем массив контуров
+if (outlineContour) {
+    modelData.metadata.outlineContours = [{
+        photoId: photoId,
+        points: outlineContour.points,
+        class: outlineContour.class || 'Outline-trail',
+        type: outlineContour.type || 'footprint_outline'
+    }];
+    delete modelData.metadata.outlineContour;
+}
 
             const model = this.modelManager.createModel(modelData);
            
@@ -405,13 +407,15 @@ if (outlineContour) {
         );
 
         // Инициализируем массив контуров
-        if (outlineContour) {
-            modelData.metadata.outlineContours = [{
-                photoId: photoId,
-                points: outlineContour.points
-            }];
-            delete modelData.metadata.outlineContour;
-        }
+if (outlineContour) {
+    modelData.metadata.outlineContours = [{
+        photoId: photoId,
+        points: outlineContour.points,
+        class: outlineContour.class || 'Outline-trail',
+        type: outlineContour.type || 'footprint_outline'
+    }];
+    delete modelData.metadata.outlineContour;
+}
 
         const newModel = this.modelManager.createModel(modelData);
         newModel.graphHash = this.graphHasher.computeGraphHash(newModel.graph);
@@ -675,12 +679,24 @@ if (outlineContour) {
 
         // 🔥 Поддержка старого и нового формата контуров
         let outlineContours = model.metadata?.outlineContours || [];
-        if (outlineContours.length === 0 && model.metadata?.outlineContour) {
-            outlineContours = [{
-                photoId: 'initial',
-                points: model.metadata.outlineContour.points
-            }];
-        }
+if (outlineContours.length === 0 && model.metadata?.outlineContour) {
+    outlineContours = [{
+        photoId: 'initial',
+        points: model.metadata.outlineContour.points,
+        class: model.metadata.outlineContour.class || 'Outline-trail',
+        type: model.metadata.outlineContour.type || 'footprint_outline'
+    }];
+}
+
+// 🔥 Исправление: создаём outlineContour с class и type
+let outlineContour = null;
+if (outlineContours.length > 0) {
+    outlineContour = {
+        points: outlineContours[0].points,
+        class: outlineContours[0].class || 'Outline-trail',
+        type: outlineContours[0].type || 'footprint_outline'
+    };
+}
 
         const rawStructures = model.structures || [];
         const pointToStructure = model.pointToStructure || new Map();
@@ -736,8 +752,8 @@ if (outlineContour) {
             structures,
             triangles: modelTriangles,
             pointToStructure,
-            outlineContours: outlineContours,  // 🔥 МАССИВ КОНТУРОВ
-            outlineContour: outlineContours[0] || null,  // для обратной совместимости
+            outlineContours: outlineContours,
+outlineContour: outlineContour,
             graphHash: model.graphHash,
             stats: {
                 totalNodes: graph.nodes.size,
