@@ -471,6 +471,32 @@ class ModelManager {
         };
     }
 
+// ==================== ПОИСК ПО ХЭШУ ====================
+
+    /**
+     * Найти модель по хэшу графа
+     */
+    findModelByHash(graphHash) {
+        for (const [id, model] of this.models) {
+            if (model.graphHash === graphHash) {
+                return model;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Найти модель по быстрому хэшу
+     */
+    findModelByQuickHash(quickHash) {
+        for (const [id, model] of this.models) {
+            if (model.quickHash === quickHash) {
+                return model;
+            }
+        }
+        return null;
+    }
+  
     // ==================== ОЧИСТКА ====================
 
     /**
