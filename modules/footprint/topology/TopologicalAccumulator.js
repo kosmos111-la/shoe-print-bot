@@ -945,7 +945,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer.checkGlobalConsistency(anchors, trianglesA, trianglesB, graphA, graphB);
     }
 
@@ -954,7 +954,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer.twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMorphology);
     }
 
@@ -963,7 +963,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     expandStructureGeometrically(structure, graphA, graphB, morphologyMap, modelMorphology) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._expandStructureGeometrically(structure, graphA, graphB, morphologyMap, modelMorphology);
     }
 
@@ -972,7 +972,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     mergeDuplicatePoints(graph, threshold = 5) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer.mergeDuplicatePoints(graph, threshold);
     }
 
@@ -981,7 +981,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     getBoundaryEdgesFromStructure(structure) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._getBoundaryEdgesFromStructure(structure);
     }
 
@@ -990,7 +990,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     findNeighborTriangleInGraph(edge, allTriangles, structure) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+       const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._findNeighborTriangleInGraph(edge, allTriangles, structure);
     }
 
@@ -999,7 +999,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     findCommonEdgeInTriangle(triangle, structure) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._findCommonEdgeInTriangle(triangle, structure);
     }
 
@@ -1008,7 +1008,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     compareTrianglesGeometrically(tPhoto, tModel, structure) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._compareTrianglesGeometrically(tPhoto, tModel, structure);
     }
 
@@ -1017,7 +1017,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     findNearestModelPoint(point, graphB, threshold = 15) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._findNearestModelPoint(point, graphB, threshold);
     }
 
@@ -1026,7 +1026,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology);
     }
 
@@ -1035,7 +1035,7 @@ class TopologicalAccumulator {
      * @deprecated Используйте ModelEnhancer напрямую
      */
     getModelPointFromStructure(pointId, structure) {
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
         return enhancer._getModelPointFromStructure(pointId, structure);
     }
 
@@ -1126,7 +1126,7 @@ class TopologicalAccumulator {
         const contours = options.contours || [];
         const outlineContour = contours.find(c => c.class === 'Outline-trail' || c.type === 'footprint_outline');
 
-        const enhancer = this.graphProcessor._getModelEnhancer();
+        const enhancer = this.graphProcessor.getModelEnhancer();
        
         return await enhancer.enhance(
             model,
