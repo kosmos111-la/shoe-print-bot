@@ -1753,6 +1753,70 @@ existingModel.structures = structures.map(s => {
     };
 });
 
+// ===== ПРИНУДИТЕЛЬНОЕ ВЫРАВНИВАНИЕ МОДЕЛИ ПО ЯКОРЯМ =====
+if (anchorsForValidation.length >= 3 && finalTransform) {
+    console.log(`\n🔧 ПРИНУДИТЕЛЬНОЕ ВЫРАВНИВАНИЕ МОДЕЛИ ПО ${anchorsForValidation.length} ЯКОРЯМ...`);
+   
+    // Собираем пары фото-модель
+    const pairs = [];
+    for (const anchor of anchorsForValidation) {
+        const photoPoint = newExactGraph.nodes.get(anchor.pointA);
+        const modelPoint = existingModel.graph.nodes.get(anchor.pointB);
+        if (photoPoint && modelPoint) {
+            pairs.push({ photo: photoPoint, model: modelPoint, confidence: anchor.confidence });
+        }
+    }
+   
+    if (pairs.length >= 3) {
+        // Вычисляем, куда должны попадать фото-точки после трансформации
+        let totalOffsetX = 0, totalOffsetY = 0, totalWeight = 0;
+       
+        for (const pair of pairs) {
+            // Проецируем фото-точку через текущий transform
+            const projected = {
+                x: pair.photo.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+                   pair.photo.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                   finalTransform.translation.x,
+                y: pair.photo.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+                   pair.photo.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+                   finalTransform.translation.y
+            };
+           
+            // Смещение между проекцией и реальной точкой модели
+            const dx = pair.model.x - projected.x;
+            const dy = pair.model.y - projected.y;
+            const weight = pair.confidence;
+           
+            totalOffsetX += dx * weight;
+            totalOffsetY += dy * weight;
+            totalWeight += weight;
+        }
+       
+        const avgOffsetX = totalWeight > 0 ? totalOffsetX / totalWeight : 0;
+        const avgOffsetY = totalWeight > 0 ? totalOffsetY / totalWeight : 0;
+       
+        console.log(`   📊 Среднее смещение модели относительно проекции: dx=${avgOffsetX.toFixed(2)}px, dy=${avgOffsetY.toFixed(2)}px`);
+       
+        if (Math.abs(avgOffsetX) > 0.5 || Math.abs(avgOffsetY) > 0.5) {
+            // 🔥 СМЕЩАЕМ ВСЮ МОДЕЛЬ!
+            let movedPoints = 0;
+            for (const [id, node] of existingModel.graph.nodes) {
+                node.x += avgOffsetX;
+                node.y += avgOffsetY;
+                movedPoints++;
+            }
+            console.log(`   ✅ Смещена вся модель: ${movedPoints} точек (сдвиг компенсирован)`);
+           
+            // Корректируем transform в обратную сторону
+            finalTransform.translation.x -= avgOffsetX;
+            finalTransform.translation.y -= avgOffsetY;
+            console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+        } else {
+            console.log(`   ✅ Смещение минимально, коррекция не требуется`);
+        }
+    }
+}
+ 
 // ===== 🔥 ВАЖНО: Сохраняем уникальные точки фото ПОСЛЕ всех обновлений finalTransform =====
 const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
 const unmatchedPhotoPointsForModel = originalPoints.filter(p => !finalMatchedPointsA.has(p.id));
