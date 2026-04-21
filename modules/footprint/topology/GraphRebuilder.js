@@ -190,20 +190,25 @@ class GraphRebuilder {
      * Проверяет, нужно ли перестраивать граф
      */
     shouldRebuild(model, newPointsCount) {
-        // Перестраиваем, если:
-        // 1. Добавлено больше 5 новых точек
-        if (newPointsCount >= 5) return true;
-       
-        // 2. Общее количество точек изменилось более чем на 10%
-        const totalPoints = model.graph?.nodes?.size || 0;
-        if (totalPoints > 0 && newPointsCount / totalPoints > 0.1) return true;
-       
-        // 3. Прошло больше 3 фото с последнего перестроения
-        const photosSinceRebuild = (model.metadata?.photoCount || 0) - (model.metadata?.lastRebuildPhotoCount || 0);
-        if (photosSinceRebuild >= 3) return true;
-
-        return false;
+    // 🔥 ВСЕГДА перестраиваем, если добавилась хотя бы ОДНА новая точка
+    if (newPointsCount >= 1) {
+        if (this.debug) {
+            console.log(`   🔄 shouldRebuild: добавлено ${newPointsCount} новых точек → перестраиваем`);
+        }
+        return true;
     }
+   
+    // Дополнительные условия (если новых точек нет, но прошло много фото)
+    const photosSinceLastRebuild = (model.metadata?.photoCount || 0) - (model.metadata?.lastRebuildPhotoCount || 0);
+    if (photosSinceLastRebuild >= 5) {
+        if (this.debug) {
+            console.log(`   🔄 shouldRebuild: прошло ${photosSinceLastRebuild} фото с последнего перестроения → перестраиваем`);
+        }
+        return true;
+    }
+
+    return false;
+}
 
     /**
      * Получить статистику перестроений
