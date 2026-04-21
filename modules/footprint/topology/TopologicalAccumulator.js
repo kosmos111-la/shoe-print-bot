@@ -109,23 +109,27 @@ class TopologicalAccumulator {
                 existingModel.metadata.photoCount = (existingModel.metadata.photoCount || 1) + 1;
                
                 // 🔥 ДОБАВЛЯЕМ КОНТУР В МАССИВ
-                if (outlineContour) {
-                    if (!existingModel.metadata.outlineContours) {
-                        existingModel.metadata.outlineContours = [];
-                        // Переносим старый контур, если он был
-                        if (existingModel.metadata.outlineContour) {
-                            existingModel.metadata.outlineContours.push({
-                                photoId: 'initial',
-                                points: existingModel.metadata.outlineContour.points
-                            });
-                            delete existingModel.metadata.outlineContour;
-                        }
-                    }
-                    existingModel.metadata.outlineContours.push({
-                        photoId: photoId,
-                        points: outlineContour.points
-                    });
-                }
+                // При добавлении контура в существующую модель
+if (outlineContour) {
+    if (!existingModel.metadata.outlineContours) {
+        existingModel.metadata.outlineContours = [];
+        if (existingModel.metadata.outlineContour) {
+            existingModel.metadata.outlineContours.push({
+                photoId: 'initial',
+                points: existingModel.metadata.outlineContour.points,
+                class: existingModel.metadata.outlineContour.class || 'Outline-trail',
+                type: existingModel.metadata.outlineContour.type || 'footprint_outline'
+            });
+            delete existingModel.metadata.outlineContour;
+        }
+    }
+    existingModel.metadata.outlineContours.push({
+        photoId: photoId,
+        points: outlineContour.points,
+        class: outlineContour.class || 'Outline-trail',
+        type: outlineContour.type || 'footprint_outline'
+    });
+}
 
                 this.stats.triangleMatchesCount += enhanceResult.matches?.length || 0;
                 this.modelManager.incrementEnhancements();
