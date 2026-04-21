@@ -1697,10 +1697,41 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForVal
 }
 
  
-    // ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ =====
+// ===== СОХРАНЯЕМ УНИКАЛЬНЫЕ ТОЧКИ ФОТО =====
+const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
+const unmatchedPhotoPointsForModel = originalPoints.filter(p => !finalMatchedPointsA.has(p.id));
+console.log(`   📸 Несопоставленных точек фото для добавления в модель: ${unmatchedPhotoPointsForModel.length}`);
+
+const uniquePhotoPoints = unmatchedPhotoPointsForModel.map(p => {
+    const projected = {
+        x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+           p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+           finalTransform.translation.x,
+        y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+           p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+           finalTransform.translation.y
+    };
+  
+    return {
+        id: p.id,
+        x: projected.x,
+        y: projected.y,
+        type: 'unique_in_photo'
+    };
+});
+
+this.lastUniqueInPhoto = uniquePhotoPoints;
+
+// ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ (ПЕРЕДАЁМ uniquePhotoPoints ЯВНО) =====
 console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
-const updateResult = this._updateModel(existingModel, newExactGraph, finalValidatedMatches, newMorphology);
+const updateResult = this._updateModel(
+    existingModel,
+    newExactGraph,
+    finalValidatedMatches,
+    newMorphology,
+    uniquePhotoPoints  // ← ПЕРЕДАЁМ ЯВНО
+);
 
 // Слияние дубликатов
 const mergedCount = this.mergeDuplicatePoints(existingModel.graph, 5);
@@ -1719,7 +1750,7 @@ existingModel.transform = finalTransform;
 existingModel.structures = structures.map(s => {
     // Гарантируем, что pointIds не пустые
     let pointIds = Array.from(s.pointIds || []);
-   
+  
     // Если всё ещё пусто - последняя попытка собрать из треугольников
     if (pointIds.length === 0 && s.triangles && s.triangles.size > 0) {
         const pointSet = new Set();
@@ -1733,7 +1764,7 @@ existingModel.structures = structures.map(s => {
             console.log(`      🔧 При сохранении восстановлено pointIds: ${pointIds.length} точек для ${s.id}`);
         }
     }
-   
+  
     return {
         id: s.id,
         triangleIds: Array.from(s.triangleIds || []),
@@ -1756,7 +1787,7 @@ existingModel.structures = structures.map(s => {
 // ===== ПРИНУДИТЕЛЬНОЕ ВЫРАВНИВАНИЕ МОДЕЛИ ПО ЯКОРЯМ =====
 if (anchorsForValidation.length >= 3 && finalTransform) {
     console.log(`\n🔧 ПРИНУДИТЕЛЬНОЕ ВЫРАВНИВАНИЕ МОДЕЛИ ПО ${anchorsForValidation.length} ЯКОРЯМ...`);
-   
+  
     // Собираем пары фото-модель
     const pairs = [];
     for (const anchor of anchorsForValidation) {
@@ -1766,11 +1797,11 @@ if (anchorsForValidation.length >= 3 && finalTransform) {
             pairs.push({ photo: photoPoint, model: modelPoint, confidence: anchor.confidence });
         }
     }
-   
+  
     if (pairs.length >= 3) {
         // Вычисляем, куда должны попадать фото-точки после трансформации
         let totalOffsetX = 0, totalOffsetY = 0, totalWeight = 0;
-       
+      
         for (const pair of pairs) {
             // Проецируем фото-точку через текущий transform
             const projected = {
@@ -1781,22 +1812,22 @@ if (anchorsForValidation.length >= 3 && finalTransform) {
                    pair.photo.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
                    finalTransform.translation.y
             };
-           
+          
             // Смещение между проекцией и реальной точкой модели
             const dx = pair.model.x - projected.x;
             const dy = pair.model.y - projected.y;
             const weight = pair.confidence;
-           
+          
             totalOffsetX += dx * weight;
             totalOffsetY += dy * weight;
             totalWeight += weight;
         }
-       
+      
         const avgOffsetX = totalWeight > 0 ? totalOffsetX / totalWeight : 0;
         const avgOffsetY = totalWeight > 0 ? totalOffsetY / totalWeight : 0;
-       
+      
         console.log(`   📊 Среднее смещение модели относительно проекции: dx=${avgOffsetX.toFixed(2)}px, dy=${avgOffsetY.toFixed(2)}px`);
-       
+      
         if (Math.abs(avgOffsetX) > 0.5 || Math.abs(avgOffsetY) > 0.5) {
             // 🔥 СМЕЩАЕМ ВСЮ МОДЕЛЬ!
             let movedPoints = 0;
@@ -1806,7 +1837,7 @@ if (anchorsForValidation.length >= 3 && finalTransform) {
                 movedPoints++;
             }
             console.log(`   ✅ Смещена вся модель: ${movedPoints} точек (сдвиг компенсирован)`);
-           
+          
             // Корректируем transform в обратную сторону
             finalTransform.translation.x -= avgOffsetX;
             finalTransform.translation.y -= avgOffsetY;
@@ -1816,36 +1847,6 @@ if (anchorsForValidation.length >= 3 && finalTransform) {
         }
     }
 }
- 
-// ===== 🔥 ВАЖНО: Сохраняем уникальные точки фото ПОСЛЕ всех обновлений finalTransform =====
-const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
-const unmatchedPhotoPointsForModel = originalPoints.filter(p => !finalMatchedPointsA.has(p.id));
-console.log(`   📸 Несопоставленных точек фото для добавления в модель: ${unmatchedPhotoPointsForModel.length}`);
-
-this.lastUniqueInPhoto = unmatchedPhotoPointsForModel.map(p => {
-    const projected = {
-        x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-           p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-           finalTransform.translation.x,
-        y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-           p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-           finalTransform.translation.y
-    };
-   
-    // Диагностика первой точки
-    if (this.debug && this.lastUniqueInPhoto?.length === 0) {
-        console.log(`      Пример трансформации для добавления:`);
-        console.log(`         Исходная: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
-        console.log(`         После: (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)})`);
-    }
-   
-    return {
-        id: p.id,
-        x: projected.x,
-        y: projected.y,
-        type: 'unique_in_photo'
-    };
-});
 
 // Статистика
 const confirmedInModel = finalValidatedMatches?.length || 0;
@@ -1867,7 +1868,7 @@ this.stats.magneticPulls += 1;
 const serializedStructures = structures.map(s => {
     // Собираем pointIds из треугольников, если их нет
     let pointIds = Array.from(s.pointIds || []);
-   
+  
     if (pointIds.length === 0 && s.triangles && s.triangles.size > 0) {
         const pointSet = new Set();
         for (const tri of s.triangles.values()) {
@@ -1878,7 +1879,7 @@ const serializedStructures = structures.map(s => {
         pointIds = Array.from(pointSet);
         console.log(`   🔧 Сериализация: для ${s.id} собрано ${pointIds.length} точек из треугольников`);
     }
-   
+  
     return {
         id: s.id,
         triangleIds: Array.from(s.triangleIds || []),
@@ -1905,9 +1906,9 @@ return {
     newNodesAdded: updateResult.newNodesAdded,
     mergedCount: mergedCount,
     similarity: triangleResult.similarity,
-    structures: serializedStructures,  // ← сериализованные структуры с pointIds
+    structures: serializedStructures,
     stats: this.stats,
-    uniquePhotoPoints: this.lastUniqueInPhoto
+    uniquePhotoPoints: uniquePhotoPoints
 };
 }
  
@@ -1974,7 +1975,7 @@ _validateMatches(matches, graphA, graphB, morphologyMap, modelMorphology) {
 /**
 * Обновление модели новыми соответствиями
 */
-_updateModel(model, newGraph, matches, newMorphology) {
+_updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) {
     let confirmedExisting = 0;
     let newNodesAdded = 0;
 
@@ -1986,16 +1987,17 @@ _updateModel(model, newGraph, matches, newMorphology) {
         }
     }
 
-    // 🔥 ВАЖНО: lastUniqueInPhoto уже содержит трансформированные координаты
-    // НЕ ПРИМЕНЯЕМ ТРАНСФОРМАЦИЮ ПОВТОРНО!
-    if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0) {
-        console.log(`   📸 Добавляем ${this.lastUniqueInPhoto.length} новых точек в модель (уже трансформированных)`);
-       
-        for (const photoPoint of this.lastUniqueInPhoto) {
+    // 🔥 Используем переданный параметр или fallback на this.lastUniqueInPhoto
+    const pointsToAdd = uniquePhotoPoints || this.lastUniqueInPhoto || [];
+   
+    if (pointsToAdd.length > 0) {
+        console.log(`   📸 Добавляем ${pointsToAdd.length} новых точек в модель (уже трансформированных)`);
+      
+        for (const photoPoint of pointsToAdd) {
             // Проверка на дубликат
             let isDuplicate = false;
             let closestDist = Infinity;
-           
+          
             for (const [modelId, modelNode] of model.graph.nodes) {
                 const dist = GeometryUtils.distance(modelNode, photoPoint);
                 closestDist = Math.min(closestDist, dist);
@@ -2004,7 +2006,7 @@ _updateModel(model, newGraph, matches, newMorphology) {
                     break;
                 }
             }
-           
+          
             if (!isDuplicate) {
                 const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
                 model.graph.nodes.set(newNodeId, {
@@ -2018,7 +2020,7 @@ _updateModel(model, newGraph, matches, newMorphology) {
                     originalPhotoId: photoPoint.id
                 });
                 newNodesAdded++;
-               
+              
                 if (this.debug && newNodesAdded <= 3) {
                     console.log(`      ✅ Добавлена точка: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
                 }
@@ -2026,7 +2028,7 @@ _updateModel(model, newGraph, matches, newMorphology) {
                 console.log(`      ⏭️ Пропущен дубликат: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [dist=${closestDist.toFixed(1)}px]`);
             }
         }
-       
+      
         console.log(`   📊 Добавлено новых узлов: ${newNodesAdded}`);
     }
 
