@@ -272,6 +272,20 @@ class GraphProcessor {
         return points;
     }
 
+ /**
+     * Получить RoleClassifier
+     */
+    getRoleClassifier() {
+        return this.roleClassifier;
+    }
+
+/**
+     * Получить экземпляр ModelEnhancer
+     */
+    getModelEnhancer() {
+        return this._getModelEnhancer();
+    }
+  
     // ==================== СТАТИСТИКА ====================
 
     /**
