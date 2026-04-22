@@ -1416,11 +1416,6 @@ for (const structure of structures) {
 
 console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
 
-// 🔥 ВЫВОДИМ КОНТРОЛЬНЫЕ ТОЧКИ ДЛЯ ДИАГНОСТИКИ (теперь finalValidatedMatches уже заполнен)
-if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
-    this._logControlPoints(finalValidatedMatches, newExactGraph, existingModel.graph, finalTransform);
-}
-
 // ===== ШАГ 10: ФИНАЛЬНОЕ ПРИТЯГИВАНИЕ =====
 if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
     if (finalTransform && finalValidatedMatches.length > 0) {
@@ -1700,7 +1695,13 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForVal
         console.log(`   ⚠️ Недостаточно якорей для коррекции (нужно минимум 3, есть ${anchorPairs.length})`);
     }
 }
-
+ 
+// 🔥 ВЫВОДИМ КОНТРОЛЬНЫЕ ТОЧКИ ПОСЛЕ ВСЕХ КОРРЕКЦИЙ
+if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
+    console.log(`\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ (ПОСЛЕ ВСЕХ КОРРЕКЦИЙ):`);
+    this._logControlPoints(finalValidatedMatches, newExactGraph, existingModel.graph, finalTransform);
+}
+ 
  
 // ===== СОХРАНЯЕМ УНИКАЛЬНЫЕ ТОЧКИ ФОТО С КЛАСТЕРНОЙ ТРАНСФОРМАЦИЕЙ =====
 const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
