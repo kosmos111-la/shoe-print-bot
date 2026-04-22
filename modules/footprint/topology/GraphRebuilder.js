@@ -109,47 +109,52 @@ class GraphRebuilder {
      * Извлекает все точки из модели в плоский массив
      */
     extractAllPoints(model) {
-        const points = [];
-       
-        if (!model.graph || !model.graph.nodes) {
-            return points;
-        }
-
-        for (const [nodeId, node] of model.graph.nodes) {
-            const morph = model.morphologyMap?.get(nodeId) || {};
-
-            points.push({
-                id: nodeId,
-                x: node.x,
-                y: node.y,
-                confidence: node.confidence || 0.5,
-                confirmationCount: node.confirmationCount || 1,
-                addedFrom: node.addedFrom || 'unknown',
-                addedAt: node.addedAt,
-                originalPhotoId: node.originalPhotoId,
-
-                // Морфология
-                morphology: {
-                    compactness: morph.compactness || node.compactness,
-                    eccentricity: morph.eccentricity || node.eccentricity,
-                    orientation: morph.orientation || node.orientation,
-                    normalizedArea: morph.normalizedArea || node.normalizedArea,
-                    radialProfile: morph.radialProfile || node.radialProfile,
-                    asymmetry: morph.asymmetry || node.asymmetry,
-                    hasContour: morph.hasContour || node.hasContour
-                },
-
-                // Топология
-                degree: node.degree || 0,
-                triangles: node.triangles || 0,
-                role: node.role,
-                clusterId: node.clusterId,
-                patternType: node.patternType
-            });
-        }
-
+    const points = [];
+   
+    if (!model.graph || !model.graph.nodes) {
         return points;
     }
+
+    for (const [nodeId, node] of model.graph.nodes) {
+        const morph = model.morphologyMap?.get(nodeId) || {};
+
+        points.push({
+            id: nodeId,
+            x: node.x,
+            y: node.y,
+            confidence: node.confidence || 0.5,
+            // 🔥 КРИТИЧНО: confirmationCount из узла
+            confirmationCount: node.confirmationCount || 1,
+            addedFrom: node.addedFrom || 'unknown',
+            addedAt: node.addedAt || new Date(),
+            originalPhotoId: node.originalPhotoId || nodeId,
+
+            // 🔥 ПОЛНАЯ МОРФОЛОГИЯ (сохраняем как объект)
+            morphology: {
+                compactness: morph.compactness ?? node.compactness,
+                eccentricity: morph.eccentricity ?? node.eccentricity,
+                orientation: morph.orientation ?? node.orientation,
+                normalizedArea: morph.normalizedArea ?? node.normalizedArea,
+                radialProfile: morph.radialProfile || node.radialProfile || [0,0,0,0,0,0,0,0],
+                asymmetry: morph.asymmetry ?? node.asymmetry ?? 0,
+                hasContour: morph.hasContour ?? node.hasContour ?? false,
+                rawArea: morph.rawArea,
+                logArea: morph.logArea,
+                contour: morph.contour || null
+            },
+
+            // Топология
+            degree: node.degree || 0,
+            triangles: node.triangles || 0,
+            role: node.role,
+            clusterId: node.clusterId,
+            patternType: node.patternType,
+            structureId: node.structureId
+        });
+    }
+
+    return points;
+}
 
     /**
      * Восстанавливает граф из сохранённых точек (при загрузке модели)
