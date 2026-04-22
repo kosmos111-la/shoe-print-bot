@@ -23,9 +23,9 @@ class ValidationModule {
      * @returns {Object} - преобразование {scale, rotation, translation}
      */
     calculateTransform(anchors, graphA, graphB) {
-        if (this.debug) {
+      //  if (this.debug) {
             console.log(`\n📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО ${anchors.length} ЯКОРЯМ`);
-        }
+      //  }
       
         if (anchors.length < 2) {
             console.log(`   ⚠️ Недостаточно якорей (нужно минимум 2)`);
@@ -130,7 +130,7 @@ class ValidationModule {
             translation
         };
 
-        if (this.debug) {
+      //  if (this.debug) {
             console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:`);
             console.log(`   • Масштаб: ${scale.toFixed(3)}`);
             console.log(`   • Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
@@ -142,7 +142,7 @@ class ValidationModule {
                 y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
             };
             console.log(`   • Сдвиг (старый метод): (${oldTranslation.x.toFixed(1)}, ${oldTranslation.y.toFixed(1)})`);
-        }
+       // }
 
         return transform;
     }
