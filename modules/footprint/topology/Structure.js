@@ -200,35 +200,35 @@ addTriangle(triangle) {
      * Возвращает все якоря (пары точек) из структуры
      */
     getAnchors() {
-        const anchors = [];
-        for (const triangle of this.triangles.values()) {
-            if (triangle.p1 && triangle.pB1) {
-                anchors.push({
-                    pointA: triangle.p1.id,
-                    pointB: triangle.pB1.id,
-                    confidence: triangle.confidence || 0.5,
-                    triangleId: triangle.id
-                });
-            }
-            if (triangle.p2 && triangle.pB2) {
-                anchors.push({
-                    pointA: triangle.p2.id,
-                    pointB: triangle.pB2.id,
-                    confidence: triangle.confidence || 0.5,
-                    triangleId: triangle.id
-                });
-            }
-            if (triangle.p3 && triangle.pB3) {
-                anchors.push({
-                    pointA: triangle.p3.id,
-                    pointB: triangle.pB3.id,
-                    confidence: triangle.confidence || 0.5,
-                    triangleId: triangle.id
-                });
-            }
+    const anchors = [];
+    for (const triangle of this.triangles.values()) {
+        if (triangle.p1 && triangle.pB1) {
+            anchors.push({
+                pointA: triangle.p1.id,
+                pointB: triangle.pB1.id,
+                confidence: triangle.confidence || 0.5,
+                triangleId: triangle.id
+            });
         }
-        return anchors;
+        if (triangle.p2 && triangle.pB2) {
+            anchors.push({
+                pointA: triangle.p2.id,
+                pointB: triangle.pB2.id,
+                confidence: triangle.confidence || 0.5,
+                triangleId: triangle.id
+            });
+        }
+        if (triangle.p3 && triangle.pB3) {
+            anchors.push({
+                pointA: triangle.p3.id,
+                pointB: triangle.pB3.id,
+                confidence: triangle.confidence || 0.5,
+                triangleId: triangle.id
+            });
+        }
     }
+    return anchors;
+}
    
     /**
      * Вычисляет transform структуры по всем её точкам
