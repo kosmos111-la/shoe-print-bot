@@ -2146,22 +2146,30 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
             }
           
             if (!isDuplicate) {
-                const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
-                model.graph.nodes.set(newNodeId, {
-                    id: newNodeId,
-                    x: photoPoint.x,  // ← УЖЕ трансформировано, просто используем
-                    y: photoPoint.y,
-                    degree: 0,
-                    confirmationCount: 1,
-                    addedFrom: 'new_photo_point',
-                    addedAt: new Date(),
-                    originalPhotoId: photoPoint.id
-                });
-                newNodesAdded++;
-              
-                if (this.debug && newNodesAdded <= 3) {
-                    console.log(`      ✅ Добавлена точка: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
-                }
+    const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+    model.graph.nodes.set(newNodeId, {
+        id: newNodeId,
+        x: photoPoint.x,
+        y: photoPoint.y,
+        degree: 0,
+        triangles: 0,
+        confirmationCount: 1,  // 🔥 Новая точка — 1 подтверждение
+        addedFrom: 'new_photo_point',
+        addedAt: new Date(),
+        originalPhotoId: photoPoint.id,
+       
+        // 🔥 Сохраняем source структуры и трансформации
+        structureId: photoPoint.structureId || null,
+        transformSource: photoPoint.transformSource || 'unknown',
+       
+        // Морфология (если есть)
+        morphology: photoPoint.morphology || {}
+    });
+    newNodesAdded++;
+   
+    if (this.debug && newNodesAdded <= 3) {
+        console.log(`      ✅ Добавлена точка: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [confirmation=1, structure=${photoPoint.structureId || 'none'}]`);
+    }
             } else if (this.debug) {
                 console.log(`      ⏭️ Пропущен дубликат: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [dist=${closestDist.toFixed(1)}px]`);
             }
