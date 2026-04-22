@@ -26,7 +26,7 @@ class ValidationModule {
         if (this.debug) {
             console.log(`\n📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО ${anchors.length} ЯКОРЯМ`);
         }
-       
+      
         if (anchors.length < 2) {
             console.log(`   ⚠️ Недостаточно якорей (нужно минимум 2)`);
             return null;
@@ -34,13 +34,13 @@ class ValidationModule {
 
         const pointsA = [];
         const pointsB = [];
-       
+      
         for (const anchor of anchors) {
             const nodeA = graphA.nodes.get(anchor.pointA);
             const nodeB = graphB.nodes.get(anchor.pointB);
-           
+          
             if (!nodeA || !nodeB) continue;
-           
+          
             pointsA.push({ x: nodeA.x, y: nodeA.y });
             pointsB.push({ x: nodeB.x, y: nodeB.y });
         }
@@ -55,62 +55,93 @@ class ValidationModule {
 
         let scaleSum = 0;
         let scaleCount = 0;
-       
+      
         for (let i = 0; i < pointsA.length; i++) {
             for (let j = i + 1; j < pointsA.length; j++) {
                 const distA = GeometryUtils.distance(pointsA[i], pointsA[j]);
                 const distB = GeometryUtils.distance(pointsB[i], pointsB[j]);
-               
+              
                 if (distA > 0 && distB > 0) {
                     scaleSum += distB / distA;
                     scaleCount++;
                 }
             }
         }
-       
+      
         const scale = scaleCount > 0 ? scaleSum / scaleCount : 1.0;
-       
+      
         let rotation = 0;
         if (pointsA.length >= 2) {
             const centeredA = pointsA.map(p => ({
                 x: p.x - centerA.x,
                 y: p.y - centerA.y
             }));
-           
+          
             const centeredB = pointsB.map(p => ({
                 x: p.x - centerB.x,
                 y: p.y - centerB.y
             }));
-           
+          
             let sinSum = 0, cosSum = 0;
-           
+          
             for (let i = 0; i < centeredA.length; i++) {
                 const scaledA = {
                     x: centeredA[i].x * scale,
                     y: centeredA[i].y * scale
                 };
-               
+              
                 sinSum += scaledA.x * centeredB[i].y - scaledA.y * centeredB[i].x;
                 cosSum += scaledA.x * centeredB[i].x + scaledA.y * centeredB[i].y;
             }
-           
+          
             rotation = Math.atan2(sinSum, cosSum);
         }
+
+        // 🔥 НОВЫЙ СПОСОБ ВЫЧИСЛЕНИЯ СДВИГА: среднее смещение всех точек после трансформации
+        let totalDx = 0;
+        let totalDy = 0;
+        let validPoints = 0;
+
+        for (let i = 0; i < pointsA.length; i++) {
+            const pA = pointsA[i];
+            const pB = pointsB[i];
+           
+            // Применяем масштаб и поворот к точке фото
+            const rotatedX = pA.x * scale * Math.cos(rotation) - pA.y * scale * Math.sin(rotation);
+            const rotatedY = pA.x * scale * Math.sin(rotation) + pA.y * scale * Math.cos(rotation);
+           
+            // Смещение для этой точки
+            const dx = pB.x - rotatedX;
+            const dy = pB.y - rotatedY;
+           
+            totalDx += dx;
+            totalDy += dy;
+            validPoints++;
+        }
+
+        const translation = {
+            x: validPoints > 0 ? totalDx / validPoints : centerB.x - centerA.x,
+            y: validPoints > 0 ? totalDy / validPoints : centerB.y - centerA.y
+        };
 
         const transform = {
             scale,
             rotation,
-            translation: {
-                x: centerB.x - (centerA.x * scale * Math.cos(rotation) - centerA.y * scale * Math.sin(rotation)),
-                y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
-            }
+            translation
         };
 
         if (this.debug) {
             console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:`);
             console.log(`   • Масштаб: ${scale.toFixed(3)}`);
             console.log(`   • Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
-            console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
+            console.log(`   • Сдвиг (новый метод): (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
+           
+            // Для сравнения покажем старый метод
+            const oldTranslation = {
+                x: centerB.x - (centerA.x * scale * Math.cos(rotation) - centerA.y * scale * Math.sin(rotation)),
+                y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
+            };
+            console.log(`   • Сдвиг (старый метод): (${oldTranslation.x.toFixed(1)}, ${oldTranslation.y.toFixed(1)})`);
         }
 
         return transform;
