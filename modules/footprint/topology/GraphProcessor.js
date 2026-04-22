@@ -203,25 +203,33 @@ class GraphProcessor {
      * Улучшить существующую модель новым фото
      */
     async enhanceModel(existingModel, newGraphs, originalPoints, options = {}) {
-        const { exactGraph, morphologyMap } = newGraphs;
-        const { photoId, contours, outlineContour } = options;
-       
-        if (this.debug) {
-            console.log(`🔷 GraphProcessor: улучшение модели ${existingModel.id?.substring(0, 12)}...`);
-        }
-       
-        const enhancer = this._getModelEnhancer();
-       
-        const result = await enhancer.enhance(
-            existingModel,
-            exactGraph,
-            morphologyMap,
-            originalPoints,
-            { photoId, contours, outlineContour, fastMode: this.fastMode }
-        );
-       
-        return result;
+    const { exactGraph, morphologyMap } = newGraphs;
+    const { photoId, contours, outlineContour } = options;
+   
+    if (this.debug) {
+        console.log(`🔷 GraphProcessor: улучшение модели ${existingModel.id?.substring(0, 12)}...`);
     }
+   
+    const enhancer = this._getModelEnhancer();
+   
+    const result = await enhancer.enhance(
+        existingModel,
+        exactGraph,
+        morphologyMap,
+        originalPoints,
+        { photoId, contours, outlineContour, fastMode: this.fastMode }
+    );
+   
+    // 🔥 ЛОГ: какой transform проходит через GraphProcessor
+    if (result.success && result.transform) {
+        console.log(`📤 GraphProcessor ПРОПУСКАЕТ TRANSFORM:`);
+        console.log(`   • Масштаб: ${result.transform.scale.toFixed(3)}`);
+        console.log(`   • Поворот: ${(result.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+        console.log(`   • Сдвиг: (${result.transform.translation.x.toFixed(1)}, ${result.transform.translation.y.toFixed(1)})`);
+    }
+   
+    return result;
+}
 
     // ==================== СРАВНЕНИЕ ГРАФОВ ====================
 
