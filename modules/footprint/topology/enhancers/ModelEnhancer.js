@@ -1396,8 +1396,12 @@ for (const structure of structures) {
         };
     }
 
-    // ===== ШАГ 10: ФИНАЛЬНОЕ ПРИТЯГИВАНИЕ =====
-    if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
+    if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
+    this._logControlPoints(finalValidatedMatches, newExactGraph, existingModel.graph, finalTransform);
+}
+
+// ===== ШАГ 10: ФИНАЛЬНОЕ ПРИТЯГИВАНИЕ =====
+if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
 
     let finalValidatedMatches = [];
 
@@ -1922,66 +1926,51 @@ existingModel.structures = structures.map(s => {
     };
 });
 
-// ===== ПРИНУДИТЕЛЬНОЕ ВЫРАВНИВАНИЕ МОДЕЛИ ПО ЯКОРЯМ =====
+// ===== КОРРЕКЦИЯ ТРАНСФОРМАЦИИ (БЕЗ СМЕЩЕНИЯ МОДЕЛИ) =====
+// 🔥 МОДЕЛЬ ОСТАЁТСЯ НЕПОДВИЖНОЙ! Корректируем только transform.
 if (anchorsForValidation.length >= 3 && finalTransform) {
-    console.log(`\n🔧 ПРИНУДИТЕЛЬНОЕ ВЫРАВНИВАНИЕ МОДЕЛИ ПО ${anchorsForValidation.length} ЯКОРЯМ...`);
-  
+    console.log(`\n🔧 КОРРЕКЦИЯ ТРАНСФОРМАЦИИ ПО ${anchorsForValidation.length} ЯКОРЯМ (модель неподвижна)...`);
+   
     // Собираем пары фото-модель
     const pairs = [];
     for (const anchor of anchorsForValidation) {
         const photoPoint = newExactGraph.nodes.get(anchor.pointA);
         const modelPoint = existingModel.graph.nodes.get(anchor.pointB);
         if (photoPoint && modelPoint) {
-            pairs.push({ photo: photoPoint, model: modelPoint, confidence: anchor.confidence });
+            pairs.push({ photo: photoPoint, model: modelPoint, confidence: anchor.confidence || 0.5 });
         }
     }
-  
+   
     if (pairs.length >= 3) {
-        // Вычисляем, куда должны попадать фото-точки после трансформации
         let totalOffsetX = 0, totalOffsetY = 0, totalWeight = 0;
-      
+       
         for (const pair of pairs) {
             // Проецируем фото-точку через текущий transform
-            const projected = {
-                x: pair.photo.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-                   pair.photo.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                   finalTransform.translation.x,
-                y: pair.photo.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-                   pair.photo.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-                   finalTransform.translation.y
-            };
-          
-            // Смещение между проекцией и реальной точкой модели
+            const projected = GeometryUtils.applyTransform(pair.photo, finalTransform);
+           
+            // Ошибка трансформации
             const dx = pair.model.x - projected.x;
             const dy = pair.model.y - projected.y;
             const weight = pair.confidence;
-          
+           
             totalOffsetX += dx * weight;
             totalOffsetY += dy * weight;
             totalWeight += weight;
         }
-      
+       
         const avgOffsetX = totalWeight > 0 ? totalOffsetX / totalWeight : 0;
         const avgOffsetY = totalWeight > 0 ? totalOffsetY / totalWeight : 0;
-      
-        console.log(`   📊 Среднее смещение модели относительно проекции: dx=${avgOffsetX.toFixed(2)}px, dy=${avgOffsetY.toFixed(2)}px`);
-      
+       
+        console.log(`   📊 Средняя ошибка трансформации: dx=${avgOffsetX.toFixed(2)}px, dy=${avgOffsetY.toFixed(2)}px`);
+       
         if (Math.abs(avgOffsetX) > 0.5 || Math.abs(avgOffsetY) > 0.5) {
-            // 🔥 СМЕЩАЕМ ВСЮ МОДЕЛЬ!
-            let movedPoints = 0;
-            for (const [id, node] of existingModel.graph.nodes) {
-                node.x += avgOffsetX;
-                node.y += avgOffsetY;
-                movedPoints++;
-            }
-            console.log(`   ✅ Смещена вся модель: ${movedPoints} точек (сдвиг компенсирован)`);
-          
-            // Корректируем transform в обратную сторону
-            finalTransform.translation.x -= avgOffsetX;
-            finalTransform.translation.y -= avgOffsetY;
+            // 🔥 КОРРЕКТИРУЕМ TRANSFORM, А НЕ МОДЕЛЬ!
+            finalTransform.translation.x += avgOffsetX;
+            finalTransform.translation.y += avgOffsetY;
             console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+            console.log(`   🔒 Модель НЕ смещалась — координаты точек модели неизменны`);
         } else {
-            console.log(`   ✅ Смещение минимально, коррекция не требуется`);
+            console.log(`   ✅ Ошибка минимальна, коррекция не требуется`);
         }
     }
 }
@@ -2227,6 +2216,148 @@ _extractTrianglesFromGraph(graph) {
    
     return triangles;
 }
+
+/**
+     * Выводит 5 контрольных точек для проверки качества сопоставления
+     * @param {Array} matches - массив соответствий {pointA, pointB, confidence}
+     * @param {Object} photoGraph - граф фото
+     * @param {Object} modelGraph - граф модели
+     * @param {Object} transform - финальная трансформация
+     */
+    _logControlPoints(matches, photoGraph, modelGraph, transform) {
+        if (!matches || matches.length < 5) {
+            if (this.debug) console.log('⚠️ Недостаточно соответствий для контрольных точек');
+            return;
+        }
+
+        // 1. Собираем все сопоставленные точки
+        const pairedPoints = [];
+        for (const match of matches) {
+            const photoPoint = photoGraph.nodes.get(match.pointA);
+            const modelPoint = modelGraph.nodes.get(match.pointB);
+            if (photoPoint && modelPoint) {
+                pairedPoints.push({
+                    photo: photoPoint,
+                    model: modelPoint,
+                    confidence: match.confidence || 0.5
+                });
+            }
+        }
+
+        if (pairedPoints.length < 5) return;
+
+        // 2. Находим центр (точка, ближайшая к геометрическому центру всех сопоставленных точек)
+        let centerX = 0, centerY = 0;
+        for (const p of pairedPoints) {
+            centerX += p.model.x;
+            centerY += p.model.y;
+        }
+        centerX /= pairedPoints.length;
+        centerY /= pairedPoints.length;
+
+        // Ближайшая точка к центру
+        let centerPoint = null;
+        let minCenterDist = Infinity;
+        for (const p of pairedPoints) {
+            const dist = Math.sqrt(Math.pow(p.model.x - centerX, 2) + Math.pow(p.model.y - centerY, 2));
+            if (dist < minCenterDist) {
+                minCenterDist = dist;
+                centerPoint = p;
+            }
+        }
+
+        // 3. Находим крайние точки относительно центра
+        let topPoint = null, bottomPoint = null, leftPoint = null, rightPoint = null;
+        let maxTop = -Infinity, maxBottom = Infinity, maxLeft = Infinity, maxRight = -Infinity;
+
+        for (const p of pairedPoints) {
+            const dy = p.model.y - centerPoint.model.y;
+            const dx = p.model.x - centerPoint.model.x;
+
+            // Верх (отрицательный Y — вверх)
+            if (dy < 0 && dy < maxTop) {
+                maxTop = dy;
+                topPoint = p;
+            }
+            // Низ (положительный Y — вниз)
+            if (dy > 0 && dy > maxBottom) {
+                maxBottom = dy;
+                bottomPoint = p;
+            }
+            // Лево (отрицательный X — влево)
+            if (dx < 0 && dx < maxLeft) {
+                maxLeft = dx;
+                leftPoint = p;
+            }
+            // Право (положительный X — вправо)
+            if (dx > 0 && dx > maxRight) {
+                maxRight = dx;
+                rightPoint = p;
+            }
+        }
+
+        // 4. Собираем контрольные точки
+        const controlPoints = [
+            { name: 'Центр', point: centerPoint },
+            { name: 'Верх', point: topPoint },
+            { name: 'Низ', point: bottomPoint },
+            { name: 'Лево', point: leftPoint },
+            { name: 'Право', point: rightPoint }
+        ];
+
+        // 5. Вычисляем смещения и выводим таблицу
+        const offsets = [];
+        console.log('\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ СОПОСТАВЛЕНИЯ:');
+        console.log('┌─────────────┬──────────────────────┬──────────────────────┬──────────────────┐');
+        console.log('│   Точка     │     В модели (x,y)   │   В фото (x,y)       │  Смещение (dx,dy)│');
+        console.log('├─────────────┼──────────────────────┼──────────────────────┼──────────────────┤');
+
+        for (const cp of controlPoints) {
+            if (!cp.point) continue;
+
+            const modelX = cp.point.model.x.toFixed(0);
+            const modelY = cp.point.model.y.toFixed(0);
+           
+            // Трансформируем точку фото
+            const projected = GeometryUtils.applyTransform(cp.point.photo, transform);
+            const photoX = projected.x.toFixed(0);
+            const photoY = projected.y.toFixed(0);
+           
+            const dx = (projected.x - cp.point.model.x).toFixed(1);
+            const dy = (projected.y - cp.point.model.y).toFixed(1);
+           
+            offsets.push({ dx: parseFloat(dx), dy: parseFloat(dy) });
+
+            console.log(`│ ${cp.name.padEnd(11)} │ (${modelX.padStart(5)},${modelY.padStart(5)})      │ (${photoX.padStart(5)},${photoY.padStart(5)})      │ (${dx.padStart(5)},${dy.padStart(5)})     │`);
+        }
+
+        console.log('└─────────────┴──────────────────────┴──────────────────────┴──────────────────┘');
+
+        // 6. Статистика
+        if (offsets.length > 0) {
+            const avgDx = offsets.reduce((sum, o) => sum + Math.abs(o.dx), 0) / offsets.length;
+            const avgDy = offsets.reduce((sum, o) => sum + Math.abs(o.dy), 0) / offsets.length;
+            const maxOffset = Math.max(...offsets.map(o => Math.sqrt(o.dx*o.dx + o.dy*o.dy)));
+
+            console.log(`📊 СРЕДНЕЕ АБСОЛЮТНОЕ СМЕЩЕНИЕ: |dx|=${avgDx.toFixed(1)}px, |dy|=${avgDy.toFixed(1)}px`);
+            console.log(`📊 МАКСИМАЛЬНОЕ СМЕЩЕНИЕ: ${maxOffset.toFixed(1)}px`);
+           
+            // Дополнительно: проверяем трапециевидное искажение
+            if (topPoint && bottomPoint && leftPoint && rightPoint) {
+                const topOffset = Math.sqrt(Math.pow(topPoint.model.x - topPoint.photo.x, 2) + Math.pow(topPoint.model.y - topPoint.photo.y, 2));
+                const bottomOffset = Math.sqrt(Math.pow(bottomPoint.model.x - bottomPoint.photo.x, 2) + Math.pow(bottomPoint.model.y - bottomPoint.photo.y, 2));
+                const leftOffset = Math.sqrt(Math.pow(leftPoint.model.x - leftPoint.photo.x, 2) + Math.pow(leftPoint.model.y - leftPoint.photo.y, 2));
+                const rightOffset = Math.sqrt(Math.pow(rightPoint.model.x - rightPoint.photo.x, 2) + Math.pow(rightPoint.model.y - rightPoint.photo.y, 2));
+               
+                const verticalAsymmetry = Math.abs(topOffset - bottomOffset);
+                const horizontalAsymmetry = Math.abs(leftOffset - rightOffset);
+               
+                if (verticalAsymmetry > 10 || horizontalAsymmetry > 10) {
+                    console.log(`⚠️ ОБНАРУЖЕНА АСИММЕТРИЯ: вертикальная ${verticalAsymmetry.toFixed(1)}px, горизонтальная ${horizontalAsymmetry.toFixed(1)}px`);
+                }
+            }
+        }
+    }
  
 }
 module.exports = ModelEnhancer;
