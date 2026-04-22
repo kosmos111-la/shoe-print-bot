@@ -1396,32 +1396,33 @@ for (const structure of structures) {
         };
     }
 
-    if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
+    // ===== СБОР ПОДТВЕРЖДЁННЫХ ТОЧЕК =====
+let finalValidatedMatches = [];
+
+for (const structure of structures) {
+    const anchors = structure.getAnchors();
+    for (const anchor of anchors) {
+        if (anchor.pointA && anchor.pointB) {
+            finalValidatedMatches.push({
+                pointA: anchor.pointA,
+                pointB: anchor.pointB,
+                confidence: anchor.confidence,
+                status: 'structure',
+                structureId: structure.id
+            });
+        }
+    }
+}
+
+console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
+
+// 🔥 ВЫВОДИМ КОНТРОЛЬНЫЕ ТОЧКИ ДЛЯ ДИАГНОСТИКИ (теперь finalValidatedMatches уже заполнен)
+if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
     this._logControlPoints(finalValidatedMatches, newExactGraph, existingModel.graph, finalTransform);
 }
 
 // ===== ШАГ 10: ФИНАЛЬНОЕ ПРИТЯГИВАНИЕ =====
 if (this.debug) console.log(`\n🧲 ЗАПУСК ФИНАЛЬНОГО ПРИТЯГИВАНИЯ БЛИЗКИХ ТОЧЕК`);
-
-    let finalValidatedMatches = [];
-
-    for (const structure of structures) {
-        const anchors = structure.getAnchors();
-        for (const anchor of anchors) {
-            if (anchor.pointA && anchor.pointB) {
-                finalValidatedMatches.push({
-                    pointA: anchor.pointA,
-                    pointB: anchor.pointB,
-                    confidence: anchor.confidence,
-                    status: 'structure',
-                    structureId: structure.id
-                });
-            }
-        }
-    }
-
-    console.log(`\n✅ ИТОГО ПОДТВЕРЖДЕННЫХ ТОЧЕК: ${finalValidatedMatches.length}`);
-
     if (finalTransform && finalValidatedMatches.length > 0) {
         const { pulledMatches, pulledCount } = this._magneticPull(
             finalValidatedMatches,
