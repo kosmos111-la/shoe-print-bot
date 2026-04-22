@@ -1720,6 +1720,9 @@ for (const structure of structures) {
             structure.transform = this.validator.calculateTransform(
                 structureAnchors, newExactGraph, existingModel.graph
             );
+            if (this.debug && structure.transform) {
+                console.log(`      🔧 Вычислен transform для структуры ${structure.id}: scale=${structure.transform.scale.toFixed(3)}`);
+            }
         }
     }
 }
@@ -1764,11 +1767,13 @@ for (const p of unmatchedPhotoPointsForModel) {
    
     let transform;
     let transformSource;
+    let usedStructureId = null;
    
     if (pointStructure && pointStructure.transform) {
         // Точка принадлежит структуре с известным transform
         transform = pointStructure.transform;
         transformSource = 'own_structure';
+        usedStructureId = pointStructure.id;
         transformStats.ownStructure++;
     } else {
         // Ищем ближайшую структуру с transform
@@ -1777,11 +1782,13 @@ for (const p of unmatchedPhotoPointsForModel) {
         if (nearestStructure && nearestStructure.transform) {
             transform = nearestStructure.transform;
             transformSource = 'nearest_structure';
+            usedStructureId = nearestStructure.id;
             transformStats.nearestStructure++;
         } else {
             // Fallback на глобальный transform
             transform = finalTransform;
             transformSource = 'global';
+            usedStructureId = null;
             transformStats.global++;
         }
     }
@@ -1802,7 +1809,7 @@ for (const p of unmatchedPhotoPointsForModel) {
         y: projected.y,
         type: 'unique_in_photo',
         transformSource: transformSource,
-        structureId: pointStructure?.id || nearestStructure?.id || 'none'
+        structureId: usedStructureId
     });
 }
 
