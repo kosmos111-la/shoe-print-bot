@@ -1697,28 +1697,119 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForVal
 }
 
  
-// ===== СОХРАНЯЕМ УНИКАЛЬНЫЕ ТОЧКИ ФОТО =====
+// ===== СОХРАНЯЕМ УНИКАЛЬНЫЕ ТОЧКИ ФОТО С КЛАСТЕРНОЙ ТРАНСФОРМАЦИЕЙ =====
 const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
 const unmatchedPhotoPointsForModel = originalPoints.filter(p => !finalMatchedPointsA.has(p.id));
 console.log(`   📸 Несопоставленных точек фото для добавления в модель: ${unmatchedPhotoPointsForModel.length}`);
 
-const uniquePhotoPoints = unmatchedPhotoPointsForModel.map(p => {
+// 🔥 Строим карту: pointId → structure
+const pointToStructureMap = new Map();
+for (const structure of structures) {
+    if (structure.pointIds) {
+        for (const pointId of structure.pointIds) {
+            pointToStructureMap.set(pointId, structure);
+        }
+    }
+}
+
+// 🔥 Для структур без transform — вычисляем
+for (const structure of structures) {
+    if (!structure.transform && structure.triangleIds?.size >= 2) {
+        const structureAnchors = structure.getAnchors ? structure.getAnchors() : [];
+        if (structureAnchors.length >= 3) {
+            structure.transform = this.validator.calculateTransform(
+                structureAnchors, newExactGraph, existingModel.graph
+            );
+        }
+    }
+}
+
+// 🔥 Функция поиска ближайшей структуры с transform
+const findNearestStructureWithTransform = (point) => {
+    let nearest = null;
+    let minDist = Infinity;
+   
+    for (const structure of structures) {
+        if (!structure.transform) continue;
+       
+        // Ищем минимальное расстояние до любой точки структуры
+        for (const structPointId of (structure.pointIds || [])) {
+            const structPoint = newExactGraph.nodes.get(structPointId);
+            if (structPoint) {
+                const dist = Math.sqrt(
+                    Math.pow(point.x - structPoint.x, 2) +
+                    Math.pow(point.y - structPoint.y, 2)
+                );
+                if (dist < minDist) {
+                    minDist = dist;
+                    nearest = structure;
+                }
+            }
+        }
+    }
+   
+    return nearest;
+};
+
+// 🔥 Применяем кластерную трансформацию
+const uniquePhotoPoints = [];
+const transformStats = {
+    ownStructure: 0,
+    nearestStructure: 0,
+    global: 0
+};
+
+for (const p of unmatchedPhotoPointsForModel) {
+    const pointStructure = pointToStructureMap.get(p.id);
+   
+    let transform;
+    let transformSource;
+   
+    if (pointStructure && pointStructure.transform) {
+        // Точка принадлежит структуре с известным transform
+        transform = pointStructure.transform;
+        transformSource = 'own_structure';
+        transformStats.ownStructure++;
+    } else {
+        // Ищем ближайшую структуру с transform
+        const nearestStructure = findNearestStructureWithTransform(p);
+       
+        if (nearestStructure && nearestStructure.transform) {
+            transform = nearestStructure.transform;
+            transformSource = 'nearest_structure';
+            transformStats.nearestStructure++;
+        } else {
+            // Fallback на глобальный transform
+            transform = finalTransform;
+            transformSource = 'global';
+            transformStats.global++;
+        }
+    }
+   
+    // Применяем выбранный transform
     const projected = {
-        x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
-           p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
-           finalTransform.translation.x,
-        y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
-           p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
-           finalTransform.translation.y
+        x: p.x * transform.scale * Math.cos(transform.rotation) -
+           p.y * transform.scale * Math.sin(transform.rotation) +
+           transform.translation.x,
+        y: p.x * transform.scale * Math.sin(transform.rotation) +
+           p.y * transform.scale * Math.cos(transform.rotation) +
+           transform.translation.y
     };
-  
-    return {
+   
+    uniquePhotoPoints.push({
         id: p.id,
         x: projected.x,
         y: projected.y,
-        type: 'unique_in_photo'
-    };
-});
+        type: 'unique_in_photo',
+        transformSource: transformSource,
+        structureId: pointStructure?.id || nearestStructure?.id || 'none'
+    });
+}
+
+console.log(`   📊 Источники трансформации для новых точек:`);
+console.log(`      • Своя структура: ${transformStats.ownStructure}`);
+console.log(`      • Ближайшая структура: ${transformStats.nearestStructure}`);
+console.log(`      • Глобальная: ${transformStats.global}`);
 
 this.lastUniqueInPhoto = uniquePhotoPoints;
 
@@ -1739,10 +1830,50 @@ if (this.debug && mergedCount > 0) {
     console.log(`\n🔗 Слито ${mergedCount} дублирующихся точек`);
 }
 
-// Сохраняем контур в модель
-if (outlineContour && !existingModel.metadata.outlineContour) {
-    existingModel.metadata.outlineContour = outlineContour;
-    console.log(`💾 Контур следа сохранён в существующую модель`);
+// Сохраняем ТРАНСФОРМИРОВАННЫЙ контур в модель
+if (outlineContour) {
+    // 🔥 Контур тоже трансформируем через глобальный transform
+    // (для контура кластерная трансформация не нужна — он один на весь след)
+    const transformedContourPoints = outlineContour.points.map(p => {
+        const projected = {
+            x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
+               p.y * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               finalTransform.translation.x,
+            y: p.x * finalTransform.scale * Math.sin(finalTransform.rotation) +
+               p.y * finalTransform.scale * Math.cos(finalTransform.rotation) +
+               finalTransform.translation.y
+        };
+        return projected;
+    });
+   
+    const transformedContour = {
+        points: transformedContourPoints,
+        class: outlineContour.class || 'Outline-trail',
+        type: outlineContour.type || 'footprint_outline'
+    };
+   
+    if (!existingModel.metadata.outlineContours) {
+        existingModel.metadata.outlineContours = [];
+        // Переносим старый контур, если он был
+        if (existingModel.metadata.outlineContour) {
+            existingModel.metadata.outlineContours.push({
+                photoId: 'initial',
+                points: existingModel.metadata.outlineContour.points,
+                class: existingModel.metadata.outlineContour.class || 'Outline-trail',
+                type: existingModel.metadata.outlineContour.type || 'footprint_outline'
+            });
+            delete existingModel.metadata.outlineContour;
+        }
+    }
+   
+    existingModel.metadata.outlineContours.push({
+        photoId: photoId,
+        points: transformedContourPoints,
+        class: outlineContour.class || 'Outline-trail',
+        type: outlineContour.type || 'footprint_outline'
+    });
+   
+    console.log(`💾 Трансформированный контур следа сохранён в модель (${transformedContourPoints.length} точек)`);
 }
 
 // Сохраняем transform и структуры
