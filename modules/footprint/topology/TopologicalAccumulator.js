@@ -679,24 +679,38 @@ if (outlineContour) {
         const graph = model.graph;
 
         // 🔥 Поддержка старого и нового формата контуров
-        let outlineContours = model.metadata?.outlineContours || [];
+let outlineContours = model.metadata?.outlineContours || [];
+
+// Если массив пуст, но есть старый формат outlineContour
 if (outlineContours.length === 0 && model.metadata?.outlineContour) {
     outlineContours = [{
         photoId: 'initial',
         points: model.metadata.outlineContour.points,
         class: model.metadata.outlineContour.class || 'Outline-trail',
-        type: model.metadata.outlineContour.type || 'footprint_outline'
+        type: model.metadata.outlineContour.type || 'footprint_outline',
+        transformed: false
     }];
 }
 
-// 🔥 Исправление: создаём outlineContour с class и type
+// 🔥 Создаём outlineContour из ПЕРВОГО контура для визуализации
 let outlineContour = null;
 if (outlineContours.length > 0) {
+    const firstContour = outlineContours[0];
     outlineContour = {
-        points: outlineContours[0].points,
-        class: outlineContours[0].class || 'Outline-trail',
-        type: outlineContours[0].type || 'footprint_outline'
+        points: firstContour.points,
+        class: firstContour.class || 'Outline-trail',
+        type: firstContour.type || 'footprint_outline',
+        photoId: firstContour.photoId,
+        transformed: firstContour.transformed || false
     };
+   
+    if (this.debug) {
+        console.log(`   📐 Контур для визуализации: ${outlineContour.points.length} точек, class=${outlineContour.class}`);
+    }
+} else {
+    if (this.debug) {
+        console.log(`   ⚠️ Контур отсутствует в модели`);
+    }
 }
 
         const rawStructures = model.structures || [];
