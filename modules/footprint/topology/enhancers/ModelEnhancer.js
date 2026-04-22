@@ -1396,6 +1396,14 @@ for (const structure of structures) {
         };
     }
 
+ // 🔥 ЛОГ: НАЧАЛЬНЫЙ TRANSFORM (до всех коррекций)
+    if (finalTransform) {
+        console.log(`\n📐 НАЧАЛЬНЫЙ TRANSFORM (до коррекций):`);
+        console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
+        console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+        console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+    }
+ 
     // ===== СБОР ПОДТВЕРЖДЁННЫХ ТОЧЕК =====
 let finalValidatedMatches = [];
 
