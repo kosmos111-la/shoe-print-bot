@@ -432,8 +432,19 @@ if (bot && chatId) {
 
 if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
     try {
-        console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...');
-
+        console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО...');
+       
+        // 🔥 ЛОГ: какой transform дошёл до визуализации
+        const vizTransform = topologicalResult.transform || topologicalResult.topologicalResult?.transform;
+        if (vizTransform) {
+            console.log(`📐 TRANSFORM ДЛЯ ВИЗУАЛИЗАЦИИ:`);
+            console.log(`   • Масштаб: ${vizTransform.scale.toFixed(3)}`);
+            console.log(`   • Поворот: ${(vizTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+            console.log(`   • Сдвиг: (${vizTransform.translation.x.toFixed(1)}, ${vizTransform.translation.y.toFixed(1)})`);
+        } else {
+            console.log(`⚠️ TRANSFORM ДЛЯ ВИЗУАЛИЗАЦИИ ОТСУТСТВУЕТ!`);
+        }
+      
         const topologyManager = this.getTopologyManager(userId);
         if (!topologyManager) {
             console.log('⚠️ Нет топологического менеджера для визуализации модели');
