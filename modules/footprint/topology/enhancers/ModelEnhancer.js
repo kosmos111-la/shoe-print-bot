@@ -1396,6 +1396,20 @@ for (const structure of structures) {
         };
     }
 
+ // 🔥 ЛОГ: ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ ДИАГНОСТИКИ
+    if (anchorsForValidation && anchorsForValidation.length > 0) {
+        console.log(`\n🔍 ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ TRANSFORM:`);
+        const sampleAnchors = anchorsForValidation.slice(0, 5);
+        for (let i = 0; i < sampleAnchors.length; i++) {
+            const a = sampleAnchors[i];
+            const pA = newExactGraph.nodes.get(a.pointA);
+            const pB = existingModel.graph.nodes.get(a.pointB);
+            if (pA && pB) {
+                console.log(`   ${i+1}. ${a.pointA.substring(0,16)} (${pA.x.toFixed(0)},${pA.y.toFixed(0)}) → ${a.pointB.substring(0,16)} (${pB.x.toFixed(0)},${pB.y.toFixed(0)})`);
+            }
+        }
+    }
+ 
  // 🔥 ЛОГ: НАЧАЛЬНЫЙ TRANSFORM (до всех коррекций)
     if (finalTransform) {
         console.log(`\n📐 НАЧАЛЬНЫЙ TRANSFORM (до коррекций):`);
