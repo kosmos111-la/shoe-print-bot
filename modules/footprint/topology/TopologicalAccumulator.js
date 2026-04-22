@@ -173,11 +173,20 @@ if (outlineContour) {
                 };
 
                 console.log(`\n📊 СТАТИСТИКА МОДЕЛИ ПОСЛЕ УЛУЧШЕНИЯ:`);
-                console.log(`   • Всего узлов: ${existingModel.graph.nodes.size}`);
-                console.log(`   • Подтверждено: ${enhanceResult.matches?.length || 0}`);
-                console.log(`   • Граф перестроен: ${shouldRebuild ? '✅ ДА' : '❌ НЕТ'}`);
+console.log(`   • Всего узлов: ${existingModel.graph.nodes.size}`);
+console.log(`   • Подтверждено: ${enhanceResult.matches?.length || 0}`);
+console.log(`   • Граф перестроен: ${shouldRebuild ? '✅ ДА' : '❌ НЕТ'}`);
 
-                return {
+// 🔥 ЛОГ: какой transform возвращает TopologicalAccumulator
+const returnTransform = enhanceResult.transform || existingModel.transform;
+if (returnTransform) {
+    console.log(`\n📤 TopologicalAccumulator ВОЗВРАЩАЕТ TRANSFORM:`);
+    console.log(`   • Масштаб: ${returnTransform.scale.toFixed(3)}`);
+    console.log(`   • Поворот: ${(returnTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   • Сдвиг: (${returnTransform.translation.x.toFixed(1)}, ${returnTransform.translation.y.toFixed(1)})`);
+}
+
+return {
     status: 'enhanced',
     modelId: modelIdHint,
     similarity: enhanceResult.similarity,
@@ -186,7 +195,7 @@ if (outlineContour) {
     nodesRemoved: cleanResult.removed,
     matchMap,
     modelMatchMap,
-    transform: enhanceResult.transform || existingModel.transform,  // <-- СНАЧАЛА ИЗ РЕЗУЛЬТАТА
+    transform: returnTransform,
     structures: existingModel.structures,
     graphRebuilt: shouldRebuild,
     message: `Модель улучшена: +${enhanceResult.newNodesAdded} точек`
@@ -294,17 +303,25 @@ if (outlineContour) {
                 }
 
                 this.modelManager.linkPhotoToModel(photoId, exactMatch.id);
-                this.stats.totalEnhancements = this.modelManager.stats.totalEnhancements;
+this.stats.totalEnhancements = this.modelManager.stats.totalEnhancements;
 
-                return {
-                    status: 'enhanced_exact',
-                    modelId: exactMatch.id,
-                    similarity: 1.0,
-                    ...enhanceResult,
-                    totalModels: this.modelManager.getModelCount(),
-                    matchedModel: exactMatch.id,
-                    matchMethod: 'hash'
-                };
+// 🔥 ЛОГ: какой transform возвращается при exact match
+if (enhanceResult.transform) {
+    console.log(`\n📤 TopologicalAccumulator (exact match) ВОЗВРАЩАЕТ TRANSFORM:`);
+    console.log(`   • Масштаб: ${enhanceResult.transform.scale.toFixed(3)}`);
+    console.log(`   • Поворот: ${(enhanceResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   • Сдвиг: (${enhanceResult.transform.translation.x.toFixed(1)}, ${enhanceResult.transform.translation.y.toFixed(1)})`);
+}
+
+return {
+    status: 'enhanced_exact',
+    modelId: exactMatch.id,
+    similarity: 1.0,
+    ...enhanceResult,
+    totalModels: this.modelManager.getModelCount(),
+    matchedModel: exactMatch.id,
+    matchMethod: 'hash'
+};
             }
         }
 
@@ -380,17 +397,25 @@ if (outlineContour) {
             }
 
             this.modelManager.linkPhotoToModel(photoId, bestMatch.modelId);
-            this.stats.totalEnhancements = this.modelManager.stats.totalEnhancements;
+this.stats.totalEnhancements = this.modelManager.stats.totalEnhancements;
 
-            return {
-                status: 'enhanced_wl',
-                modelId: bestMatch.modelId,
-                similarity: bestMatch.similarity,
-                ...enhanceResult,
-                totalModels: this.modelManager.getModelCount(),
-                matchedModel: bestMatch.modelId,
-                matchMethod: 'wl'
-            };
+// 🔥 ЛОГ: какой transform возвращается при WL match
+if (enhanceResult.transform) {
+    console.log(`\n📤 TopologicalAccumulator (WL match) ВОЗВРАЩАЕТ TRANSFORM:`);
+    console.log(`   • Масштаб: ${enhanceResult.transform.scale.toFixed(3)}`);
+    console.log(`   • Поворот: ${(enhanceResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    console.log(`   • Сдвиг: (${enhanceResult.transform.translation.x.toFixed(1)}, ${enhanceResult.transform.translation.y.toFixed(1)})`);
+}
+
+return {
+    status: 'enhanced_wl',
+    modelId: bestMatch.modelId,
+    similarity: bestMatch.similarity,
+    ...enhanceResult,
+    totalModels: this.modelManager.getModelCount(),
+    matchedModel: bestMatch.modelId,
+    matchMethod: 'wl'
+};
         }
 
         // 7. Если сходство ниже порога - создаём новую модель
