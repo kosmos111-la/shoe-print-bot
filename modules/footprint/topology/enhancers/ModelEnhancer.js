@@ -2027,6 +2027,12 @@ const serializedStructures = structures.map(s => {
     };
 });
 
+// 🔥 ЛОГ: какой transform возвращает ModelEnhancer
+console.log(`\n📤 ModelEnhancer ВОЗВРАЩАЕТ TRANSFORM:`);
+console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
+console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+
 return {
     success: true,
     matches: finalValidatedMatches,
