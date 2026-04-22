@@ -1696,12 +1696,6 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForVal
     }
 }
  
-// 🔥 ВЫВОДИМ КОНТРОЛЬНЫЕ ТОЧКИ ПОСЛЕ ВСЕХ КОРРЕКЦИЙ
-if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
-    console.log(`\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ (ПОСЛЕ ВСЕХ КОРРЕКЦИЙ):`);
-    this._logControlPoints(finalValidatedMatches, newExactGraph, existingModel.graph, finalTransform);
-}
- 
  
 // ===== СОХРАНЯЕМ УНИКАЛЬНЫЕ ТОЧКИ ФОТО С КЛАСТЕРНОЙ ТРАНСФОРМАЦИЕЙ =====
 const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
@@ -1977,6 +1971,12 @@ if (anchorsForValidation.length >= 3 && finalTransform) {
     }
 }
 
+// 🔥 ВЫВОДИМ КОНТРОЛЬНЫЕ ТОЧКИ ПОСЛЕ ВСЕХ КОРРЕКЦИЙ
+if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
+    console.log(`\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ (ПОСЛЕ ВСЕХ КОРРЕКЦИЙ):`);
+    this._logControlPoints(finalValidatedMatches, newExactGraph, existingModel.graph, finalTransform);
+}
+ 
 // Статистика
 const confirmedInModel = finalValidatedMatches?.length || 0;
 const uniquePoints = existingModel?.graph?.nodes?.size || 0;
