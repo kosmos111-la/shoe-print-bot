@@ -179,24 +179,36 @@ class GraphBuilder {
     }
 
     trianglesToGraph(triangles, normalizedPoints, originalPoints) {
-        const nodes = new Map();
-        const edges = new Set();
+    const nodes = new Map();
+    const edges = new Set();
 
-        // Используем ОРИГИНАЛЬНЫЕ координаты для узлов
-        for (let i = 0; i < normalizedPoints.length; i++) {
-            const normPoint = normalizedPoints[i];
-            const origPoint = originalPoints[i];
-          
-            nodes.set(normPoint.id, {
-                id: normPoint.id,
-                x: origPoint.x,
-                y: origPoint.y,
-                confidence: normPoint.confidence || 0.5,
-                degree: 0,
-                triangles: 0
-            });
-        }
-
+    // Используем ОРИГИНАЛЬНЫЕ координаты для узлов
+    for (let i = 0; i < normalizedPoints.length; i++) {
+        const normPoint = normalizedPoints[i];
+        const origPoint = originalPoints[i];
+     
+        nodes.set(normPoint.id, {
+            id: normPoint.id,
+            x: origPoint.x,
+            y: origPoint.y,
+            confidence: normPoint.confidence || origPoint.confidence || 0.5,
+            degree: 0,
+            triangles: 0,
+           
+            // 🔥 СОХРАНЯЕМ ВСЕ ДОПОЛНИТЕЛЬНЫЕ СВОЙСТВА
+            confirmationCount: origPoint.confirmationCount || normPoint.confirmationCount || 1,
+            addedFrom: origPoint.addedFrom || normPoint.addedFrom || 'original',
+            addedAt: origPoint.addedAt || normPoint.addedAt || new Date(),
+            originalPhotoId: origPoint.originalPhotoId || normPoint.originalPhotoId || normPoint.id,
+            morphology: origPoint.morphology || normPoint.morphology || {},
+           
+            // Топологические свойства
+            role: origPoint.role || normPoint.role,
+            clusterId: origPoint.clusterId || normPoint.clusterId,
+            patternType: origPoint.patternType || normPoint.patternType,
+            structureId: origPoint.structureId || normPoint.structureId
+        });
+    }
         for (const triangle of triangles) {
             const [aIdx, bIdx, cIdx] = triangle;
 
@@ -229,14 +241,14 @@ class GraphBuilder {
         const avgDegree = degrees.reduce((a, b) => a + b, 0) / degrees.length;
 
         return {
-            nodes: nodes,
-            edges: edges,
-            triangles: triangles.length,
-            triangleList: triangles,
-            avgDegree: avgDegree,
-            points: normalizedPoints
-        };
-    }
+        nodes: nodes,
+        edges: edges,
+        triangles: triangles.length,
+        triangleList: triangles,
+        avgDegree: avgDegree,
+        points: normalizedPoints
+    };
+}
 
     // ==================== 🔥 НОВЫЙ МЕТОД: ПОДСЧЕТ ТРЕУГОЛЬНИКОВ ====================
 
@@ -291,61 +303,66 @@ class GraphBuilder {
     // ==================== МИНИМАЛЬНЫЙ ГРАФ (ДЛЯ МАЛОГО КОЛИЧЕСТВА ТОЧЕК) ====================
 
     buildMinimalGraph(points) {
-        const nodes = new Map();
-        const edges = new Set();
+    const nodes = new Map();
+    const edges = new Set();
 
-        for (let i = 0; i < points.length; i++) {
-            const point = points[i];
-            const id = point.id || `pt_${i}`;
+    for (let i = 0; i < points.length; i++) {
+        const point = points[i];
+        const id = point.id || `pt_${i}`;
 
-            nodes.set(id, {
-                id: id,
-                x: point.x,
-                y: point.y,
-                confidence: point.confidence || 0.5,
-                degree: 0,
-                triangles: 0
-            });
-
-            if (i > 0) {
-                const prevId = points[i-1].id || `pt_${i-1}`;
-                edges.add([prevId, id].sort().join('--'));
-            }
-        }
-
-        if (points.length >= 3) {
-            const firstId = points[0].id || `pt_0`;
-            const lastId = points[points.length-1].id || `pt_${points.length-1}`;
-            edges.add([firstId, lastId].sort().join('--'));
-        }
-
-        for (const edge of edges) {
-            const [nodeA, nodeB] = edge.split('--');
-            nodes.get(nodeA).degree++;
-            nodes.get(nodeB).degree++;
-        }
-
-        // Для минимального графа треугольников нет
-        const triangles = new Map();
-        for (const nodeId of nodes.keys()) {
-            triangles.set(nodeId, 0);
-        }
-
-        return {
-            nodes: nodes,
-            edges: edges,
+        nodes.set(id, {
+            id: id,
+            x: point.x,
+            y: point.y,
+            confidence: point.confidence || 0.5,
+            degree: 0,
             triangles: 0,
-            triangleList: [],
-            avgDegree: points.length > 0 ?
-                Array.from(nodes.values()).reduce((sum, n) => sum + n.degree, 0) / nodes.size : 0,
-            points: points.map((p, idx) => ({
-                id: p.id || `pt_${idx}`,
-                x: p.x,
-                y: p.y,
-                confidence: p.confidence || 0.5
-            }))
-        };
+           
+            // 🔥 СОХРАНЯЕМ ВСЕ ДОПОЛНИТЕЛЬНЫЕ СВОЙСТВА
+            confirmationCount: point.confirmationCount || 1,
+            addedFrom: point.addedFrom || 'original',
+            addedAt: point.addedAt || new Date(),
+            originalPhotoId: point.originalPhotoId || id,
+            morphology: point.morphology || {},
+            role: point.role,
+            clusterId: point.clusterId,
+            patternType: point.patternType,
+            structureId: point.structureId
+        });
+
+        if (i > 0) {
+            const prevId = points[i-1].id || `pt_${i-1}`;
+            edges.add([prevId, id].sort().join('--'));
+        }
     }
+
+    if (points.length >= 3) {
+        const firstId = points[0].id || `pt_0`;
+        const lastId = points[points.length-1].id || `pt_${points.length-1}`;
+        edges.add([firstId, lastId].sort().join('--'));
+    }
+
+    for (const edge of edges) {
+        const [nodeA, nodeB] = edge.split('--');
+        nodes.get(nodeA).degree++;
+        nodes.get(nodeB).degree++;
+    }
+
+    return {
+        nodes: nodes,
+        edges: edges,
+        triangles: 0,
+        triangleList: [],
+        avgDegree: points.length > 0 ?
+            Array.from(nodes.values()).reduce((sum, n) => sum + n.degree, 0) / nodes.size : 0,
+        points: points.map((p, idx) => ({
+            id: p.id || `pt_${idx}`,
+            x: p.x,
+            y: p.y,
+            confidence: p.confidence || 0.5
+        }))
+    };
+}
 }
 
 module.exports = GraphBuilder;
