@@ -216,13 +216,14 @@ if (outlineContour) {
                 }
             );
 
-            // Инициализируем массив контуров
+            // Инициализируем массив контуров (для первого фото трансформация не нужна)
 if (outlineContour) {
     modelData.metadata.outlineContours = [{
         photoId: photoId,
         points: outlineContour.points,
         class: outlineContour.class || 'Outline-trail',
-        type: outlineContour.type || 'footprint_outline'
+        type: outlineContour.type || 'footprint_outline',
+        transformed: false  // первое фото — оригинальные координаты
     }];
     delete modelData.metadata.outlineContour;
 }
