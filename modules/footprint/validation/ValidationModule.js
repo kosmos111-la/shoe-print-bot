@@ -23,9 +23,7 @@ class ValidationModule {
      * @returns {Object} - преобразование {scale, rotation, translation}
      */
     calculateTransform(anchors, graphA, graphB) {
-      //  if (this.debug) {
-            console.log(`\n📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО ${anchors.length} ЯКОРЯМ`);
-      //  }
+        console.log(`\n📐 ВЫЧИСЛЕНИЕ ПРЕОБРАЗОВАНИЯ ПО ${anchors.length} ЯКОРЯМ`);
       
         if (anchors.length < 2) {
             console.log(`   ⚠️ Недостаточно якорей (нужно минимум 2)`);
@@ -41,8 +39,8 @@ class ValidationModule {
           
             if (!nodeA || !nodeB) continue;
           
-            pointsA.push({ x: nodeA.x, y: nodeA.y });
-            pointsB.push({ x: nodeB.x, y: nodeB.y });
+            pointsA.push({ x: nodeA.x, y: nodeA.y, confidence: anchor.confidence || 0.5 });
+            pointsB.push({ x: nodeB.x, y: nodeB.y, confidence: anchor.confidence || 0.5 });
         }
 
         if (pointsA.length < 2) {
@@ -50,100 +48,136 @@ class ValidationModule {
             return null;
         }
 
+        // ===== ИТЕРАЦИЯ 1: ВЫЧИСЛЯЕМ НА ВСЕХ ТОЧКАХ =====
         const centerA = GeometryUtils.calculateCentroid(pointsA);
         const centerB = GeometryUtils.calculateCentroid(pointsB);
 
-        let scaleSum = 0;
-        let scaleCount = 0;
-      
+        let scaleSum = 0, scaleCount = 0;
         for (let i = 0; i < pointsA.length; i++) {
             for (let j = i + 1; j < pointsA.length; j++) {
                 const distA = GeometryUtils.distance(pointsA[i], pointsA[j]);
                 const distB = GeometryUtils.distance(pointsB[i], pointsB[j]);
-              
                 if (distA > 0 && distB > 0) {
                     scaleSum += distB / distA;
                     scaleCount++;
                 }
             }
         }
-      
         const scale = scaleCount > 0 ? scaleSum / scaleCount : 1.0;
       
         let rotation = 0;
         if (pointsA.length >= 2) {
-            const centeredA = pointsA.map(p => ({
-                x: p.x - centerA.x,
-                y: p.y - centerA.y
-            }));
-          
-            const centeredB = pointsB.map(p => ({
-                x: p.x - centerB.x,
-                y: p.y - centerB.y
-            }));
-          
+            const centeredA = pointsA.map(p => ({ x: p.x - centerA.x, y: p.y - centerA.y }));
+            const centeredB = pointsB.map(p => ({ x: p.x - centerB.x, y: p.y - centerB.y }));
             let sinSum = 0, cosSum = 0;
-          
             for (let i = 0; i < centeredA.length; i++) {
-                const scaledA = {
-                    x: centeredA[i].x * scale,
-                    y: centeredA[i].y * scale
-                };
-              
+                const scaledA = { x: centeredA[i].x * scale, y: centeredA[i].y * scale };
                 sinSum += scaledA.x * centeredB[i].y - scaledA.y * centeredB[i].x;
                 cosSum += scaledA.x * centeredB[i].x + scaledA.y * centeredB[i].y;
             }
-          
             rotation = Math.atan2(sinSum, cosSum);
         }
 
-        // 🔥 НОВЫЙ СПОСОБ ВЫЧИСЛЕНИЯ СДВИГА: среднее смещение всех точек после трансформации
-        let totalDx = 0;
-        let totalDy = 0;
-        let validPoints = 0;
+        // Сдвиг через центры (старый метод)
+        const translation = {
+            x: centerB.x - (centerA.x * scale * Math.cos(rotation) - centerA.y * scale * Math.sin(rotation)),
+            y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
+        };
 
+        // ===== ФИЛЬТРАЦИЯ ВЫБРОСОВ ПО ОШИБКЕ ПРОЕКЦИИ =====
+        const errors = [];
         for (let i = 0; i < pointsA.length; i++) {
             const pA = pointsA[i];
             const pB = pointsB[i];
            
-            // Применяем масштаб и поворот к точке фото
-            const rotatedX = pA.x * scale * Math.cos(rotation) - pA.y * scale * Math.sin(rotation);
-            const rotatedY = pA.x * scale * Math.sin(rotation) + pA.y * scale * Math.cos(rotation);
-           
-            // Смещение для этой точки
-            const dx = pB.x - rotatedX;
-            const dy = pB.y - rotatedY;
-           
-            totalDx += dx;
-            totalDy += dy;
-            validPoints++;
-        }
-
-        const translation = {
-            x: validPoints > 0 ? totalDx / validPoints : centerB.x - centerA.x,
-            y: validPoints > 0 ? totalDy / validPoints : centerB.y - centerA.y
-        };
-
-        const transform = {
-            scale,
-            rotation,
-            translation
-        };
-
-      //  if (this.debug) {
-            console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ:`);
-            console.log(`   • Масштаб: ${scale.toFixed(3)}`);
-            console.log(`   • Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
-            console.log(`   • Сдвиг (новый метод): (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
-           
-            // Для сравнения покажем старый метод
-            const oldTranslation = {
-                x: centerB.x - (centerA.x * scale * Math.cos(rotation) - centerA.y * scale * Math.sin(rotation)),
-                y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
+            const projected = {
+                x: pA.x * scale * Math.cos(rotation) - pA.y * scale * Math.sin(rotation) + translation.x,
+                y: pA.x * scale * Math.sin(rotation) + pA.y * scale * Math.cos(rotation) + translation.y
             };
-            console.log(`   • Сдвиг (старый метод): (${oldTranslation.x.toFixed(1)}, ${oldTranslation.y.toFixed(1)})`);
-       // }
-
+           
+            const error = GeometryUtils.distance(projected, pB);
+            errors.push({ index: i, error, confidence: pA.confidence });
+        }
+       
+        // Сортируем по ошибке и находим медиану
+        errors.sort((a, b) => a.error - b.error);
+        const medianError = errors[Math.floor(errors.length / 2)].error;
+        const threshold = Math.max(medianError * 2.5, 20); // минимум 20 пикселей
+       
+        // Оставляем только точки с ошибкой < threshold
+        const filteredA = [];
+        const filteredB = [];
+        let kept = 0, filtered = 0;
+       
+        for (const e of errors) {
+            if (e.error < threshold) {
+                filteredA.push(pointsA[e.index]);
+                filteredB.push(pointsB[e.index]);
+                kept++;
+            } else {
+                filtered++;
+            }
+        }
+       
+        console.log(`   📊 Фильтрация выбросов: медианная ошибка ${medianError.toFixed(1)}px, порог ${threshold.toFixed(1)}px`);
+        console.log(`   📊 Оставлено ${kept} якорей, отфильтровано ${filtered}`);
+       
+        // ===== ИТЕРАЦИЯ 2: ПЕРЕСЧИТЫВАЕМ НА ОТФИЛЬТРОВАННЫХ ТОЧКАХ =====
+        if (filteredA.length >= 3) {
+            const newCenterA = GeometryUtils.calculateCentroid(filteredA);
+            const newCenterB = GeometryUtils.calculateCentroid(filteredB);
+           
+            // Пересчитываем масштаб
+            let newScaleSum = 0, newScaleCount = 0;
+            for (let i = 0; i < filteredA.length; i++) {
+                for (let j = i + 1; j < filteredA.length; j++) {
+                    const distA = GeometryUtils.distance(filteredA[i], filteredA[j]);
+                    const distB = GeometryUtils.distance(filteredB[i], filteredB[j]);
+                    if (distA > 0 && distB > 0) {
+                        newScaleSum += distB / distA;
+                        newScaleCount++;
+                    }
+                }
+            }
+            const newScale = newScaleCount > 0 ? newScaleSum / newScaleCount : scale;
+           
+            // Пересчитываем поворот
+            let newRotation = rotation;
+            if (filteredA.length >= 2) {
+                const centeredFA = filteredA.map(p => ({ x: p.x - newCenterA.x, y: p.y - newCenterA.y }));
+                const centeredFB = filteredB.map(p => ({ x: p.x - newCenterB.x, y: p.y - newCenterB.y }));
+                let sinSum = 0, cosSum = 0;
+                for (let i = 0; i < centeredFA.length; i++) {
+                    const scaledA = { x: centeredFA[i].x * newScale, y: centeredFA[i].y * newScale };
+                    sinSum += scaledA.x * centeredFB[i].y - scaledA.y * centeredFB[i].x;
+                    cosSum += scaledA.x * centeredFB[i].x + scaledA.y * centeredFB[i].y;
+                }
+                newRotation = Math.atan2(sinSum, cosSum);
+            }
+           
+            // Новый сдвиг
+            const newTranslation = {
+                x: newCenterB.x - (newCenterA.x * newScale * Math.cos(newRotation) - newCenterA.y * newScale * Math.sin(newRotation)),
+                y: newCenterB.y - (newCenterA.x * newScale * Math.sin(newRotation) + newCenterA.y * newScale * Math.cos(newRotation))
+            };
+           
+            const transform = { scale: newScale, rotation: newRotation, translation: newTranslation };
+           
+            console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ (после фильтрации):`);
+            console.log(`   • Масштаб: ${newScale.toFixed(3)} (было ${scale.toFixed(3)})`);
+            console.log(`   • Поворот: ${(newRotation * 180 / Math.PI).toFixed(1)}° (было ${(rotation * 180 / Math.PI).toFixed(1)}°)`);
+            console.log(`   • Сдвиг: (${newTranslation.x.toFixed(1)}, ${newTranslation.y.toFixed(1)}) (было ${translation.x.toFixed(1)}, ${translation.y.toFixed(1)})`);
+           
+            return transform;
+        }
+       
+        // Если после фильтрации осталось мало точек — возвращаем исходный
+        const transform = { scale, rotation, translation };
+        console.log(`\n📊 РЕЗУЛЬТАТ ПРЕОБРАЗОВАНИЯ (без фильтрации):`);
+        console.log(`   • Масштаб: ${scale.toFixed(3)}`);
+        console.log(`   • Поворот: ${(rotation * 180 / Math.PI).toFixed(1)}°`);
+        console.log(`   • Сдвиг: (${translation.x.toFixed(1)}, ${translation.y.toFixed(1)})`);
+       
         return transform;
     }
 
