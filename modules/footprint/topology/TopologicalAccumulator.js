@@ -704,6 +704,7 @@ if (outlineContour) {
         const graph = model.graph;
 
         // 🔥 Поддержка старого и нового формата контуров
+                // 🔥 Поддержка старого и нового формата контуров
         let outlineContours = model.metadata?.outlineContours || [];
         if (outlineContours.length === 0 && model.metadata?.outlineContour) {
             outlineContours = [{
@@ -714,19 +715,14 @@ if (outlineContour) {
             }];
         }
 
-        // 🔥 ИСПОЛЬЗУЕМ ПОСЛЕДНИЙ КОНТУР (трансформированный), а не первый
+        // 🔥 Исправление: создаём outlineContour с class и type
         let outlineContour = null;
         if (outlineContours.length > 0) {
-            const lastContour = outlineContours[outlineContours.length - 1];
             outlineContour = {
-                points: lastContour.points,
-                class: lastContour.class || 'Outline-trail',
-                type: lastContour.type || 'footprint_outline'
+                points: outlineContours[0].points,
+                class: outlineContours[0].class || 'Outline-trail',
+                type: outlineContours[0].type || 'footprint_outline'
             };
-           
-            if (this.debug) {
-                console.log(`   📐 Использую последний контур (${outlineContours.length} всего, фото ${lastContour.photoId})`);
-            }
         } else {
     if (this.debug) {
         console.log(`   ⚠️ Контур отсутствует в модели`);
