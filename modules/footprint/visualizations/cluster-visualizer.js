@@ -179,6 +179,21 @@ console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} за
 
     drawModelPoints(ctx, topologyData, modelMatchMap, avgX, avgY, centerX, centerY, scale, uniqueInModel = []) {
         const points = topologyData.points;
+       
+        // 🔥 ЛОГ: координаты при визуализации
+        if (this.config.debug) {
+            console.log(`\n📍 ВИЗУАЛИЗАЦИЯ МОДЕЛИ — координаты точек (первые 5):`);
+            points.slice(0, 5).forEach((p, i) => {
+                console.log(`   ${i+1}. ${p.id?.substring(0,16) || 'no-id'}: (${p.x?.toFixed(1) || '?'}, ${p.y?.toFixed(1) || '?'}) [conf=${p.confirmationCount || 0}]`);
+            });
+           
+            if (topologyData.outlineContour) {
+                console.log(`\n📍 ВИЗУАЛИЗАЦИЯ МОДЕЛИ — контур (первые 5 точек):`);
+                topologyData.outlineContour.points.slice(0, 5).forEach((p, i) => {
+                    console.log(`   ${i+1}: (${p.x?.toFixed(1) || '?'}, ${p.y?.toFixed(1) || '?'})`);
+                });
+            }
+        }
         const structures = (topologyData.structures || []).filter(s => s && s.id);
 
         console.log(`   🖌 Отрисовка ${points.length} узлов модели...`);
