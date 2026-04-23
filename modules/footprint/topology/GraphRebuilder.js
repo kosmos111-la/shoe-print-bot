@@ -132,13 +132,13 @@ class GraphRebuilder {
      * Извлекает все точки из модели в плоский массив
      */
     extractAllPoints(model) {
-    const points = [];
-   
-    if (!model.graph || !model.graph.nodes) {
-        return points;
-    }
+        const points = [];
+       
+        if (!model.graph || !model.graph.nodes) {
+            return points;
+        }
 
-    for (const [nodeId, node] of model.graph.nodes) {
+        for (const [nodeId, node] of model.graph.nodes) {
         const morph = model.morphologyMap?.get(nodeId) || {};
 
         points.push({
