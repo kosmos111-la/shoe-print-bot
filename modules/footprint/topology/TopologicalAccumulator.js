@@ -792,8 +792,7 @@ if (outlineContours.length > 0) {
             structures,
             triangles: modelTriangles,
             pointToStructure,
-            outlineContours: outlineContours,
-outlineContour: outlineContour,
+            outlineContour = outlineContours[outlineContours.length - 1];
             graphHash: model.graphHash,
             stats: {
                 totalNodes: graph.nodes.size,
