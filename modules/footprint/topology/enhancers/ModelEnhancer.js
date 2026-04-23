@@ -1944,10 +1944,9 @@ existingModel.structures = structures.map(s => {
     };
 });
 
-// ===== КОРРЕКЦИЯ ТРАНСФОРМАЦИИ (БЕЗ СМЕЩЕНИЯ МОДЕЛИ) =====
-// 🔥 МОДЕЛЬ ОСТАЁТСЯ НЕПОДВИЖНОЙ! Корректируем только transform.
+// ===== ИТЕРАТИВНАЯ КОРРЕКЦИЯ ТРАНСФОРМАЦИИ (БЕЗ СМЕЩЕНИЯ МОДЕЛИ) =====
 if (anchorsForValidation.length >= 3 && finalTransform) {
-    console.log(`\n🔧 КОРРЕКЦИЯ ТРАНСФОРМАЦИИ ПО ${anchorsForValidation.length} ЯКОРЯМ (модель неподвижна)...`);
+    console.log(`\n🔧 ИТЕРАТИВНАЯ КОРРЕКЦИЯ ТРАНСФОРМАЦИИ ПО ${anchorsForValidation.length} ЯКОРЯМ (модель неподвижна)...`);
    
     // Собираем пары фото-модель
     const pairs = [];
@@ -1960,36 +1959,59 @@ if (anchorsForValidation.length >= 3 && finalTransform) {
     }
    
     if (pairs.length >= 3) {
-        let totalOffsetX = 0, totalOffsetY = 0, totalWeight = 0;
+        const maxIterations = 10;
+        const convergenceThreshold = 1.0; // пикселей
        
-        for (const pair of pairs) {
-            // Проецируем фото-точку через текущий transform
-            const projected = GeometryUtils.applyTransform(pair.photo, finalTransform);
+        let iteration = 0;
+        let totalCorrectionX = 0;
+        let totalCorrectionY = 0;
+        let converged = false;
+       
+        while (iteration < maxIterations && !converged) {
+            iteration++;
            
-            // Ошибка трансформации
-            const dx = pair.model.x - projected.x;
-            const dy = pair.model.y - projected.y;
-            const weight = pair.confidence;
+            let totalOffsetX = 0, totalOffsetY = 0, totalWeight = 0;
            
-            totalOffsetX += dx * weight;
-            totalOffsetY += dy * weight;
-            totalWeight += weight;
-        }
-       
-        const avgOffsetX = totalWeight > 0 ? totalOffsetX / totalWeight : 0;
-        const avgOffsetY = totalWeight > 0 ? totalOffsetY / totalWeight : 0;
-       
-        console.log(`   📊 Средняя ошибка трансформации: dx=${avgOffsetX.toFixed(2)}px, dy=${avgOffsetY.toFixed(2)}px`);
-       
-        if (Math.abs(avgOffsetX) > 0.5 || Math.abs(avgOffsetY) > 0.5) {
-            // 🔥 КОРРЕКТИРУЕМ TRANSFORM, А НЕ МОДЕЛЬ!
+            for (const pair of pairs) {
+                const projected = GeometryUtils.applyTransform(pair.photo, finalTransform);
+               
+                const dx = pair.model.x - projected.x;
+                const dy = pair.model.y - projected.y;
+                const weight = pair.confidence;
+               
+                totalOffsetX += dx * weight;
+                totalOffsetY += dy * weight;
+                totalWeight += weight;
+            }
+           
+            const avgOffsetX = totalWeight > 0 ? totalOffsetX / totalWeight : 0;
+            const avgOffsetY = totalWeight > 0 ? totalOffsetY / totalWeight : 0;
+           
+            const offsetMagnitude = Math.sqrt(avgOffsetX*avgOffsetX + avgOffsetY*avgOffsetY);
+           
+            if (offsetMagnitude < convergenceThreshold) {
+                converged = true;
+                console.log(`   ✅ Итерация ${iteration}: ошибка ${offsetMagnitude.toFixed(2)}px < ${convergenceThreshold}px — сошлось!`);
+                break;
+            }
+           
+            // Применяем коррекцию
             finalTransform.translation.x += avgOffsetX;
             finalTransform.translation.y += avgOffsetY;
-            console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
-            console.log(`   🔒 Модель НЕ смещалась — координаты точек модели неизменны`);
-        } else {
-            console.log(`   ✅ Ошибка минимальна, коррекция не требуется`);
+            totalCorrectionX += avgOffsetX;
+            totalCorrectionY += avgOffsetY;
+           
+            console.log(`   🔄 Итерация ${iteration}: ошибка ${offsetMagnitude.toFixed(2)}px → сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
         }
+       
+        if (converged) {
+            console.log(`   ✅ Итеративная коррекция завершена за ${iteration} итераций`);
+            console.log(`   📊 Общая коррекция: dx=${totalCorrectionX.toFixed(2)}px, dy=${totalCorrectionY.toFixed(2)}px`);
+        } else {
+            console.log(`   ⚠️ Достигнут лимит итераций (${maxIterations}), коррекция: dx=${totalCorrectionX.toFixed(2)}px, dy=${totalCorrectionY.toFixed(2)}px`);
+        }
+       
+        console.log(`   🔒 Модель НЕ смещалась — координаты точек модели неизменны`);
     }
 }
 
