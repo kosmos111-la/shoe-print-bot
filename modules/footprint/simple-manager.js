@@ -427,24 +427,11 @@ if (bot && chatId) {
     }
 }
 
-// ==================== 🔥 ИСПРАВЛЕНИЕ ЗДЕСЬ ====================
-// ВИЗУАЛИЗАЦИЯ МОДЕЛИ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО
-
-if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+// ==================== 🔥 ВИЗУАЛИЗАЦИЯ ЧИСТОЙ МОДЕЛИ ====================
+if (this.config.enableMergeVisualization && bot && chatId) {
     try {
-        console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО...');
+        console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ ЧИСТОЙ МОДЕЛИ...');
        
-        // 🔥 ЛОГ: какой transform дошёл до визуализации
-        const vizTransform = topologicalResult.transform || topologicalResult.topologicalResult?.transform;
-        if (vizTransform) {
-            console.log(`📐 TRANSFORM ДЛЯ ВИЗУАЛИЗАЦИИ:`);
-            console.log(`   • Масштаб: ${vizTransform.scale.toFixed(3)}`);
-            console.log(`   • Поворот: ${(vizTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-            console.log(`   • Сдвиг: (${vizTransform.translation.x.toFixed(1)}, ${vizTransform.translation.y.toFixed(1)})`);
-        } else {
-            console.log(`⚠️ TRANSFORM ДЛЯ ВИЗУАЛИЗАЦИИ ОТСУТСТВУЕТ!`);
-        }
-      
         const topologyManager = this.getTopologyManager(userId);
         if (!topologyManager) {
             console.log('⚠️ Нет топологического менеджера для визуализации модели');
@@ -453,89 +440,43 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
             if (!modelInfo) {
                 console.log('⚠️ Нет текущей модели для визуализации');
             } else {
-                // 🔥 ПОЛУЧАЕМ ВСЕ НЕОБХОДИМЫЕ ДАННЫЕ
-                const transform = modelInfo.transform || topologicalResult.transform;
-                const matchMap = topologicalResult.matchMap ||
-                                (topologicalResult.topologicalResult?.matchMap) ||
-                                new Map();
-
-                console.log(`\n📊 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:`);
-                console.log(`   • Точек модели: ${modelInfo.graph.nodes.size}`);
-                console.log(`   • Соответствий: ${matchMap.size}`);
-
-                // Подготавливаем точки модели с номерами пар
-                const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
-                    let pairNumber = null;
-                    let status = null;
-
-                    // Ищем номер пары в matchMap
-                    for (const [photoId, match] of matchMap) {
-                        if (match.modelId === node.id && match.pairNumber) {
-                            pairNumber = match.pairNumber;
-                            status = match.status;
-                            break;
-                        }
-                    }
-
-                    return {
-                        id: node.id,
-                        x: node.x,
-                        y: node.y,
-                        confirmationCount: node.confirmationCount || 0,
-                        pairNumber: pairNumber,
-                        status: status
-                    };
-                });
+                // Подготавливаем точки модели
+                const points = Array.from(modelInfo.graph.nodes.values()).map(node => ({
+                    id: node.id,
+                    x: node.x,
+                    y: node.y,
+                    confirmationCount: node.confirmationCount || 0
+                }));
 
                 const edges = Array.from(modelInfo.graph.edges);
 
-                // 🔥 СОЗДАЁМ временный файл
+                // Создаём временный файл
                 const tempDir = path.join(__dirname, '../../temp');
                 if (!fs.existsSync(tempDir)) {
                     fs.mkdirSync(tempDir, { recursive: true });
                 }
                 const outputPath = path.join(tempDir, `model_clean_${Date.now()}.png`);
 
-                // 🔥 ИМПОРТИРУЕМ визуализатор
                 const ModelVisualization = require('../visualization/model-viz');
                 const modelViz = new ModelVisualization();
 
-                // 🔥 ПЕРЕДАЁМ ТОЛЬКО МОДЕЛЬ (БЕЗ ФОТО)
-                // Получаем структуры из visualizationData
-let structures = visualizationData?.structures || [];
-// Нормализуем структуры — гарантируем, что pointIds это массив
-structures = structures.map(s => ({
-    ...s,
-    pointIds: Array.isArray(s.pointIds) ? s.pointIds : [],
-    triangles: s.triangles || []
-}));
-const triangles = visualizationData?.triangles || [];
-const pointToStructure = visualizationData?.pointToStructure || new Map();
-
-console.log(`   • triangles из visualizationData: ${triangles.length}`);
-if (triangles.length > 0) {
-    console.log(`   • Первый треугольник: p1=${triangles[0]?.p1?.id?.substring(0,20)}`);
-}
-console.log(`   🔍 pointToStructure из visualizationData: ${pointToStructure.size} записей`);
-
-const modelImagePath = await modelViz.createVisualization({
-    points: points,
-    photoPoints: [],
-    transform: transform,
-    matches: matchMap,
-    edges: edges,
-    triangles: triangles,
-    structures: structures,
-    pointToStructure: pointToStructure,
-    outputPath: outputPath,
-    width: 1200,
-    height: 1000
-});
+                const modelImagePath = await modelViz.createVisualization({
+                    points: points,
+                    photoPoints: [],
+                    transform: null,
+                    matches: new Map(),
+                    edges: edges,
+                    triangles: [],
+                    structures: [],
+                    pointToStructure: new Map(),
+                    outputPath: outputPath,
+                    width: 1200,
+                    height: 1000
+                });
 
                 if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Чистая модель сохранена: ${modelImagePath}`);
 
-                    // Отправляем в Telegram
                     await bot.sendPhoto(chatId, modelImagePath, {
                         caption:
                             `🏗️ **ИТОГОВАЯ МОДЕЛЬ (${points.length} точек)**\n\n` +
@@ -548,7 +489,6 @@ const modelImagePath = await modelViz.createVisualization({
                             `✅ Модель готова к сравнению с новыми фото!`
                     });
 
-                    // Удаляем через минуту
                     setTimeout(() => {
                         if (fs.existsSync(modelImagePath)) {
                             fs.unlinkSync(modelImagePath);
@@ -562,12 +502,14 @@ const modelImagePath = await modelViz.createVisualization({
         }
     } catch (modelVizError) {
         console.log(`⚠️ Ошибка визуализации чистой модели: ${modelVizError.message}`);
-        console.log(modelVizError.stack);
     }
-}if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
+}
+
+// ==================== 🔥 ВИЗУАЛИЗАЦИЯ С НАЛОЖЕНИЕМ ФОТО ====================
+if (this.config.enableMergeVisualization && bot && chatId && topologicalResult && topologicalResult.success) {
     try {
         console.log('\n🏗️ СОЗДАЮ ВИЗУАЛИЗАЦИЮ С НАЛОЖЕНИЕМ ТРАНСФОРМИРОВАННОГО ФОТО...');
-       
+
         const topologyManager = this.getTopologyManager(userId);
         if (!topologyManager) {
             console.log('⚠️ Нет топологического менеджера для визуализации модели');
@@ -582,31 +524,81 @@ const modelImagePath = await modelViz.createVisualization({
                 const matchMap = topologicalResult.matchMap ||
                                 (topologicalResult.topologicalResult?.matchMap) ||
                                 new Map();
-               
-                console.log(`\n📊 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ:`);
+
+                console.log(`\n📊 ДАННЫЕ ДЛЯ ВИЗУАЛИЗАЦИИ С НАЛОЖЕНИЕМ:`);
                 console.log(`   • Точек модели: ${modelInfo.graph.nodes.size}`);
                 console.log(`   • Точек фото: ${photoPoints.length}`);
                 console.log(`   • Соответствий: ${matchMap.size}`);
                 console.log(`   • Трансформация: ${transform ? '✅ ЕСТЬ' : '❌ НЕТ'}`);
-               
+
                 if (!transform) {
                     console.log('⚠️ Трансформация отсутствует! Наложение невозможно');
                     return;
                 }
 
-                if (transform) {
-                    console.log(`\n🔄 ПАРАМЕТРЫ ТРАНСФОРМАЦИИ:`);
-                    console.log(`   • Масштаб: ${transform.scale.toFixed(3)}`);
-                    console.log(`   • Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-                    console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
+                // 🔥 ЛОГ: ПАРАМЕТРЫ ТРАНСФОРМАЦИИ
+                console.log(`\n🔄 ПАРАМЕТРЫ ТРАНСФОРМАЦИИ (для визуализации):`);
+                console.log(`   • Масштаб: ${transform.scale.toFixed(3)}`);
+                console.log(`   • Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                console.log(`   • Сдвиг: (${transform.translation.x.toFixed(1)}, ${transform.translation.y.toFixed(1)})`);
+
+                // 🔥 ДОПОЛНИТЕЛЬНО: проверяем transform из разных источников
+                console.log(`\n📍 ИСТОЧНИКИ TRANSFORM:`);
+                console.log(`   • modelInfo.transform: ${modelInfo.transform ? 'есть' : 'нет'}`);
+                console.log(`   • topologicalResult.transform: ${topologicalResult.transform ? 'есть' : 'нет'}`);
+                console.log(`   • topologicalResult.topologicalResult?.transform: ${topologicalResult.topologicalResult?.transform ? 'есть' : 'нет'}`);
+
+                // Сравниваем, если есть оба
+                if (modelInfo.transform && topologicalResult.transform) {
+                    const m = modelInfo.transform;
+                    const t = topologicalResult.transform;
+                    const same = Math.abs(m.scale - t.scale) < 0.001 &&
+                                 Math.abs(m.rotation - t.rotation) < 0.001 &&
+                                 Math.abs(m.translation.x - t.translation.x) < 0.1 &&
+                                 Math.abs(m.translation.y - t.translation.y) < 0.1;
+                    console.log(`   • Совпадают: ${same ? '✅ ДА' : '❌ НЕТ'}`);
+                    if (!same) {
+                        console.log(`      modelInfo: scale=${m.scale.toFixed(3)}, rot=${(m.rotation*180/Math.PI).toFixed(1)}°, trans=(${m.translation.x.toFixed(1)},${m.translation.y.toFixed(1)})`);
+                        console.log(`      topologicalResult: scale=${t.scale.toFixed(3)}, rot=${(t.rotation*180/Math.PI).toFixed(1)}°, trans=(${t.translation.x.toFixed(1)},${t.translation.y.toFixed(1)})`);
+                    }
                 }
-               
+
+                // 🔥 ПРИМЕР ТРАНСФОРМАЦИИ ДЛЯ ПЕРВОЙ ТОЧКИ ФОТО
+                if (photoPoints.length > 0) {
+                    const firstPoint = photoPoints[0];
+                    const projected = {
+                        x: firstPoint.x * transform.scale * Math.cos(transform.rotation) -
+                           firstPoint.y * transform.scale * Math.sin(transform.rotation) +
+                           transform.translation.x,
+                        y: firstPoint.x * transform.scale * Math.sin(transform.rotation) +
+                           firstPoint.y * transform.scale * Math.cos(transform.rotation) +
+                           transform.translation.y
+                    };
+                    console.log(`\n📍 ПРИМЕР ТРАНСФОРМАЦИИ ТОЧКИ ФОТО:`);
+                    console.log(`   • Исходная: (${firstPoint.x.toFixed(1)}, ${firstPoint.y.toFixed(1)})`);
+                    console.log(`   • После трансформации: (${projected.x.toFixed(1)}, ${projected.y.toFixed(1)})`);
+
+                    // Находим ближайшую точку модели для сравнения
+                    let nearestModelPoint = null;
+                    let minDist = Infinity;
+                    for (const node of modelInfo.graph.nodes.values()) {
+                        const dist = Math.sqrt(Math.pow(node.x - projected.x, 2) + Math.pow(node.y - projected.y, 2));
+                        if (dist < minDist) {
+                            minDist = dist;
+                            nearestModelPoint = node;
+                        }
+                    }
+                    if (nearestModelPoint) {
+                        console.log(`   • Ближайшая точка модели: (${nearestModelPoint.x.toFixed(1)}, ${nearestModelPoint.y.toFixed(1)})`);
+                        console.log(`   • Расстояние: ${minDist.toFixed(1)}px`);
+                    }
+                }
+
                 // Подготавливаем точки модели с номерами пар
                 const points = Array.from(modelInfo.graph.nodes.values()).map(node => {
                     let pairNumber = null;
                     let status = null;
-                   
-                    // Ищем номер пары в matchMap
+
                     for (const [photoId, match] of matchMap) {
                         if (match.modelId === node.id && match.pairNumber) {
                             pairNumber = match.pairNumber;
@@ -614,7 +606,7 @@ const modelImagePath = await modelViz.createVisualization({
                             break;
                         }
                     }
-                   
+
                     return {
                         id: node.id,
                         x: node.x,
@@ -624,50 +616,55 @@ const modelImagePath = await modelViz.createVisualization({
                         status: status
                     };
                 });
-               
+
                 const edges = Array.from(modelInfo.graph.edges);
-               
-                // 🔥 СОЗДАЁМ временный файл
+
+                // Создаём временный файл
                 const tempDir = path.join(__dirname, '../../temp');
                 if (!fs.existsSync(tempDir)) {
                     fs.mkdirSync(tempDir, { recursive: true });
                 }
                 const outputPath = path.join(tempDir, `model_overlay_${Date.now()}.png`);
-               
-                // 🔥 ИМПОРТИРУЕМ визуализатор
+
                 const ModelVisualization = require('../visualization/model-viz');
                 const modelViz = new ModelVisualization();
-               
-                // 🔥 ПЕРЕДАЁМ ВСЕ ДАННЫЕ
-// 🔥 ДИАГНОСТИКА ПЕРЕД ВЫЗОВОМ
-console.log(`\n📐 ПЕРЕД ВИЗУАЛИЗАЦИЕЙ С НАЛОЖЕНИЕМ:`);
-console.log(`   visualizationData.outlineContour: ${visualizationData?.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
-if (visualizationData?.outlineContour) {
-    console.log(`      точек: ${visualizationData.outlineContour.points?.length || 0}`);
-}
-console.log(`   topologicalResult.photoContours: ${topologicalResult?.photoContours?.length || 0}`);
-if (topologicalResult?.photoContours) {
-    const outlinePhoto = topologicalResult.photoContours.find(c => c.class === 'Outline-trail');
-    console.log(`      outline в photoContours: ${outlinePhoto ? 'ЕСТЬ' : 'НЕТ'}, точек: ${outlinePhoto?.points?.length || 0}`);
-}
 
-const modelImagePath = await modelViz.createVisualization({
-    points: points,
-    photoPoints: photoPoints,
-    transform: transform,
-    matches: matchMap,
-    edges: edges,
-    outlineContour: visualizationData?.outlineContour,                              // 🔥 КОНТУР МОДЕЛИ
-    photoOutlineContour: topologicalResult?.photoContours?.find(c => c.class === 'Outline-trail'), // 🔥 КОНТУР ФОТО
-    outputPath: outputPath,
-    width: 1200,
-    height: 1000
-});
+                // 🔥 ДИАГНОСТИКА КОНТУРОВ
+                console.log(`\n📐 КОНТУРЫ ДЛЯ ВИЗУАЛИЗАЦИИ:`);
+                const vizData = topologyManager.getAccumulativeVisualizationData();
+                console.log(`   • visualizationData.outlineContour: ${vizData?.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
+                if (vizData?.outlineContour) {
+                    console.log(`      точек: ${vizData.outlineContour.points?.length || 0}`);
+                }
+                console.log(`   • topologicalResult.photoContours: ${topologicalResult?.photoContours?.length || 0}`);
                
+                let photoOutlineContour = null;
+                if (topologicalResult?.photoContours) {
+                    const outlinePhoto = topologicalResult.photoContours.find(c => c.class === 'Outline-trail');
+                    if (outlinePhoto) {
+                        photoOutlineContour = outlinePhoto;
+                        console.log(`      outline в photoContours: ЕСТЬ, точек: ${outlinePhoto.points?.length || 0}`);
+                    } else {
+                        console.log(`      outline в photoContours: НЕТ`);
+                    }
+                }
+
+                const modelImagePath = await modelViz.createVisualization({
+                    points: points,
+                    photoPoints: photoPoints,
+                    transform: transform,
+                    matches: matchMap,
+                    edges: edges,
+                    outlineContour: vizData?.outlineContour,
+                    photoOutlineContour: photoOutlineContour,
+                    outputPath: outputPath,
+                    width: 1200,
+                    height: 1000
+                });
+
                 if (modelImagePath && fs.existsSync(modelImagePath)) {
                     console.log(`\n✅ Визуализация с наложением создана: ${modelImagePath}`);
-                   
-                    // Отправляем в Telegram
+
                     await bot.sendPhoto(chatId, modelImagePath, {
                         caption:
                             `🏗️ **НАЛОЖЕНИЕ ФОТО НА МОДЕЛЬ**\n\n` +
@@ -683,8 +680,7 @@ const modelImagePath = await modelViz.createVisualization({
                             `• Поворот: ${(transform.rotation * 180 / Math.PI).toFixed(1)}°\n` +
                             `• Сдвиг: (${transform.translation.x.toFixed(0)}, ${transform.translation.y.toFixed(0)})`
                     });
-                   
-                    // Удаляем через минуту
+
                     setTimeout(() => {
                         if (fs.existsSync(modelImagePath)) {
                             fs.unlinkSync(modelImagePath);
@@ -698,7 +694,6 @@ const modelImagePath = await modelViz.createVisualization({
         }
     } catch (modelVizError) {
         console.log(`⚠️ Ошибка визуализации с наложением: ${modelVizError.message}`);
-        console.log(modelVizError.stack);
     }
 }
 
