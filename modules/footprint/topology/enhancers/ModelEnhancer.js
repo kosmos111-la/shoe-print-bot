@@ -1861,8 +1861,7 @@ if (this.debug && mergedCount > 0) {
 
 // Сохраняем ТРАНСФОРМИРОВАННЫЙ контур в модель
 if (outlineContour) {
-    // 🔥 Контур тоже трансформируем через глобальный transform
-    // (для контура кластерная трансформация не нужна — он один на весь след)
+    // Трансформируем контур
     const transformedContourPoints = outlineContour.points.map(p => {
         const projected = {
             x: p.x * finalTransform.scale * Math.cos(finalTransform.rotation) -
@@ -1875,24 +1874,16 @@ if (outlineContour) {
         return projected;
     });
    
-    const transformedContour = {
+    // 🔥 ОБНОВЛЯЕМ ОСНОВНОЙ КОНТУР МОДЕЛИ
+    existingModel.metadata.outlineContour = {
         points: transformedContourPoints,
         class: outlineContour.class || 'Outline-trail',
         type: outlineContour.type || 'footprint_outline'
     };
    
+    // Также сохраняем в массив для истории
     if (!existingModel.metadata.outlineContours) {
         existingModel.metadata.outlineContours = [];
-        // Переносим старый контур, если он был
-        if (existingModel.metadata.outlineContour) {
-            existingModel.metadata.outlineContours.push({
-                photoId: 'initial',
-                points: existingModel.metadata.outlineContour.points,
-                class: existingModel.metadata.outlineContour.class || 'Outline-trail',
-                type: existingModel.metadata.outlineContour.type || 'footprint_outline'
-            });
-            delete existingModel.metadata.outlineContour;
-        }
     }
    
     existingModel.metadata.outlineContours.push({
@@ -1902,7 +1893,7 @@ if (outlineContour) {
         type: outlineContour.type || 'footprint_outline'
     });
    
-    console.log(`💾 Трансформированный контур следа сохранён в модель (${transformedContourPoints.length} точек)`);
+    console.log(`💾 Контур модели обновлён (${transformedContourPoints.length} точек)`);
 }
 
 // Сохраняем transform и структуры
