@@ -41,6 +41,15 @@ class GraphRebuilder {
             console.log(`\n🔄 ПЕРЕСТРОЕНИЕ ГРАФА МОДЕЛИ ${model.id?.substring(0, 12)}...`);
         }
 
+        // 🔥 ЛОГ: координаты ДО перестроения
+        const nodesArray = Array.from(model.graph.nodes.values());
+        if (nodesArray.length > 0) {
+            console.log(`\n📍 ДО ПЕРЕСТРОЕНИЯ — координаты точек (первые 5):`);
+            nodesArray.slice(0, 5).forEach((node, i) => {
+                console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [conf=${node.confirmationCount || 1}]`);
+            });
+        }
+
         // 1. Извлекаем все точки из модели
         const allPoints = this.extractAllPoints(model);
 
@@ -102,6 +111,20 @@ class GraphRebuilder {
             console.log(`   • Время: ${duration}ms`);
         }
 
+    // 🔥 ЛОГ: координаты ПОСЛЕ перестроения
+        const newNodesArray = Array.from(model.graph.nodes.values());
+        if (newNodesArray.length > 0) {
+            console.log(`\n📍 ПОСЛЕ ПЕРЕСТРОЕНИЯ — координаты точек (первые 5):`);
+            newNodesArray.slice(0, 5).forEach((node, i) => {
+                // Ищем эту же точку в старом массиве
+                const oldNode = nodesArray.find(n => n.id === node.id);
+                const coordChanged = oldNode ?
+                    `(${oldNode.x.toFixed(1)},${oldNode.y.toFixed(1)}) → (${node.x.toFixed(1)},${node.y.toFixed(1)})` :
+                    'НОВАЯ ТОЧКА';
+                console.log(`   ${i+1}. ${node.id.substring(0,16)}: ${coordChanged} [conf=${node.confirmationCount || 1}]`);
+            });
+        }
+       
         return model;
     }
 
