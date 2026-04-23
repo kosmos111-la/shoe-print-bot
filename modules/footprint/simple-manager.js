@@ -642,8 +642,28 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                 if (topologicalResult?.photoContours) {
                     const outlinePhoto = topologicalResult.photoContours.find(c => c.class === 'Outline-trail');
                     if (outlinePhoto) {
-                        photoOutlineContour = outlinePhoto;
                         console.log(`      outline в photoContours: ЕСТЬ, точек: ${outlinePhoto.points?.length || 0}`);
+                       
+                        // 🔥 ТРАНСФОРМИРУЕМ КОНТУР ФОТО ТЕМ ЖЕ TRANSFORM, ЧТО И ТОЧКИ
+                        if (transform) {
+                            const transformedPoints = outlinePhoto.points.map(p => ({
+                                x: p.x * transform.scale * Math.cos(transform.rotation) -
+                                   p.y * transform.scale * Math.sin(transform.rotation) +
+                                   transform.translation.x,
+                                y: p.x * transform.scale * Math.sin(transform.rotation) +
+                                   p.y * transform.scale * Math.cos(transform.rotation) +
+                                   transform.translation.y
+                            }));
+                           
+                            photoOutlineContour = {
+                                ...outlinePhoto,
+                                points: transformedPoints
+                            };
+                            console.log(`      ✅ Контур фото трансформирован (${transformedPoints.length} точек)`);
+                        } else {
+                            photoOutlineContour = outlinePhoto;
+                            console.log(`      ⚠️ Контур фото НЕ трансформирован (transform отсутствует)`);
+                        }
                     } else {
                         console.log(`      outline в photoContours: НЕТ`);
                     }
