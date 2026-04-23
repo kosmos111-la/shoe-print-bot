@@ -48,6 +48,16 @@ class GraphRebuilder {
             nodesArray.slice(0, 5).forEach((node, i) => {
                 console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [conf=${node.confirmationCount || 1}]`);
             });
+           
+            // 🔥 ЛОГ: якорная точка контура
+            const contourAnchors = nodesArray.filter(n => n.isContourAnchor);
+            if (contourAnchors.length > 0) {
+                contourAnchors.forEach(a => {
+                    console.log(`   🔷 ЯКОРЬ КОНТУРА: ${a.id.substring(0,16)}: (${a.x.toFixed(1)}, ${a.y.toFixed(1)}) [conf=${a.confirmationCount || 1}]`);
+                });
+            } else {
+                console.log(`   ⚠️ Якорь контура НЕ НАЙДЕН в графе!`);
+            }
         }
 
         // 1. Извлекаем все точки из модели
@@ -116,13 +126,26 @@ class GraphRebuilder {
         if (newNodesArray.length > 0) {
             console.log(`\n📍 ПОСЛЕ ПЕРЕСТРОЕНИЯ — координаты точек (первые 5):`);
             newNodesArray.slice(0, 5).forEach((node, i) => {
-                // Ищем эту же точку в старом массиве
                 const oldNode = nodesArray.find(n => n.id === node.id);
                 const coordChanged = oldNode ?
                     `(${oldNode.x.toFixed(1)},${oldNode.y.toFixed(1)}) → (${node.x.toFixed(1)},${node.y.toFixed(1)})` :
                     'НОВАЯ ТОЧКА';
                 console.log(`   ${i+1}. ${node.id.substring(0,16)}: ${coordChanged} [conf=${node.confirmationCount || 1}]`);
             });
+           
+            // 🔥 ЛОГ: якорная точка контура ПОСЛЕ перестроения
+            const contourAnchors = newNodesArray.filter(n => n.isContourAnchor);
+            if (contourAnchors.length > 0) {
+                contourAnchors.forEach(a => {
+                    const oldAnchor = nodesArray.find(n => n.id === a.id);
+                    const coordChanged = oldAnchor ?
+                        `(${oldAnchor.x.toFixed(1)},${oldAnchor.y.toFixed(1)}) → (${a.x.toFixed(1)},${a.y.toFixed(1)})` :
+                        'НОВАЯ';
+                    console.log(`   🔷 ЯКОРЬ КОНТУРА: ${a.id.substring(0,16)}: ${coordChanged} [conf=${a.confirmationCount || 1}]`);
+                });
+            } else {
+                console.log(`   ⚠️ Якорь контура НЕ НАЙДЕН в графе после перестроения!`);
+            }
         }
        
         return model;
