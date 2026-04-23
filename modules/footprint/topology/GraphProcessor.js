@@ -94,6 +94,49 @@ class GraphProcessor {
         // Извлекаем точки для анализа
         const points = Array.from(exactGraph.nodes.values());
        
+        // 🔥 Если есть контур — добавляем его центр как якорную точку в граф
+        let contourCenter = null;
+        if (options.outlineContour && options.outlineContour.points && options.outlineContour.points.length > 0) {
+            const contourPoints = options.outlineContour.points;
+            let cx = 0, cy = 0;
+            for (const p of contourPoints) {
+                cx += p.x;
+                cy += p.y;
+            }
+            cx /= contourPoints.length;
+            cy /= contourPoints.length;
+           
+            contourCenter = { x: cx, y: cy };
+           
+            // Добавляем центр контура как узел в граф
+            const contourAnchorId = `contour_anchor_${points.length}`;
+            exactGraph.nodes.set(contourAnchorId, {
+                id: contourAnchorId,
+                x: cx,
+                y: cy,
+                confidence: 0.5,
+                degree: 0,
+                triangles: 0,
+                confirmationCount: 999, // всегда подтверждена
+                addedFrom: 'contour_anchor',
+                addedAt: new Date(),
+                isContourAnchor: true  // пометка
+            });
+           
+            // Соединяем с ближайшими точками графа
+            const nearestPoints = points
+                .map(p => ({ id: p.id, dist: Math.sqrt(Math.pow(p.x - cx, 2) + Math.pow(p.y - cy, 2)) }))
+                .sort((a, b) => a.dist - b.dist)
+                .slice(0, 3);
+           
+            for (const np of nearestPoints) {
+                exactGraph.edges.add([contourAnchorId, np.id].sort().join('--'));
+            }
+           
+            console.log(`📍 Центр контура (${cx.toFixed(1)}, ${cy.toFixed(1)}) добавлен как якорная точка ${contourAnchorId}`);
+            console.log(`   Соединён с ближайшими точками: ${nearestPoints.map(p => p.id.substring(0,12)).join(', ')}`);
+        }
+       
         // 🔥 ЛОГ: координаты при создании модели
         console.log(`\n📍 СОЗДАНИЕ МОДЕЛИ — КООРДИНАТЫ ТОЧЕК (первые 5):`);
         const samplePoints = points.slice(0, 5);
@@ -188,9 +231,11 @@ class GraphProcessor {
             console.log(`🔷 GraphProcessor: создана модель с ${exactGraph.nodes.size} узлами`);
         }
        
+        // Добавляем contourCenter в modelData
+        modelData.contourCenter = contourCenter;
+       
         return modelData;
     }
-
     /**
      * Получить роли соседей (строка)
      */
