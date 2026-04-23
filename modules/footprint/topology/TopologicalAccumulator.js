@@ -704,35 +704,30 @@ if (outlineContour) {
         const graph = model.graph;
 
         // 🔥 Поддержка старого и нового формата контуров
-let outlineContours = model.metadata?.outlineContours || [];
+        let outlineContours = model.metadata?.outlineContours || [];
+        if (outlineContours.length === 0 && model.metadata?.outlineContour) {
+            outlineContours = [{
+                photoId: 'initial',
+                points: model.metadata.outlineContour.points,
+                class: model.metadata.outlineContour.class || 'Outline-trail',
+                type: model.metadata.outlineContour.type || 'footprint_outline'
+            }];
+        }
 
-// Если массив пуст, но есть старый формат outlineContour
-if (outlineContours.length === 0 && model.metadata?.outlineContour) {
-    outlineContours = [{
-        photoId: 'initial',
-        points: model.metadata.outlineContour.points,
-        class: model.metadata.outlineContour.class || 'Outline-trail',
-        type: model.metadata.outlineContour.type || 'footprint_outline',
-        transformed: false
-    }];
-}
-
-// 🔥 Создаём outlineContour из ПЕРВОГО контура для визуализации
-let outlineContour = null;
-if (outlineContours.length > 0) {
-    const firstContour = outlineContours[0];
-    outlineContour = {
-        points: firstContour.points,
-        class: firstContour.class || 'Outline-trail',
-        type: firstContour.type || 'footprint_outline',
-        photoId: firstContour.photoId,
-        transformed: firstContour.transformed || false
-    };
-   
-    if (this.debug) {
-        console.log(`   📐 Контур для визуализации: ${outlineContour.points.length} точек, class=${outlineContour.class}`);
-    }
-} else {
+        // 🔥 ИСПОЛЬЗУЕМ ПОСЛЕДНИЙ КОНТУР (трансформированный), а не первый
+        let outlineContour = null;
+        if (outlineContours.length > 0) {
+            const lastContour = outlineContours[outlineContours.length - 1];
+            outlineContour = {
+                points: lastContour.points,
+                class: lastContour.class || 'Outline-trail',
+                type: lastContour.type || 'footprint_outline'
+            };
+           
+            if (this.debug) {
+                console.log(`   📐 Использую последний контур (${outlineContours.length} всего, фото ${lastContour.photoId})`);
+            }
+        } else {
     if (this.debug) {
         console.log(`   ⚠️ Контур отсутствует в модели`);
     }
@@ -792,7 +787,8 @@ if (outlineContours.length > 0) {
             structures,
             triangles: modelTriangles,
             pointToStructure,
-            outlineContour = outlineContours[outlineContours.length - 1];
+            outlineContours: outlineContours,
+outlineContour: outlineContour,
             graphHash: model.graphHash,
             stats: {
                 totalNodes: graph.nodes.size,
