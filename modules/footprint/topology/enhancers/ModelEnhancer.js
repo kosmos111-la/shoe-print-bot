@@ -2126,8 +2126,17 @@ _validateMatches(matches, graphA, graphB, morphologyMap, modelMorphology) {
 * Обновление модели новыми соответствиями
 */
 _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) {
-    let confirmedExisting = 0;
-    let newNodesAdded = 0;
+        let confirmedExisting = 0;
+        let newNodesAdded = 0;
+       
+        // 🔥 ЛОГ: координаты модели ДО добавления новых точек
+        const nodesBefore = Array.from(model.graph.nodes.values());
+        if (nodesBefore.length > 0) {
+            console.log(`\n📍 ДО ДОБАВЛЕНИЯ — существующие точки (первые 5):`);
+            nodesBefore.slice(0, 5).forEach((node, i) => {
+                console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [conf=${node.confirmationCount || 1}]`);
+            });
+        }
 
     for (const match of matches) {
         const modelNode = model.graph.nodes.get(match.pointB);
@@ -2190,9 +2199,26 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
         console.log(`   📊 Добавлено новых узлов: ${newNodesAdded}`);
     }
 
-    return { confirmedExisting, newNodesAdded };
-}
+if (pointsToAdd.length > 0) {
+            console.log(`\n📍 ДОБАВЛЯЮ НОВЫЕ ТОЧКИ (первые 5):`);
+            pointsToAdd.slice(0, 5).forEach((p, i) => {
+                console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) [трансформированные]`);
+            });
+        }
+       
+        // 🔥 ЛОГ: координаты модели ПОСЛЕ добавления
+        const nodesAfter = Array.from(model.graph.nodes.values());
+        if (nodesAfter.length > nodesBefore.length) {
+            console.log(`\n📍 ПОСЛЕ ДОБАВЛЕНИЯ — все точки (первые 5):`);
+            nodesAfter.slice(0, 5).forEach((node, i) => {
+                const oldNode = nodesBefore.find(n => n.id === node.id);
+                const status = oldNode ? 'существующая' : 'НОВАЯ';
+                console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [${status}] [conf=${node.confirmationCount || 1}]`);
+            });
+        }
 
+        return { confirmedExisting, newNodesAdded };
+    }
  /**
 * Извлекает все треугольники из графа
 */
