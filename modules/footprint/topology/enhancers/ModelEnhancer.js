@@ -1944,45 +1944,51 @@ existingModel.structures = structures.map(s => {
     };
 });
 
-// ===== ПРОСТАЯ КОРРЕКЦИЯ СДВИГА ПО СРЕДНЕМУ СМЕЩЕНИЮ =====
-if (anchorsForValidation.length >= 3 && finalTransform) {
-    console.log(`\n🔧 КОРРЕКЦИЯ СДВИГА ПО ${anchorsForValidation.length} ЯКОРЯМ (среднее смещение)...`);
+// ===== КОРРЕКЦИЯ СДВИГА ПО МЕДИАНЕ ВСЕХ ПОДТВЕРЖДЁННЫХ ТОЧЕК =====
+if (finalValidatedMatches && finalValidatedMatches.length >= 3 && finalTransform) {
+    console.log(`\n🔧 КОРРЕКЦИЯ СДВИГА ПО МЕДИАНЕ ${finalValidatedMatches.length} ПОДТВЕРЖДЁННЫХ ТОЧЕК...`);
    
-    // Собираем пары фото-модель
-    const pairs = [];
-    for (const anchor of anchorsForValidation) {
-        const photoPoint = newExactGraph.nodes.get(anchor.pointA);
-        const modelPoint = existingModel.graph.nodes.get(anchor.pointB);
+    // Собираем смещения по всем подтверждённым точкам
+    const offsetsX = [];
+    const offsetsY = [];
+   
+    for (const match of finalValidatedMatches) {
+        const photoPoint = newExactGraph.nodes.get(match.pointA);
+        const modelPoint = existingModel.graph.nodes.get(match.pointB);
+       
         if (photoPoint && modelPoint) {
-            pairs.push({ photo: photoPoint, model: modelPoint, confidence: anchor.confidence || 0.5 });
+            const projected = GeometryUtils.applyTransform(photoPoint, finalTransform);
+           
+            const dx = modelPoint.x - projected.x;
+            const dy = modelPoint.y - projected.y;
+           
+            offsetsX.push(dx);
+            offsetsY.push(dy);
         }
     }
    
-    if (pairs.length >= 3) {
-        let totalOffsetX = 0, totalOffsetY = 0, totalWeight = 0;
+    if (offsetsX.length >= 3) {
+        // Сортируем и берём медиану
+        offsetsX.sort((a, b) => a - b);
+        offsetsY.sort((a, b) => a - b);
        
-        for (const pair of pairs) {
-            const projected = GeometryUtils.applyTransform(pair.photo, finalTransform);
-           
-            const dx = pair.model.x - projected.x;
-            const dy = pair.model.y - projected.y;
-            const weight = pair.confidence;
-           
-            totalOffsetX += dx * weight;
-            totalOffsetY += dy * weight;
-            totalWeight += weight;
-        }
+        const medianX = offsetsX[Math.floor(offsetsX.length / 2)];
+        const medianY = offsetsY[Math.floor(offsetsY.length / 2)];
        
-        const avgOffsetX = totalWeight > 0 ? totalOffsetX / totalWeight : 0;
-        const avgOffsetY = totalWeight > 0 ? totalOffsetY / totalWeight : 0;
+        // Также считаем среднее для сравнения
+        const avgX = offsetsX.reduce((a, b) => a + b, 0) / offsetsX.length;
+        const avgY = offsetsY.reduce((a, b) => a + b, 0) / offsetsY.length;
        
-        // Применяем коррекцию ОДИН РАЗ
-        finalTransform.translation.x += avgOffsetX;
-        finalTransform.translation.y += avgOffsetY;
+        // Применяем МЕДИАННОЕ смещение
+        finalTransform.translation.x += medianX;
+        finalTransform.translation.y += medianY;
        
-        console.log(`   📊 Среднее смещение: dx=${avgOffsetX.toFixed(2)}px, dy=${avgOffsetY.toFixed(2)}px`);
-        console.log(`   🔄 Transform скорректирован ОДНИМ шагом: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+        console.log(`   📊 Медианное смещение: dx=${medianX.toFixed(2)}px, dy=${medianY.toFixed(2)}px`);
+        console.log(`   📊 Среднее смещение (для сравнения): dx=${avgX.toFixed(2)}px, dy=${avgY.toFixed(2)}px`);
+        console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
         console.log(`   🔒 Модель НЕ смещалась — координаты точек модели неизменны`);
+    } else {
+        console.log(`   ⚠️ Недостаточно точек для коррекции (${offsetsX.length})`);
     }
 }
 
