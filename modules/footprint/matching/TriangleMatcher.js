@@ -622,7 +622,7 @@ buildNeighbors(triangles) {
      * Восстановление точек из якорей
      */
     reconstructPoints(anchors, trianglesA, trianglesB) {
-    if (this.debug) console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ:`);
+    if (this.debug) console.log(`\n🔍 RECONSTRUCT POINTS С КООРДИНАТАМИ (ОПТИМАЛЬНОЕ СОПОСТАВЛЕНИЕ):`);
 
     const pointMatches = [];
     const pointMap = new Map();
@@ -632,12 +632,57 @@ buildNeighbors(triangles) {
         const tA = trianglesA[anchor.aIndex];
         const tB = trianglesB[anchor.bIndex];
 
-        // 🔥 СОХРАНЯЕМ СООТВЕТСТВИЯ В ТРЕУГОЛЬНИКЕ
-        tA.pB1 = tB.p1;
-        tA.pB2 = tB.p2;
-        tA.pB3 = tB.p3;
-        tA.confidence = anchor.geometryScore;
+        // 🔥 НАХОДИМ ОПТИМАЛЬНОЕ СООТВЕТСТВИЕ ВЕРШИН
+        const pointsA = [tA.p1, tA.p2, tA.p3];
+        const pointsB = [tB.p1, tB.p2, tB.p3];
        
+        // Все 6 перестановок для сопоставления вершин
+        const permutations = [
+            [0, 1, 2], // p1→p1, p2→p2, p3→p3
+            [0, 2, 1], // p1→p1, p2→p3, p3→p2
+            [1, 0, 2], // p1→p2, p2→p1, p3→p3
+            [1, 2, 0], // p1→p2, p2→p3, p3→p1
+            [2, 0, 1], // p1→p3, p2→p1, p3→p2
+            [2, 1, 0]  // p1→p3, p2→p2, p3→p1
+        ];
+       
+        let bestPerm = [0, 1, 2];
+        let minError = Infinity;
+       
+        // Вычисляем размер треугольника для нормализации
+        const triSizeA = (this.calcDistance(pointsA[0], pointsA[1]) +
+                          this.calcDistance(pointsA[1], pointsA[2]) +
+                          this.calcDistance(pointsA[2], pointsA[0])) / 3;
+        const triSizeB = (this.calcDistance(pointsB[0], pointsB[1]) +
+                          this.calcDistance(pointsB[1], pointsB[2]) +
+                          this.calcDistance(pointsB[2], pointsB[0])) / 3;
+        const avgSize = (triSizeA + triSizeB) / 2;
+       
+        for (const perm of permutations) {
+            let totalDist = 0;
+            for (let i = 0; i < 3; i++) {
+                const pA = pointsA[i];
+                const pB = pointsB[perm[i]];
+                totalDist += this.calcDistance(pA, pB);
+            }
+           
+            // Нормализованная ошибка
+            const normalizedError = avgSize > 0 ? totalDist / (avgSize * 3) : totalDist;
+           
+            if (normalizedError < minError) {
+                minError = normalizedError;
+                bestPerm = perm;
+            }
+        }
+       
+        // Применяем лучшую перестановку
+        tA.pB1 = pointsB[bestPerm[0]];
+        tA.pB2 = pointsB[bestPerm[1]];
+        tA.pB3 = pointsB[bestPerm[2]];
+        tA.confidence = anchor.geometryScore;
+        tA.permutation = bestPerm;
+        tA.permutationError = minError;
+      
         // 🔥 ТАКЖЕ СОХРАНЯЕМ ВНЕШНИЕ ТОЧКИ ДЛЯ РЁБЕР, ЕСЛИ ОНИ ЕСТЬ
         if (tA.edges && tB.edges) {
             for (let i = 0; i < tA.edges.length; i++) {
@@ -650,22 +695,22 @@ buildNeighbors(triangles) {
         }
 
         if (this.debug) {
-            console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%):`);
-            console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)})`);
-            console.log(`         ${tA.p2.id.substring(0,12)} (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)})`);
-            console.log(`         ${tA.p3.id.substring(0,12)} (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)})`);
-            console.log(`      B: ${tB.p1.id.substring(0,12)} (${tB.p1.x.toFixed(1)}, ${tB.p1.y.toFixed(1)})`);
-            console.log(`         ${tB.p2.id.substring(0,12)} (${tB.p2.x.toFixed(1)}, ${tB.p2.y.toFixed(1)})`);
-            console.log(`         ${tB.p3.id.substring(0,12)} (${tB.p3.x.toFixed(1)}, ${tB.p3.y.toFixed(1)})`);
+            console.log(`\n   Треугольник якорь (уверенность: ${(anchor.geometryScore*100).toFixed(1)}%, ошибка сопоставления: ${(minError*100).toFixed(1)}%):`);
+            console.log(`      A: ${tA.p1.id.substring(0,12)} (${tA.p1.x.toFixed(1)}, ${tA.p1.y.toFixed(1)}) → B: ${tA.pB1.id.substring(0,12)} (${tA.pB1.x.toFixed(1)}, ${tA.pB1.y.toFixed(1)})`);
+            console.log(`      A: ${tA.p2.id.substring(0,12)} (${tA.p2.x.toFixed(1)}, ${tA.p2.y.toFixed(1)}) → B: ${tA.pB2.id.substring(0,12)} (${tA.pB2.x.toFixed(1)}, ${tA.pB2.y.toFixed(1)})`);
+            console.log(`      A: ${tA.p3.id.substring(0,12)} (${tA.p3.x.toFixed(1)}, ${tA.p3.y.toFixed(1)}) → B: ${tA.pB3.id.substring(0,12)} (${tA.pB3.x.toFixed(1)}, ${tA.pB3.y.toFixed(1)})`);
+            if (bestPerm[0] !== 0 || bestPerm[1] !== 1 || bestPerm[2] !== 2) {
+                console.log(`      🔄 Перестановка: [${bestPerm[0]},${bestPerm[1]},${bestPerm[2]}]`);
+            }
         }
 
         const pairs = [
-            { a: tA.p1.id, b: tB.p1.id, aObj: tA.p1, bObj: tB.p1, aCoord: [tA.p1.x, tA.p1.y], bCoord: [tB.p1.x, tB.p1.y] },
-            { a: tA.p2.id, b: tB.p2.id, aObj: tA.p2, bObj: tB.p2, aCoord: [tA.p2.x, tA.p2.y], bCoord: [tB.p2.x, tB.p2.y] },
-            { a: tA.p3.id, b: tB.p3.id, aObj: tA.p3, bObj: tB.p3, aCoord: [tA.p3.x, tA.p3.y], bCoord: [tB.p3.x, tB.p3.y] }
+            { a: tA.p1.id, b: tA.pB1.id, aObj: tA.p1, bObj: tA.pB1 },
+            { a: tA.p2.id, b: tA.pB2.id, aObj: tA.p2, bObj: tA.pB2 },
+            { a: tA.p3.id, b: tA.pB3.id, aObj: tA.p3, bObj: tA.pB3 }
         ];
 
-        for (const { a: pA, b: pB, aObj, bObj, aCoord, bCoord } of pairs) {
+        for (const { a: pA, b: pB } of pairs) {
             if (pointMap.has(pA)) {
                 if (pointMap.get(pA) !== pB) {
                     if (this.debug) {
