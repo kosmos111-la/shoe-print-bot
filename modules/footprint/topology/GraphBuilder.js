@@ -247,12 +247,14 @@ class GraphBuilder {
         const degrees = Array.from(nodes.values()).map(n => n.degree);
         const avgDegree = degrees.reduce((a, b) => a + b, 0) / degrees.length;
 // 🔥 ЛОГ: проверяем якоря контура
-        const contourAnchors = Array.from(nodes.values()).filter(n => n.isContourAnchor);
-        if (contourAnchors.length > 0) {
-            console.log(`🔷 GraphBuilder: якорей контура в новом графе: ${contourAnchors.length}`);
-        } else {
-            console.log(`⚠️ GraphBuilder: якорей контура НЕТ в новом графе!`);
-        }
+        if (this.debug) {
+    const contourAnchors = Array.from(nodes.values()).filter(n => n.isContourAnchor);
+    if (contourAnchors.length > 0) {
+        console.log(`🔷 GraphBuilder: якорей контура в новом графе: ${contourAnchors.length}`);
+    } else {
+        console.log(`⚠️ GraphBuilder: якорей контура НЕТ в новом графе!`);
+    }
+}
         return {
         nodes: nodes,
         edges: edges,
