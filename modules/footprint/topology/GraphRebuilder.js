@@ -106,79 +106,17 @@ class GraphRebuilder {
         model.metadata.lastRebuilt = new Date();
         model.metadata.rebuildCount = (model.metadata.rebuildCount || 0) + 1;
 
-        // 🔥 ПЕРЕСТРАИВАЕМ СТРУКТУРЫ ИЗ НОВОГО ГРАФА
-        const allTriangles = this._extractTrianglesFromGraph(model.graph);
-       
-        if (allTriangles.length > 0) {
-            const StructureManager = require('./StructureManager');
-            const StructureBuilder = require('./StructureBuilder');
-           
-            const structureManager = new StructureManager(null, { debug: false });
-            const structureBuilder = new StructureBuilder(null, { debug: false });
-           
-            const structures = [];
-            const processed = new Set();
-           
-            for (const triangle of allTriangles) {
-                if (processed.has(triangle.id)) continue;
-               
-                const structure = structureBuilder.buildFromSeed(
-                    triangle,
-                    allTriangles,
-                    model.graph,
-                    model.graph,
-                    new Map(),
-                    new Map()
-                );
-               
-                if (structure && structure.triangleIds && structure.triangleIds.size > 0) {
-                    for (const tid of structure.triangleIds) {
-                        processed.add(tid);
-                    }
-                    structures.push(structure);
-                }
-            }
-           
-            // Сериализуем структуры для модели
-            model.structures = structures.map(s => ({
-                id: s.id,
-                pointIds: Array.from(s.pointIds || []),
-                pointCount: s.pointIds?.size || 0,
-                triangleIds: Array.from(s.triangleIds || []),
-                triangleCount: s.triangleIds?.size || 0,
-                transform: s.transform || null,
-                confidence: s.calculateConfidence ? s.calculateConfidence() : 0.5,
-                rays: s.rays || [],
-                triangles: s.triangles ? Array.from(s.triangles.values()).map(t => ({
-                    id: t.id,
-                    p1: t.p1,
-                    p2: t.p2,
-                    p3: t.p3
-                })) : []
-            }));
-           
-            // Строим pointToStructure
-            model.pointToStructure = new Map();
-            for (const structure of structures) {
-                const pointIds = structure.pointIds || new Set();
-                for (const pointId of pointIds) {
-                    model.pointToStructure.set(pointId, structure.id);
-                }
-            }
-        } else {
-            model.structures = [];
-            model.pointToStructure = new Map();
-        }
-       
-        model.transform = null; // Трансформация сбрасывается
+        // 🔥 НЕ очищаем структуры — они будут обновлены при следующем сравнении
+        // Структуры сохраняются от предыдущего вызова ModelEnhancer
+        // model.structures = [];  // ЗАКОММЕНТИРОВАНО
+        // model.pointToStructure = new Map();  // ЗАКОММЕНТИРОВАНО
+        model.transform = null;
 
         if (this.debug) {
             const duration = Date.now() - startTime;
             console.log(`\n✅ ГРАФ ПЕРЕСТРОЕН:`);
             console.log(`   • Узлов: ${newExactGraph.nodes.size}`);
             console.log(`   • Рёбер: ${newExactGraph.edges.size}`);
-            console.log(`   • Треугольников: ${allTriangles.length}`);
-            console.log(`   • Структур: ${model.structures.length}`);
             console.log(`   • Хэш: ${graphHash}`);
             console.log(`   • Время: ${duration}ms`);
         }
@@ -315,47 +253,6 @@ class GraphRebuilder {
     return false;
 }
   
-/**
-     * Извлекает все треугольники из графа
-     */
-    _extractTrianglesFromGraph(graph) {
-        const triangles = [];
-        const nodeIds = Array.from(graph.nodes.keys());
-        const edges = graph.edges;
-
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                for (let k = j + 1; k < nodeIds.length; k++) {
-                    const a = nodeIds[i];
-                    const b = nodeIds[j];
-                    const c = nodeIds[k];
-
-                    if (edges.has([a, b].sort().join('--')) &&
-                        edges.has([b, c].sort().join('--')) &&
-                        edges.has([c, a].sort().join('--'))) {
-
-                        const p1 = graph.nodes.get(a);
-                        const p2 = graph.nodes.get(b);
-                        const p3 = graph.nodes.get(c);
-
-                        if (p1 && p2 && p3) {
-                            triangles.push({
-                                p1, p2, p3,
-                                id: `tri_${a}_${b}_${c}`,
-                                edges: [
-                                    { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
-                                    { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
-                                    { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
-                                ]
-                            });
-                        }
-                    }
-                }
-            }
-        }
-
-        return triangles;
-    }
   
     /**
      * Получить статистику перестроений
