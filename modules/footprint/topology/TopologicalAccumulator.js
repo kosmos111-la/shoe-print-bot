@@ -723,6 +723,48 @@ if (outlineContour) {
                 break;
             }
         }
+
+        // 🔥 Если есть якорь контура — корректируем контур относительно него
+        let outlineContour = null;
+        if (outlineContours.length > 0 && contourAnchor) {
+            const firstContour = outlineContours[0];
+           
+            // Вычисляем исходный центр контура из первого сохранения
+            const origPoints = firstContour.points;
+            let origCx = 0, origCy = 0;
+            for (const p of origPoints) {
+                origCx += p.x;
+                origCy += p.y;
+            }
+            origCx /= origPoints.length;
+            origCy /= origPoints.length;
+           
+            // Сдвиг между исходным центром и текущим положением якоря
+            const shiftX = contourAnchor.x - origCx;
+            const shiftY = contourAnchor.y - origCy;
+           
+            // Корректируем все точки контура
+            const shiftedPoints = origPoints.map(p => ({
+                x: p.x + shiftX,
+                y: p.y + shiftY
+            }));
+           
+            outlineContour = {
+                points: shiftedPoints,
+                class: firstContour.class || 'Outline-trail',
+                type: firstContour.type || 'footprint_outline'
+            };
+           
+            console.log(`   📐 Контур скорректирован по якорю: сдвиг (${shiftX.toFixed(1)}, ${shiftY.toFixed(1)})`);
+        } else if (outlineContours.length > 0) {
+            // Если якоря нет — используем как есть
+            outlineContour = {
+                points: outlineContours[0].points,
+                class: outlineContours[0].class || 'Outline-trail',
+                type: outlineContours[0].type || 'footprint_outline'
+            };
+            console.log(`   ⚠️ Якорь контура не найден, контур без коррекции`);
+        }
        
         // 🔥 Если есть якорь контура — корректируем контур относительно него
         let outlineContour = null;
