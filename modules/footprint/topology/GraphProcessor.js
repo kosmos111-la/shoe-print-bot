@@ -234,6 +234,15 @@ class GraphProcessor {
         // Добавляем contourCenter в modelData
         modelData.contourCenter = contourCenter;
        
+        // 🔥 Сохраняем исходный центр контура в метаданных
+        if (contourCenter) {
+            if (!modelData.metadata) modelData.metadata = {};
+            modelData.metadata.contourOriginalCenter = {
+                x: contourCenter.x,
+                y: contourCenter.y
+            };
+        }
+       
         return modelData;
     }
     /**
