@@ -238,6 +238,16 @@ if (outlineContour) {
 }
 
             const model = this.modelManager.createModel(modelData);
+
+if (outlineContour) {
+    model.metadata.outlineContours = [{
+        photoId: photoId,
+        points: outlineContour.points,
+        class: outlineContour.class || 'Outline-trail',
+        type: outlineContour.type || 'footprint_outline',
+        transformed: false
+    }];
+}
            
             // 🔥 Вычисляем хэш графа
             model.graphHash = this.graphHasher.computeGraphHash(model.graph);
