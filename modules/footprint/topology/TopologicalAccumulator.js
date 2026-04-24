@@ -738,14 +738,14 @@ if (outlineContour) {
                 origCy = origCenter.y;
             } else {
                 // Fallback: вычисляем из первого контура
-                const origPoints = firstContour.points;
                 origCx = 0; origCy = 0;
-                for (const p of origPoints) {
+                const pts = firstContour.points;
+                for (const p of pts) {
                     origCx += p.x;
                     origCy += p.y;
                 }
-                origCx /= origPoints.length;
-                origCy /= origPoints.length;
+                origCx /= pts.length;
+                origCy /= pts.length;
             }
            
             // Сдвиг между исходным центром и текущим положением якоря
@@ -753,7 +753,7 @@ if (outlineContour) {
             const shiftY = contourAnchor.y - origCy;
            
             // Корректируем все точки контура
-            const shiftedPoints = origPoints.map(p => ({
+            const shiftedPoints = firstContour.points.map(p => ({
                 x: p.x + shiftX,
                 y: p.y + shiftY
             }));
