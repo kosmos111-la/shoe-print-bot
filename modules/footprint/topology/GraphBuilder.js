@@ -211,10 +211,12 @@ class GraphBuilder {
             // 🔥 ЯКОРЬ КОНТУРА
             isContourAnchor: origPoint.isContourAnchor || normPoint.isContourAnchor || false
         });
-      // 🔥 ЛОГ: сохраняется ли isContourAnchor
-            if (origPoint.isContourAnchor || normPoint.isContourAnchor) {
-                console.log(`🔷 GraphBuilder: сохраняю isContourAnchor для ${normPoint.id}`);
-            } 
+      // Логи isContourAnchor только в debug-режиме
+if (this.debug) {
+    if (origPoint.isContourAnchor || normPoint.isContourAnchor) {
+        console.log(`🔷 GraphBuilder: сохраняю isContourAnchor для ${normPoint.id}`);
+    }
+}
     }
         for (const triangle of triangles) {
             const [aIdx, bIdx, cIdx] = triangle;
@@ -348,9 +350,9 @@ class GraphBuilder {
             isContourAnchor: point.isContourAnchor || false
         });
 // 🔥 ЛОГ: сохраняется ли isContourAnchor
-            if (point.isContourAnchor) {
-                console.log(`🔷 GraphBuilder (minimal): сохраняю isContourAnchor для ${id}`);
-            }
+            if (this.debug && point.isContourAnchor) {
+    console.log(`🔷 GraphBuilder (minimal): сохраняю isContourAnchor для ${id}`);
+}
         if (i > 0) {
             const prevId = points[i-1].id || `pt_${i-1}`;
             edges.add([prevId, id].sort().join('--'));
