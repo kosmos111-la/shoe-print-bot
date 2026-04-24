@@ -139,7 +139,23 @@ class GraphRebuilder {
                 }
             }
            
-            model.structures = structures;
+            // Сериализуем структуры для модели
+            model.structures = structures.map(s => ({
+                id: s.id,
+                pointIds: Array.from(s.pointIds || []),
+                pointCount: s.pointIds?.size || 0,
+                triangleIds: Array.from(s.triangleIds || []),
+                triangleCount: s.triangleIds?.size || 0,
+                transform: s.transform || null,
+                confidence: s.calculateConfidence ? s.calculateConfidence() : 0.5,
+                rays: s.rays || [],
+                triangles: s.triangles ? Array.from(s.triangles.values()).map(t => ({
+                    id: t.id,
+                    p1: t.p1,
+                    p2: t.p2,
+                    p3: t.p3
+                })) : []
+            }));
            
             // Строим pointToStructure
             model.pointToStructure = new Map();
