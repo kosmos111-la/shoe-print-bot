@@ -725,7 +725,7 @@ if (outlineContour) {
         }
 
         // 🔥 Если есть якорь контура — корректируем контур относительно него
-      //  let outlineContour = null;
+       let outlineContour = null;
      
         if (outlineContours.length > 0 && contourAnchor) {
             const firstContour = outlineContours[0];
