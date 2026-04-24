@@ -107,7 +107,16 @@ class GraphBuilder {
 
             triangles = [...goodTriangles, ...newTriangles];
         }
-
+ // 🔥 ЛОГ: проверяем, есть ли якоря контура в новом графе
+        const contourAnchors = Array.from(nodes.values()).filter(n => n.isContourAnchor);
+        if (contourAnchors.length > 0) {
+            console.log(`🔷 GraphBuilder: якорей контура в новом графе: ${contourAnchors.length}`);
+            contourAnchors.forEach(a => {
+                console.log(`   ${a.id}: (${a.x.toFixed(1)}, ${a.y.toFixed(1)})`);
+            });
+        } else {
+            console.log(`⚠️ GraphBuilder: якорей контура НЕТ в новом графе!`);
+        }
         const superIndices = superTriangle.indices;
         triangles = triangles.filter(triangle =>
             !triangle.some(vertex => superIndices.includes(vertex))
@@ -211,6 +220,10 @@ class GraphBuilder {
             // 🔥 ЯКОРЬ КОНТУРА
             isContourAnchor: origPoint.isContourAnchor || normPoint.isContourAnchor || false
         });
+      // 🔥 ЛОГ: сохраняется ли isContourAnchor
+            if (origPoint.isContourAnchor || normPoint.isContourAnchor) {
+                console.log(`🔷 GraphBuilder: сохраняю isContourAnchor для ${normPoint.id}`);
+            } 
     }
         for (const triangle of triangles) {
             const [aIdx, bIdx, cIdx] = triangle;
@@ -335,7 +348,10 @@ class GraphBuilder {
             // 🔥 ЯКОРЬ КОНТУРА
             isContourAnchor: point.isContourAnchor || false
         });
-
+// 🔥 ЛОГ: сохраняется ли isContourAnchor
+            if (point.isContourAnchor) {
+                console.log(`🔷 GraphBuilder (minimal): сохраняю isContourAnchor для ${id}`);
+            }
         if (i > 0) {
             const prevId = points[i-1].id || `pt_${i-1}`;
             edges.add([prevId, id].sort().join('--'));
