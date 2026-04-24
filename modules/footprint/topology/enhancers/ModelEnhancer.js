@@ -2135,13 +2135,25 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
             });
         }
 
+   // 🔥 Сначала собираем уникальные точки модели для подтверждения
+    const confirmedModelPoints = new Set();
     for (const match of matches) {
         const modelNode = model.graph.nodes.get(match.pointB);
         if (modelNode) {
-            modelNode.confirmationCount = (modelNode.confirmationCount || 1) + 1;
-            confirmedExisting++;
+            confirmedModelPoints.add(match.pointB);
         }
     }
+   
+    // 🔥 Каждая точка получает +1 подтверждение (не больше)
+    for (const modelPointId of confirmedModelPoints) {
+        const modelNode = model.graph.nodes.get(modelPointId);
+        if (modelNode) {
+            modelNode.confirmationCount = (modelNode.confirmationCount || 0) + 1;
+            modelNode.lastConfirmed = new Date();
+        }
+    }
+   
+    confirmedExisting = confirmedModelPoints.size;
 
     // 🔥 Используем переданный параметр или fallback на this.lastUniqueInPhoto
     const pointsToAdd = uniquePhotoPoints || this.lastUniqueInPhoto || [];
