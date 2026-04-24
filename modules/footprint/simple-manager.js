@@ -719,13 +719,14 @@ const result = {
 
 
             if (topologicalResult) {
-                result.topologicalResult = {
-                    modelId: topologicalResult.modelId,
-                    exactMatches: topologicalResult.exactMatches || 0,
-                    newNodesAdded: topologicalResult.newNodesAdded || 0,
-                    status: topologicalResult.status
-                };
-            }
+    result.topologicalResult = {
+        success: true,                                         // <-- необходимо для main.js
+        modelId: topologicalResult.modelId,
+        exactMatches: topologicalResult.exactMatches || 0,
+        newNodesAdded: topologicalResult.newNodesAdded || 0,
+        status: topologicalResult.status
+    };
+}
 
 
             console.log(`📊 ИТОГОВЫЙ РЕЗУЛЬТАТ В ПЕСОЧНИЦЕ:`);
