@@ -162,45 +162,64 @@ class GraphRebuilder {
         }
 
         for (const [nodeId, node] of model.graph.nodes) {
-        const morph = model.morphologyMap?.get(nodeId) || {};
+            const morph = model.morphologyMap?.get(nodeId) || {};
 
-        points.push({
-            id: nodeId,
-            x: node.x,
-            y: node.y,
-            confidence: node.confidence || 0.5,
-            // 🔥 КРИТИЧНО: confirmationCount из узла
-            confirmationCount: node.confirmationCount || 1,
-            addedFrom: node.addedFrom || 'unknown',
-            addedAt: node.addedAt || new Date(),
-            originalPhotoId: node.originalPhotoId || nodeId,
+            points.push({
+                id: nodeId,
+                x: node.x,
+                y: node.y,
+                confidence: node.confidence || 0.5,
+                // 🔥 КРИТИЧНО: confirmationCount из узла
+                confirmationCount: node.confirmationCount || 1,
+                addedFrom: node.addedFrom || 'unknown',
+                addedAt: node.addedAt || new Date(),
+                originalPhotoId: node.originalPhotoId || nodeId,
 
-            // 🔥 ПОЛНАЯ МОРФОЛОГИЯ (сохраняем как объект)
-            morphology: {
-                compactness: morph.compactness ?? node.compactness,
-                eccentricity: morph.eccentricity ?? node.eccentricity,
-                orientation: morph.orientation ?? node.orientation,
-                normalizedArea: morph.normalizedArea ?? node.normalizedArea,
-                radialProfile: morph.radialProfile || node.radialProfile || [0,0,0,0,0,0,0,0],
-                asymmetry: morph.asymmetry ?? node.asymmetry ?? 0,
-                hasContour: morph.hasContour ?? node.hasContour ?? false,
-                rawArea: morph.rawArea,
-                logArea: morph.logArea,
-                contour: morph.contour || null
-            },
+                // 🔥 ПОЛНАЯ МОРФОЛОГИЯ (сохраняем как объект)
+                morphology: {
+                    compactness: morph.compactness ?? node.compactness,
+                    eccentricity: morph.eccentricity ?? node.eccentricity,
+                    orientation: morph.orientation ?? node.orientation,
+                    normalizedArea: morph.normalizedArea ?? node.normalizedArea,
+                    radialProfile: morph.radialProfile || node.radialProfile || [0,0,0,0,0,0,0,0],
+                    asymmetry: morph.asymmetry ?? node.asymmetry ?? 0,
+                    hasContour: morph.hasContour ?? node.hasContour ?? false,
+                    rawArea: morph.rawArea,
+                    logArea: morph.logArea,
+                    contour: morph.contour || null
+                },
 
-            // Топология
-            degree: node.degree || 0,
-            triangles: node.triangles || 0,
-            role: node.role,
-            clusterId: node.clusterId,
-            patternType: node.patternType,
-            structureId: node.structureId
-        });
+                // Топология
+                degree: node.degree || 0,
+                triangles: node.triangles || 0,
+                role: node.role,
+                clusterId: node.clusterId,
+                patternType: node.patternType,
+                structureId: node.structureId,
+               
+                // 🔥 ЯКОРЬ КОНТУРА
+                isContourAnchor: node.isContourAnchor || false
+            });
+        }
+
+        // 🔥 ЛОГ: проверяем, извлёкся ли якорь контура
+        const contourPoints = points.filter(p => p.isContourAnchor);
+        if (contourPoints.length > 0) {
+            console.log(`🔷 extractAllPoints: якорей контура извлечено: ${contourPoints.length}`);
+            contourPoints.forEach(p => {
+                console.log(`   ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) isContourAnchor=${p.isContourAnchor}`);
+            });
+        } else {
+            console.log(`⚠️ extractAllPoints: якорей контура НЕ извлечено!`);
+            // Ищем в исходном графе
+            const sourceAnchors = Array.from(model.graph.nodes.values()).filter(n => n.isContourAnchor);
+            if (sourceAnchors.length > 0) {
+                console.log(`   Но в model.graph.nodes якорей контура: ${sourceAnchors.length}`);
+            }
+        }
+
+        return points;
     }
-
-    return points;
-}
 
     /**
      * Восстанавливает граф из сохранённых точек (при загрузке модели)
