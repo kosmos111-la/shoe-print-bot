@@ -731,14 +731,22 @@ if (outlineContour) {
             const firstContour = outlineContours[0];
            
             // Вычисляем исходный центр контура из первого сохранения
-            const origPoints = firstContour.points;
-            let origCx = 0, origCy = 0;
-            for (const p of origPoints) {
-                origCx += p.x;
-                origCy += p.y;
+             const origCenter = model.metadata?.contourOriginalCenter;
+            let origCx, origCy;
+            if (origCenter) {
+                origCx = origCenter.x;
+                origCy = origCenter.y;
+            } else {
+                // Fallback: вычисляем из первого контура
+                const origPoints = firstContour.points;
+                origCx = 0; origCy = 0;
+                for (const p of origPoints) {
+                    origCx += p.x;
+                    origCy += p.y;
+                }
+                origCx /= origPoints.length;
+                origCy /= origPoints.length;
             }
-            origCx /= origPoints.length;
-            origCy /= origPoints.length;
            
             // Сдвиг между исходным центром и текущим положением якоря
             const shiftX = contourAnchor.x - origCx;
