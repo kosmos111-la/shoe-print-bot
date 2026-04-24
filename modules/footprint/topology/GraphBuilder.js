@@ -206,7 +206,10 @@ class GraphBuilder {
             role: origPoint.role || normPoint.role,
             clusterId: origPoint.clusterId || normPoint.clusterId,
             patternType: origPoint.patternType || normPoint.patternType,
-            structureId: origPoint.structureId || normPoint.structureId
+            structureId: origPoint.structureId || normPoint.structureId,
+           
+            // 🔥 ЯКОРЬ КОНТУРА
+            isContourAnchor: origPoint.isContourAnchor || normPoint.isContourAnchor || false
         });
     }
         for (const triangle of triangles) {
@@ -327,7 +330,10 @@ class GraphBuilder {
             role: point.role,
             clusterId: point.clusterId,
             patternType: point.patternType,
-            structureId: point.structureId
+            structureId: point.structureId,
+           
+            // 🔥 ЯКОРЬ КОНТУРА
+            isContourAnchor: point.isContourAnchor || false
         });
 
         if (i > 0) {
