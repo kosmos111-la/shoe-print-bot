@@ -106,48 +106,67 @@ class GraphRebuilder {
         model.metadata.lastRebuilt = new Date();
         model.metadata.rebuildCount = (model.metadata.rebuildCount || 0) + 1;
 
-        // 8. Очищаем структуры (они больше не актуальны)
-        model.structures = [];
-        model.pointToStructure = new Map();
-        model.transform = null; // Трансформация тоже сбрасывается
+        // 🔥 ПЕРЕСТРАИВАЕМ СТРУКТУРЫ ИЗ НОВОГО ГРАФА
+        const allTriangles = this._extractTrianglesFromGraph(model.graph);
+       
+        if (allTriangles.length > 0) {
+            const StructureManager = require('./StructureManager');
+            const StructureBuilder = require('./StructureBuilder');
+           
+            const structureManager = new StructureManager(null, { debug: false });
+            const structureBuilder = new StructureBuilder(null, { debug: false });
+           
+            const structures = [];
+            const processed = new Set();
+           
+            for (const triangle of allTriangles) {
+                if (processed.has(triangle.id)) continue;
+               
+                const structure = structureBuilder.buildFromSeed(
+                    triangle,
+                    allTriangles,
+                    model.graph,
+                    model.graph,
+                    new Map(),
+                    new Map()
+                );
+               
+                if (structure && structure.triangleIds && structure.triangleIds.size > 0) {
+                    for (const tid of structure.triangleIds) {
+                        processed.add(tid);
+                    }
+                    structures.push(structure);
+                }
+            }
+           
+            model.structures = structures;
+           
+            // Строим pointToStructure
+            model.pointToStructure = new Map();
+            for (const structure of structures) {
+                const pointIds = structure.pointIds || new Set();
+                for (const pointId of pointIds) {
+                    model.pointToStructure.set(pointId, structure.id);
+                }
+            }
+        } else {
+            model.structures = [];
+            model.pointToStructure = new Map();
+        }
+       
+        model.transform = null; // Трансформация сбрасывается
 
         if (this.debug) {
             const duration = Date.now() - startTime;
             console.log(`\n✅ ГРАФ ПЕРЕСТРОЕН:`);
             console.log(`   • Узлов: ${newExactGraph.nodes.size}`);
             console.log(`   • Рёбер: ${newExactGraph.edges.size}`);
-            console.log(`   • Треугольников: ${newExactGraph.triangles || newExactGraph.triangleList?.length || 0}`);
+            console.log(`   • Треугольников: ${allTriangles.length}`);
+            console.log(`   • Структур: ${model.structures.length}`);
             console.log(`   • Хэш: ${graphHash}`);
             console.log(`   • Время: ${duration}ms`);
         }
 
-    // 🔥 ЛОГ: координаты ПОСЛЕ перестроения
-        const newNodesArray = Array.from(model.graph.nodes.values());
-        if (newNodesArray.length > 0) {
-            console.log(`\n📍 ПОСЛЕ ПЕРЕСТРОЕНИЯ — координаты точек (первые 5):`);
-            newNodesArray.slice(0, 5).forEach((node, i) => {
-                const oldNode = nodesArray.find(n => n.id === node.id);
-                const coordChanged = oldNode ?
-                    `(${oldNode.x.toFixed(1)},${oldNode.y.toFixed(1)}) → (${node.x.toFixed(1)},${node.y.toFixed(1)})` :
-                    'НОВАЯ ТОЧКА';
-                console.log(`   ${i+1}. ${node.id.substring(0,16)}: ${coordChanged} [conf=${node.confirmationCount || 1}]`);
-            });
-           
-            // 🔥 ЛОГ: якорная точка контура ПОСЛЕ перестроения
-            const contourAnchors = newNodesArray.filter(n => n.isContourAnchor);
-            if (contourAnchors.length > 0) {
-                contourAnchors.forEach(a => {
-                    const oldAnchor = nodesArray.find(n => n.id === a.id);
-                    const coordChanged = oldAnchor ?
-                        `(${oldAnchor.x.toFixed(1)},${oldAnchor.y.toFixed(1)}) → (${a.x.toFixed(1)},${a.y.toFixed(1)})` :
-                        'НОВАЯ';
-                    console.log(`   🔷 ЯКОРЬ КОНТУРА: ${a.id.substring(0,16)}: ${coordChanged} [conf=${a.confirmationCount || 1}]`);
-                });
-            } else {
-                console.log(`   ⚠️ Якорь контура НЕ НАЙДЕН в графе после перестроения!`);
-            }
-        }
-       
         return model;
     }
 
@@ -279,7 +298,49 @@ class GraphRebuilder {
 
     return false;
 }
+  
+/**
+     * Извлекает все треугольники из графа
+     */
+    _extractTrianglesFromGraph(graph) {
+        const triangles = [];
+        const nodeIds = Array.from(graph.nodes.keys());
+        const edges = graph.edges;
 
+        for (let i = 0; i < nodeIds.length; i++) {
+            for (let j = i + 1; j < nodeIds.length; j++) {
+                for (let k = j + 1; k < nodeIds.length; k++) {
+                    const a = nodeIds[i];
+                    const b = nodeIds[j];
+                    const c = nodeIds[k];
+
+                    if (edges.has([a, b].sort().join('--')) &&
+                        edges.has([b, c].sort().join('--')) &&
+                        edges.has([c, a].sort().join('--'))) {
+
+                        const p1 = graph.nodes.get(a);
+                        const p2 = graph.nodes.get(b);
+                        const p3 = graph.nodes.get(c);
+
+                        if (p1 && p2 && p3) {
+                            triangles.push({
+                                p1, p2, p3,
+                                id: `tri_${a}_${b}_${c}`,
+                                edges: [
+                                    { v1: p1, v2: p2, neighborTriangles: [], externalPoint: null },
+                                    { v1: p2, v2: p3, neighborTriangles: [], externalPoint: null },
+                                    { v1: p3, v2: p1, neighborTriangles: [], externalPoint: null }
+                                ]
+                            });
+                        }
+                    }
+                }
+            }
+        }
+
+        return triangles;
+    }
+  
     /**
      * Получить статистику перестроений
      */
