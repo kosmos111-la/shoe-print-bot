@@ -88,8 +88,6 @@ class ClusterVisualizer {
 }
 
 // 🔥 НОВОЕ: Рисуем контур следа модели
-console.log(`\n🔍 ДИАГНОСТИКА КОНТУРА В drawModel:`);
-console.log(`   outlineContour: ${topologyData.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
 if (topologyData.outlineContour) {
     console.log(`   points.length: ${topologyData.outlineContour.points?.length || 0}`);
     console.log(`   class: ${topologyData.outlineContour.class}`);
@@ -325,8 +323,6 @@ console.log(`   📋 modelMatchMap содержит ${modelMatchMap.size} за
 }
 
 // 🔥 НОВОЕ: Рисуем контур следа из фото
-console.log(`\n🔍 ДИАГНОСТИКА КОНТУРА В drawPhoto:`);
-console.log(`   outlineContour: ${topologyData.outlineContour ? 'ЕСТЬ' : 'НЕТ'}`);
 if (topologyData.outlineContour) {
     console.log(`   points.length: ${topologyData.outlineContour.points?.length || 0}`);
    
