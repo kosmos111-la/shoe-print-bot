@@ -39,7 +39,7 @@ class GraphRebuilder {
 
         if (this.debug) {
             console.log(`\n🔄 ПЕРЕСТРОЕНИЕ ГРАФА МОДЕЛИ ${model.id?.substring(0, 12)}...`);
-        }
+        
 
         // 🔥 ЛОГ: координаты ДО перестроения
         const nodesArray = Array.from(model.graph.nodes.values());
@@ -59,7 +59,7 @@ class GraphRebuilder {
                 console.log(`   ⚠️ Якорь контура НЕ НАЙДЕН в графе!`);
             }
         }
-
+}
         // 1. Извлекаем все точки из модели
         const allPoints = this.extractAllPoints(model);
 
