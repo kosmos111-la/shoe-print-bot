@@ -138,18 +138,12 @@ class GraphProcessor {
         }
        
         // 🔥 ЛОГ: координаты при создании модели
-        console.log(`\n📍 СОЗДАНИЕ МОДЕЛИ — КООРДИНАТЫ ТОЧЕК (первые 5):`);
-        const samplePoints = points.slice(0, 5);
-        samplePoints.forEach((p, i) => {
-            console.log(`   ${i+1}. ${p.id.substring(0,16)}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
-        });
-       
-        if (options.outlineContour) {
-            console.log(`\n📍 СОЗДАНИЕ МОДЕЛИ — КОНТУР (первые 5 точек):`);
-            options.outlineContour.points.slice(0, 5).forEach((p, i) => {
-                console.log(`   ${i+1}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
-            });
-        }
+       if (this.debug) {
+    console.log(`\n📍 СОЗДАНИЕ МОДЕЛИ — КООРДИНАТЫ ТОЧЕК (первые 5):`);
+    samplePoints.forEach((p, i) => {
+        console.log(`   ${i+1}. ${p.id.substring(0,16)}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)})`);
+    });
+}
        
         // Собираем признаки для кластеризации
         const features = new Map();
