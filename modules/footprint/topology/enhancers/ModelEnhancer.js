@@ -961,172 +961,169 @@ _getModelPointFromStructure(pointId, structure) {
 * @returns {Object} - результат улучшения
 */
 async enhance(existingModel, newExactGraph, newMorphology, originalPoints, options = {}) {
-    const { photoId, contours, outlineContour, fastMode = false } = options;
-   
-    console.log(`\n🚀 ModelEnhancer: улучшение модели ${existingModel.id?.substring(0,12)}...`);
+        const { photoId, contours, outlineContour, fastMode = false } = options;
+      
+        if (this.debug) console.log(`\n🚀 ModelEnhancer: улучшение модели ${existingModel.id?.substring(0,12)}...`);
 
-    // ===== ШАГ 1: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ =====
-    console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${existingModel.id?.substring(0,12)}...`);
-   
-    const triangleResult = await this._compareByTriangles(existingModel, newExactGraph);
+        // ===== ШАГ 1: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ =====
+        if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${existingModel.id?.substring(0,12)}...`);
+      
+        const triangleResult = await this._compareByTriangles(existingModel, newExactGraph);
 
-    if (!triangleResult || triangleResult.count < 1) {
-        console.log(`⚠️ Недостаточно треугольных соответствий (${triangleResult?.count || 0})`);
-        return {
-            success: false,
-            reason: 'insufficient_triangles',
-            similarity: triangleResult?.similarity || 0
-        };
-    }
+        if (!triangleResult || triangleResult.count < 1) {
+            console.log(`⚠️ Недостаточно треугольных соответствий (${triangleResult?.count || 0})`);
+            return {
+                success: false,
+                reason: 'insufficient_triangles',
+                similarity: triangleResult?.similarity || 0
+            };
+        }
 
-    console.log(`✅ Найдено ${triangleResult.matches?.length || 0} треугольных соответствий!`);
+        console.log(`✅ Найдено ${triangleResult.matches?.length || 0} треугольных соответствий`);
 
     // ===== ШАГ 2: СОЗДАНИЕ ЯКОРЕЙ =====
     if (this.debug) console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
 
-    const tempAnchors = [];
-    const matches = triangleResult.matches;
+        const tempAnchors = [];
+        const matches = triangleResult.matches;
 
-    for (let i = 0; i < matches.length; i += 3) {
-        if (i + 2 < matches.length) {
-            const group = [matches[i], matches[i+1], matches[i+2]];
-            tempAnchors.push({
-                aIndex: -1,
-                bIndex: -1,
-                geometryScore: Math.min(...group.map(m => m.confidence)),
-                points: group.map(m => ({
-                    pointA: m.pointA,
-                    pointB: m.pointB,
-                    confidence: m.confidence
-                }))
-            });
-        }
-    }
-
-    if (this.debug) console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
-
-    // ===== ШАГ 3: ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ =====
-    if (this.debug) console.log(`\n🔍 ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ГРАФОВ`);
-   
-    const trianglesA = this._extractTrianglesFromGraph(newExactGraph);
-    const trianglesB = this._extractTrianglesFromGraph(existingModel.graph);
-
-    if (this.debug) {
-        console.log(`   • Треугольников в A: ${trianglesA.length}`);
-        console.log(`   • Треугольников в B: ${trianglesB.length}`);
-    }
-
-    // ===== ШАГ 4: ГЛОБАЛЬНАЯ ПРОВЕРКА =====
-    if (this.debug) console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
-
-    const consistent = this.checkGlobalConsistency(
-        tempAnchors, trianglesA, trianglesB,
-        newExactGraph, existingModel.graph
-    );
-
-    // ===== ШАГ 5: ДВУХЭТАПНАЯ ДОСТРОЙКА =====
-    const finalMatches = this.twoStagePositioning(
-        consistent.points,
-        triangleResult.matches,
-        newExactGraph,
-        existingModel.graph,
-        newMorphology,
-        existingModel.morphologyMap
-    );
-
-    if (this.debug) {
-        console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
-        console.log(`   • Было matches: ${triangleResult.matches.length}`);
-        console.log(`   • Стало matches: ${finalMatches.length}`);
-    }
-
-    // ===== ШАГ 6: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
-    console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
-
-    // Подготавливаем якоря для валидации
-    let anchorsForValidation = [];
-
-    if (triangleResult.triangles && triangleResult.triangles.length > 0) {
-        console.log(`\n🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (${triangleResult.triangles.length} шт)`);
-
-        for (const tri of triangleResult.triangles) {
-            if (tri.pB1 && tri.pB2 && tri.pB3) {
-                anchorsForValidation.push({
-                    pointA: tri.p1.id,
-                    pointB: tri.pB1.id,
-                    confidence: tri.confidence || 0.9,
-                    triangleId: tri.id
-                });
-                anchorsForValidation.push({
-                    pointA: tri.p2.id,
-                    pointB: tri.pB2.id,
-                    confidence: tri.confidence || 0.9,
-                    triangleId: tri.id
-                });
-                anchorsForValidation.push({
-                    pointA: tri.p3.id,
-                    pointB: tri.pB3.id,
-                    confidence: tri.confidence || 0.9,
-                    triangleId: tri.id
+        for (let i = 0; i < matches.length; i += 3) {
+            if (i + 2 < matches.length) {
+                const group = [matches[i], matches[i+1], matches[i+2]];
+                tempAnchors.push({
+                    aIndex: -1,
+                    bIndex: -1,
+                    geometryScore: Math.min(...group.map(m => m.confidence)),
+                    points: group.map(m => ({
+                        pointA: m.pointA,
+                        pointB: m.pointB,
+                        confidence: m.confidence
+                    }))
                 });
             }
         }
 
-        if (anchorsForValidation.length > 0) {
-            console.log(`   ✅ Создано ${anchorsForValidation.length} якорей из ${anchorsForValidation.length/3} треугольников`);
+        if (this.debug) console.log(`   • Создано временных якорей: ${tempAnchors.length}`);
+
+        if (this.debug) console.log(`\n🔍 ИЗВЛЕЧЕНИЕ ТРЕУГОЛЬНИКОВ ИЗ ГРАФОВ`);
+      
+        const trianglesA = this._extractTrianglesFromGraph(newExactGraph);
+        const trianglesB = this._extractTrianglesFromGraph(existingModel.graph);
+
+        if (this.debug) {
+            console.log(`   • Треугольников в A: ${trianglesA.length}`);
+            console.log(`   • Треугольников в B: ${trianglesB.length}`);
         }
-    }
 
-    if (anchorsForValidation.length === 0) {
-        console.log(`   ⚠️ Нет треугольников, использую consistent.points`);
-        anchorsForValidation = consistent.points.map(p => ({
-            pointA: p.pointA,
-            pointB: p.pointB,
-            confidence: p.confidence
-        }));
-    }
+        if (this.debug) console.log(`\n🔍 ЗАПУСК ГЛОБАЛЬНОЙ ПРОВЕРКИ СОГЛАСОВАННОСТИ`);
 
-    if (this.debug) console.log(`\n🔍 ЭТАП 1: Вычисление базового transform по ${anchorsForValidation.length} надёжным якорям`);
+        const consistent = this.checkGlobalConsistency(
+            tempAnchors, trianglesA, trianglesB,
+            newExactGraph, existingModel.graph
+        );
 
-    // Вычисляем базовый transform
-    const baseTransform = this.validator.calculateTransform(
-        anchorsForValidation,
-        newExactGraph,
-        existingModel.graph
-    );
+        const finalMatches = this.twoStagePositioning(
+            consistent.points,
+            triangleResult.matches,
+            newExactGraph,
+            existingModel.graph,
+            newMorphology,
+            existingModel.morphologyMap
+        );
 
-    if (!baseTransform) {
-        console.log(`❌ Не удалось вычислить базовый transform`);
-        return {
-            success: false,
-            reason: 'transform_failed',
-            similarity: triangleResult?.similarity || 0
-        };
-    }
+        if (this.debug) {
+            console.log(`\n📊 РЕЗУЛЬТАТ ДОСТРОЙКИ:`);
+            console.log(`   • Было matches: ${triangleResult.matches.length}`);
+            console.log(`   • Стало matches: ${finalMatches.length}`);
+        }
 
-    if (this.debug) {
-        console.log(`\n📐 БАЗОВЫЙ TRANSFORM (${anchorsForValidation.length} якорей):`);
-        console.log(`   • Масштаб: ${baseTransform.scale.toFixed(3)}`);
-        console.log(`   • Поворот: ${(baseTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-        console.log(`   • Сдвиг: (${baseTransform.translation.x.toFixed(1)}, ${baseTransform.translation.y.toFixed(1)})`);
-    }
+    // ===== ШАГ 6: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
+    console.log(`🔄 Запуск параллельной валидации`);
+
+        let anchorsForValidation = [];
+
+        if (triangleResult.triangles && triangleResult.triangles.length > 0) {
+            if (this.debug) console.log(`\n🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (${triangleResult.triangles.length} шт)`);
+
+            for (const tri of triangleResult.triangles) {
+                if (tri.pB1 && tri.pB2 && tri.pB3) {
+                    anchorsForValidation.push({
+                        pointA: tri.p1.id,
+                        pointB: tri.pB1.id,
+                        confidence: tri.confidence || 0.9,
+                        triangleId: tri.id
+                    });
+                    anchorsForValidation.push({
+                        pointA: tri.p2.id,
+                        pointB: tri.pB2.id,
+                        confidence: tri.confidence || 0.9,
+                        triangleId: tri.id
+                    });
+                    anchorsForValidation.push({
+                        pointA: tri.p3.id,
+                        pointB: tri.pB3.id,
+                        confidence: tri.confidence || 0.9,
+                        triangleId: tri.id
+                    });
+                }
+            }
+
+            if (anchorsForValidation.length > 0) {
+                if (this.debug) console.log(`   ✅ Создано ${anchorsForValidation.length} якорей из ${anchorsForValidation.length/3} треугольников`);
+            }
+        }
+
+        if (anchorsForValidation.length === 0) {
+            if (this.debug) console.log(`   ⚠️ Нет треугольников, использую consistent.points`);
+            anchorsForValidation = consistent.points.map(p => ({
+                pointA: p.pointA,
+                pointB: p.pointB,
+                confidence: p.confidence
+            }));
+        }
+
+        if (this.debug) console.log(`\n🔍 ЭТАП 1: Вычисление базового transform по ${anchorsForValidation.length} надёжным якорям`);
+
+        const baseTransform = this.validator.calculateTransform(
+            anchorsForValidation,
+            newExactGraph,
+            existingModel.graph
+        );
+
+        if (!baseTransform) {
+            console.log(`❌ Не удалось вычислить базовый transform`);
+            return {
+                success: false,
+                reason: 'transform_failed',
+                similarity: triangleResult?.similarity || 0
+            };
+        }
+
+        if (this.debug) {
+            console.log(`\n📐 БАЗОВЫЙ TRANSFORM (${anchorsForValidation.length} якорей):`);
+            console.log(`   • Масштаб: ${baseTransform.scale.toFixed(3)}`);
+            console.log(`   • Поворот: ${(baseTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+            console.log(`   • Сдвиг: (${baseTransform.translation.x.toFixed(1)}, ${baseTransform.translation.y.toFixed(1)})`);
+        }
 
     // ===== ШАГ 7: ПОСТРОЕНИЕ ТОПОЛОГИЧЕСКИХ СТРУКТУР =====
-    console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
+    if (this.debug) console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
 
-    const StructureManager = require('../StructureManager');
-    const structureManager = new StructureManager(this.validator, {
-        debug: this.debug,
-        minConfidence: 0.7,
-        maxScaleDeviation: 0.1,
-        maxRotationDeviation: 5
-    });
+        const StructureManager = require('../StructureManager');
+        const structureManager = new StructureManager(this.validator, {
+            debug: this.debug,
+            minConfidence: 0.7,
+            maxScaleDeviation: 0.1,
+            maxRotationDeviation: 5
+        });
 
-    const allGraphTriangles = this._extractTrianglesFromGraph(newExactGraph);
-   
-    console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
-    console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
-    console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
+        const allGraphTriangles = this._extractTrianglesFromGraph(newExactGraph);
+      
+        if (this.debug) {
+            console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
+            console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
+            console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
+        }
 
     // Группируем якоря по triangleId
     const anchorsByTriangle = new Map();
@@ -1216,46 +1213,48 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
 
     // ===== ШАГ 8: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ =====
     if (structures.length > 0 && !fastMode) {
-        console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
+            if (this.debug) console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
 
-        const mainStructure = structures[0];
-        console.log(`   • Исходная структура: ${mainStructure.triangleIds.size} треугольников`);
+            const mainStructure = structures[0];
+            if (this.debug) console.log(`   • Исходная структура: ${mainStructure.triangleIds.size} треугольников`);
 
-        let expanded = true;
-        let iteration = 0;
-        const maxIterations = 10;
+            let expanded = true;
+            let iteration = 0;
+            const maxIterations = 10;
 
-        while (expanded && iteration < maxIterations) {
-            expanded = false;
-            iteration++;
+            while (expanded && iteration < maxIterations) {
+                expanded = false;
+                iteration++;
 
-            const boundaryEdges = this._getBoundaryEdgesFromStructure(mainStructure);
-            console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
+                const boundaryEdges = this._getBoundaryEdgesFromStructure(mainStructure);
+                if (this.debug) console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
 
-            for (const edge of boundaryEdges) {
-                const neighbor = this._findNeighborTriangleInGraph(edge, candidateTriangles, mainStructure);
+                for (const edge of boundaryEdges) {
+                    const neighbor = this._findNeighborTriangleInGraph(edge, candidateTriangles, mainStructure);
 
-                if (neighbor) {
-                    const added = this._tryAddGeometricTriangle(
-                        neighbor, mainStructure, newExactGraph, existingModel.graph,
-                        newMorphology, existingModel.morphologyMap
-                    );
+                    if (neighbor) {
+                        const added = this._tryAddGeometricTriangle(
+                            neighbor, mainStructure, newExactGraph, existingModel.graph,
+                            newMorphology, existingModel.morphologyMap
+                        );
 
-                    if (added) {
-                        expanded = true;
-                        const idx = candidateTriangles.findIndex(t => t.id === neighbor.id);
-                        if (idx !== -1) candidateTriangles.splice(idx, 1);
-                        console.log(`      ✅ Добавлен треугольник ${neighbor.id.substring(0,12)} (осталось кандидатов: ${candidateTriangles.length})`);
+                        if (added) {
+                            expanded = true;
+                            const idx = candidateTriangles.findIndex(t => t.id === neighbor.id);
+                            if (idx !== -1) candidateTriangles.splice(idx, 1);
+                            if (this.debug) console.log(`      ✅ Добавлен треугольник ${neighbor.id.substring(0,12)} (осталось кандидатов: ${candidateTriangles.length})`);
+                        }
                     }
                 }
             }
+
+            if (this.debug) {
+                console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
+                console.log(`   • Осталось кандидатов: ${candidateTriangles.length}`);
+            }
         }
 
-        console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
-        console.log(`   • Осталось кандидатов: ${candidateTriangles.length}`);
-    }
-
-    console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
+        console.log(`✅ Построено структур: ${structures.length}`);
 
 // 🔥 ПРИНУДИТЕЛЬНОЕ ЗАПОЛНЕНИЕ pointIds ИЗ ТРЕУГОЛЬНИКОВ
 for (const structure of structures) {
@@ -1324,55 +1323,50 @@ for (const structure of structures) {
 }
 
     // ===== ШАГ 9: ФИНАЛЬНАЯ ВАЛИДАЦИЯ СТРУКТУР =====
-    console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
+    if (this.debug) console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
 
-    let finalValidationResult = null;
-    let allValidatedPoints = [];
-    let finalTransform = null;
+        let finalValidationResult = null;
+        let allValidatedPoints = [];
+        let finalTransform = null;
 
-    for (const structure of structures) {
-        if (structure.triangleIds.size === 0) continue;
+        for (const structure of structures) {
+            if (structure.triangleIds.size === 0) continue;
 
-        const structureAnchors = structure.getAnchors();
-        if (structureAnchors.length === 0) continue;
+            const structureAnchors = structure.getAnchors();
+            if (structureAnchors.length === 0) continue;
 
-        console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
+            if (this.debug) console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
 
-        const validationResult = this.validator.validateAll(
-            newExactGraph,
-            existingModel.graph,
-            structureAnchors,
-            newMorphology,
-            existingModel.morphologyMap
-        );
+            const validationResult = this.validator.validateAll(
+                newExactGraph,
+                existingModel.graph,
+                structureAnchors,
+                newMorphology,
+                existingModel.morphologyMap
+            );
 
-        if (validationResult.success) {
-            if (validationResult.results) {
-                allValidatedPoints.push(...validationResult.results.confirmed);
-                allValidatedPoints.push(...validationResult.results.anchors);
-            }
+            if (validationResult.success) {
+                if (validationResult.results) {
+                    allValidatedPoints.push(...validationResult.results.confirmed);
+                    allValidatedPoints.push(...validationResult.results.anchors);
+                }
 
-            structure.transform = validationResult.transform;
+                structure.transform = validationResult.transform;
 
-            if (!finalValidationResult || (validationResult.transform &&
-                Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
-                finalValidationResult = validationResult;
-                finalTransform = validationResult.transform;
-            }
+                if (!finalValidationResult || (validationResult.transform &&
+                    Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
+                    finalValidationResult = validationResult;
+                    finalTransform = validationResult.transform;
+                }
 
-            if (this.debug) {
-                console.log(`      ✅ Структура ${structure.id} успешно валидирована`);
-            }
-        } else {
-            if (this.debug) {
-                console.log(`      ⚠️ Структура ${structure.id} НЕ прошла валидацию!`);
+                if (this.debug) console.log(`      ✅ Структура ${structure.id} успешно валидирована`);
+            } else {
+                if (this.debug) console.log(`      ⚠️ Структура ${structure.id} НЕ прошла валидацию!`);
             }
         }
-    }
 
-    // Если не удалось ни одной структуры - используем якоря
-    if (!finalValidationResult) {
-        console.log(`\n⚠️ Структуры не дали результата, используем якоря...`);
+        if (!finalValidationResult) {
+            if (this.debug) console.log(`\n⚠️ Структуры не дали результата, используем якоря...`);
 
         finalValidationResult = this.validator.validateAll(
             newExactGraph,
@@ -1397,26 +1391,27 @@ for (const structure of structures) {
     }
 
  // 🔥 ЛОГ: ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ ДИАГНОСТИКИ
-    if (anchorsForValidation && anchorsForValidation.length > 0) {
-        console.log(`\n🔍 ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ TRANSFORM:`);
-        const sampleAnchors = anchorsForValidation.slice(0, 5);
-        for (let i = 0; i < sampleAnchors.length; i++) {
-            const a = sampleAnchors[i];
-            const pA = newExactGraph.nodes.get(a.pointA);
-            const pB = existingModel.graph.nodes.get(a.pointB);
-            if (pA && pB) {
-                console.log(`   ${i+1}. ${a.pointA.substring(0,16)} (${pA.x.toFixed(0)},${pA.y.toFixed(0)}) → ${a.pointB.substring(0,16)} (${pB.x.toFixed(0)},${pB.y.toFixed(0)})`);
+            if (this.debug) {
+            console.log(`\n🔍 ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ TRANSFORM:`);
+            if (anchorsForValidation && anchorsForValidation.length > 0) {
+                const sampleAnchors = anchorsForValidation.slice(0, 5);
+                for (let i = 0; i < sampleAnchors.length; i++) {
+                    const a = sampleAnchors[i];
+                    const pA = newExactGraph.nodes.get(a.pointA);
+                    const pB = existingModel.graph.nodes.get(a.pointB);
+                    if (pA && pB) {
+                        console.log(`   ${i+1}. ${a.pointA.substring(0,16)} (${pA.x.toFixed(0)},${pA.y.toFixed(0)}) → ${a.pointB.substring(0,16)} (${pB.x.toFixed(0)},${pB.y.toFixed(0)})`);
+                    }
+                }
+            }
+
+            if (finalTransform) {
+                console.log(`\n📐 НАЧАЛЬНЫЙ TRANSFORM (до коррекций):`);
+                console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
+                console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+                console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
             }
         }
-    }
- 
- // 🔥 ЛОГ: НАЧАЛЬНЫЙ TRANSFORM (до всех коррекций)
-    if (finalTransform) {
-        console.log(`\n📐 НАЧАЛЬНЫЙ TRANSFORM (до коррекций):`);
-        console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
-        console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-        console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
-    }
  
     // ===== СБОР ПОДТВЕРЖДЁННЫХ ТОЧЕК =====
 let finalValidatedMatches = [];
@@ -1552,7 +1547,8 @@ if (newPairsFound > 0) {
 
     // ===== ШАГ 12: КОРРЕКЦИЯ ПО BOUNDING BOX =====
     if (finalValidatedMatches.length >= 3 && finalTransform) {
-        console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
+        if (this.debug) {
+            console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
 
         const photoPoints = [];
         const modelPoints = [];
@@ -1645,6 +1641,7 @@ if (newPairsFound > 0) {
             console.log(`\n✅ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
             console.log(`   • Новый масштаб: ${finalTransform.scale.toFixed(3)} (было ${currentScale.toFixed(3)})`);
         }
+        }
     }
 
 // ===== КОРРЕКЦИЯ ПОЛОЖЕНИЯ НОВЫХ ТОЧЕК ПО ЯКОРЯМ =====
@@ -1937,6 +1934,7 @@ existingModel.structures = structures.map(s => {
 
 // ===== КОРРЕКЦИЯ СДВИГА ПО МЕДИАНЕ ВСЕХ ПОДТВЕРЖДЁННЫХ ТОЧЕК =====
 if (finalValidatedMatches && finalValidatedMatches.length >= 3 && finalTransform) {
+  if (this.debug) {
     console.log(`\n🔧 КОРРЕКЦИЯ СДВИГА ПО МЕДИАНЕ ${finalValidatedMatches.length} ПОДТВЕРЖДЁННЫХ ТОЧЕК...`);
    
     // Собираем смещения по всем подтверждённым точкам
@@ -1978,7 +1976,8 @@ if (finalValidatedMatches && finalValidatedMatches.length >= 3 && finalTransform
         console.log(`   📊 Среднее смещение (для сравнения): dx=${avgX.toFixed(2)}px, dy=${avgY.toFixed(2)}px`);
         console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
         console.log(`   🔒 Модель НЕ смещалась — координаты точек модели неизменны`);
-    } else {
+   }
+    } else {
         console.log(`   ⚠️ Недостаточно точек для коррекции (${offsetsX.length})`);
     }
 }
@@ -2041,11 +2040,12 @@ const serializedStructures = structures.map(s => {
 });
 
 // 🔥 ЛОГ: какой transform возвращает ModelEnhancer
-console.log(`\n📤 ModelEnhancer ВОЗВРАЩАЕТ TRANSFORM:`);
-console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
-console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
-
+ if (this.debug) {
+            console.log(`\n📤 ModelEnhancer ВОЗВРАЩАЕТ TRANSFORM:`);
+            console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
+            console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+            console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+        }
 return {
     success: true,
     matches: finalValidatedMatches,
