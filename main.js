@@ -3800,12 +3800,14 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
         };
 
         // Создаём визуализацию со статистикой
-        const GraphVisualizer = require('./modules/footprint/graph-visualizer');
-        const visualizer = new GraphVisualizer();
+        // [CLEANUP] Битый require: ./modules/footprint/graph-visualizer не существует (удалён)
+        // const GraphVisualizer = require('./modules/footprint/graph-visualizer');
+        // const visualizer = new GraphVisualizer();
+        const vizPath = null; // [CLEANUP] заглушка: визуализатор удалён
 
-        const vizPath = await visualizer.visualizeModelWithHistory(model, {
-            filename: `stats_${model.id.slice(0, 8)}.png`
-        });
+        // const vizPath = await visualizer.visualizeModelWithHistory(model, {
+            // filename: `stats_${model.id.slice(0, 8)}.png`
+        // });
 
         if (vizPath && fs.existsSync(vizPath)) {
             // 🔥 ОБНОВЛЕННАЯ ПОДПИСЬ с подтверждениями
@@ -3886,9 +3888,11 @@ bot.onText(/\/show_why_same/, async (msg) => {
         const comparison = matcher.compareGraphs(graph1, graph2);
 
         // Создаём визуализацию
-        const InvariantVisualizer = require('./modules/footprint/invariant-visualizer');
-        const visualizer = new InvariantVisualizer();
-        const imagePath = await visualizer.visualizeComparison(graph1, graph2, comparison);
+        // [CLEANUP] Битый require: ./modules/footprint/invariant-visualizer не существует (удалён)
+        // const InvariantVisualizer = require('./modules/footprint/invariant-visualizer');
+        // const visualizer = new InvariantVisualizer();
+        // const imagePath = await visualizer.visualizeComparison(graph1, graph2, comparison);
+        const imagePath = null; // [CLEANUP] заглушка: визуализатор удалён
 
         if (imagePath && fs.existsSync(imagePath)) {
             await bot.sendPhoto(chatId, imagePath, {
