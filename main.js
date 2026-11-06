@@ -197,7 +197,7 @@ async function initializeNewFootprintSystem() {
             enableMergeVisualization: true,
             enableIntelligentMerge: true,
             enableTopologySuperModel: true,
-            topologySimilarityThreshold: 0.5,
+            topologySimilarityThreshold: 0.45,
             hybridSearchThreshold: 0.6
         });
 

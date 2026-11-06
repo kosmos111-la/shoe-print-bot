@@ -34,7 +34,7 @@ class SimpleFootprintManager {
             usePointTracker = false,
             enableTopology = true,
             enableMergeVisualization = true,
-            topologySimilarityThreshold = 0.5,
+            topologySimilarityThreshold = 0.45,
             minPointsForFootprint = 5,
             enableCoordinateDiagnostics = false,
             useLegacyVectorAlgorithm = false,
@@ -544,7 +544,25 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
 
                 if (!transform) {
                     console.log('⚠️ Трансформация отсутствует! Наложение невозможно');
-                    return;
+                    // 🔥 FIX: НЕ возвращаем undefined! Для первого фото (created) transform
+                    // отсутствует, но addPhotoToSession обязана вернуть объект.
+                    return {
+                        success: true,
+                        footprintId: session.id,
+                        photoId: photoId,
+                        nodesAdded: points.length,
+                        totalPhotos: session.photos.length,
+                        topologicalDecision: decision || 'new_footprint',
+                        topologicalSimilarity: similarity || 0,
+                        hasTopology: this.config.enableTopology,
+                        visualizationPath: modelVizPath || photoVizPath || null,
+                        telegramSent: telegramSent,
+                        mode: 'sandbox',
+                        similarity: similarity || 0,
+                        decision: decision || 'new_footprint',
+                        mergeMethod: topologicalResult?.status,
+                        mergeVisualization: modelVizPath || photoVizPath
+                    };
                 }
 
                 // 🔥 ЛОГ: ПАРАМЕТРЫ ТРАНСФОРМАЦИИ

@@ -19,7 +19,7 @@ class TopologyManager {
         this.accumulator = new TopologicalAccumulator({
             name: this.name,
             debug: this.debug,
-            similarityThreshold: options.similarityThreshold || 0.5,
+            similarityThreshold: options.similarityThreshold || 0.45,
             minMatchesForEnhancement: options.minMatchesForEnhancement || 3,
             wlIterations: options.wlIterations || 3,
             tolerances: options.tolerances // передаем допуски
