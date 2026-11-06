@@ -966,7 +966,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
     console.log(`\n🚀 ModelEnhancer: улучшение модели ${existingModel.id?.substring(0,12)}...`);
 
     // ===== ШАГ 1: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ =====
-    console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${existingModel.id?.substring(0,12)}...`);
+    if (this.debug) console.log(`\n🔍 ТРЕУГОЛЬНОЕ СРАВНЕНИЕ с моделью ${existingModel.id?.substring(0,12)}...`);
    
     const triangleResult = await this._compareByTriangles(existingModel, newExactGraph);
 
@@ -979,7 +979,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         };
     }
 
-    console.log(`✅ Найдено ${triangleResult.matches?.length || 0} треугольных соответствий!`);
+    if (this.debug) console.log(`✅ Найдено ${triangleResult.matches?.length || 0} треугольных соответствий!`);
 
     // ===== ШАГ 2: СОЗДАНИЕ ЯКОРЕЙ =====
     if (this.debug) console.log(`\n🔍 СОЗДАНИЕ ВРЕМЕННЫХ ЯКОРЕЙ ДЛЯ ГЛОБАЛЬНОЙ ПРОВЕРКИ`);
@@ -1041,13 +1041,13 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
     }
 
     // ===== ШАГ 6: ПАРАЛЛЕЛЬНАЯ ВАЛИДАЦИЯ =====
-    console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
+    if (this.debug) console.log(`\n🔄 ЗАПУСК ПАРАЛЛЕЛЬНОЙ ВАЛИДАЦИИ`);
 
     // Подготавливаем якоря для валидации
     let anchorsForValidation = [];
 
     if (triangleResult.triangles && triangleResult.triangles.length > 0) {
-        console.log(`\n🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (${triangleResult.triangles.length} шт)`);
+        if (this.debug) console.log(`\n🔍 ИСПОЛЬЗУЮ ТРЕУГОЛЬНИКИ ИЗ MATCHER (${triangleResult.triangles.length} шт)`);
 
         for (const tri of triangleResult.triangles) {
             if (tri.pB1 && tri.pB2 && tri.pB3) {
@@ -1073,12 +1073,12 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         }
 
         if (anchorsForValidation.length > 0) {
-            console.log(`   ✅ Создано ${anchorsForValidation.length} якорей из ${anchorsForValidation.length/3} треугольников`);
+            if (this.debug) console.log(`   ✅ Создано ${anchorsForValidation.length} якорей из ${anchorsForValidation.length/3} треугольников`);
         }
     }
 
     if (anchorsForValidation.length === 0) {
-        console.log(`   ⚠️ Нет треугольников, использую consistent.points`);
+        if (this.debug) console.log(`   ⚠️ Нет треугольников, использую consistent.points`);
         anchorsForValidation = consistent.points.map(p => ({
             pointA: p.pointA,
             pointB: p.pointB,
@@ -1112,7 +1112,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
     }
 
     // ===== ШАГ 7: ПОСТРОЕНИЕ ТОПОЛОГИЧЕСКИХ СТРУКТУР =====
-    console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
+    if (this.debug) console.log(`\n🔍 ЭТАП 2: Построение топологических структур из ${anchorsForValidation.length} якорей`);
 
     const StructureManager = require('../StructureManager');
     const structureManager = new StructureManager(this.validator, {
@@ -1124,9 +1124,9 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
 
     const allGraphTriangles = this._extractTrianglesFromGraph(newExactGraph);
    
-    console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
-    console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
-    console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
+    if (this.debug) console.log(`\n🔍 СОЗДАЮ ТРЕУГОЛЬНИКИ ИЗ ${anchorsForValidation.length} ЯКОРЕЙ`);
+    if (this.debug) console.log(`   • Всего треугольников в графе: ${allGraphTriangles.length}`);
+    if (this.debug) console.log(`   • triangleResult.triangles: ${triangleResult.triangles?.length || 0} треугольников`);
 
     // Группируем якоря по triangleId
     const anchorsByTriangle = new Map();
@@ -1143,7 +1143,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         anchorsByTriangle.get(triId).push(anchor);
     }
 
-    console.log(`   • Найдено уникальных треугольников-якорей: ${anchorsByTriangle.size}`);
+    if (this.debug) console.log(`   • Найдено уникальных треугольников-якорей: ${anchorsByTriangle.size}`);
 
     // Создаём якорные треугольники
     const anchorTrianglesMap = new Map();
@@ -1198,12 +1198,12 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         anchorTriangleIds.add(triId);
     }
 
-    console.log(`   • Создано якорных треугольников: ${anchorTrianglesMap.size}`);
+    if (this.debug) console.log(`   • Создано якорных треугольников: ${anchorTrianglesMap.size}`);
 
     const candidateTriangles = allGraphTriangles.filter(t => !anchorTriangleIds.has(t.id));
-    console.log(`   • Треугольников-кандидатов для расширения: ${candidateTriangles.length}`);
+    if (this.debug) console.log(`   • Треугольников-кандидатов для расширения: ${candidateTriangles.length}`);
 
-    console.log(`\n📊 ПЕРЕДАЮ В STRUCTUREBUILDER: ${anchorTrianglesMap.size} якорных треугольников`);
+    if (this.debug) console.log(`\n📊 ПЕРЕДАЮ В STRUCTUREBUILDER: ${anchorTrianglesMap.size} якорных треугольников`);
 
     const structures = structureManager.buildStructures(
         anchorsForValidation,
@@ -1216,10 +1216,10 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
 
     // ===== ШАГ 8: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ =====
     if (structures.length > 0 && !fastMode) {
-        console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
+        if (this.debug) console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
 
         const mainStructure = structures[0];
-        console.log(`   • Исходная структура: ${mainStructure.triangleIds.size} треугольников`);
+        if (this.debug) console.log(`   • Исходная структура: ${mainStructure.triangleIds.size} треугольников`);
 
         let expanded = true;
         let iteration = 0;
@@ -1230,7 +1230,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
             iteration++;
 
             const boundaryEdges = this._getBoundaryEdgesFromStructure(mainStructure);
-            console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
+            if (this.debug) console.log(`   • Итерация ${iteration}: граничных рёбер ${boundaryEdges.length}`);
 
             for (const edge of boundaryEdges) {
                 const neighbor = this._findNeighborTriangleInGraph(edge, candidateTriangles, mainStructure);
@@ -1245,17 +1245,17 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
                         expanded = true;
                         const idx = candidateTriangles.findIndex(t => t.id === neighbor.id);
                         if (idx !== -1) candidateTriangles.splice(idx, 1);
-                        console.log(`      ✅ Добавлен треугольник ${neighbor.id.substring(0,12)} (осталось кандидатов: ${candidateTriangles.length})`);
+                        if (this.debug) console.log(`      ✅ Добавлен треугольник ${neighbor.id.substring(0,12)} (осталось кандидатов: ${candidateTriangles.length})`);
                     }
                 }
             }
         }
 
-        console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
-        console.log(`   • Осталось кандидатов: ${candidateTriangles.length}`);
+        if (this.debug) console.log(`   ✅ Геометрическое расширение завершено, теперь ${mainStructure.triangleIds.size} треугольников`);
+        if (this.debug) console.log(`   • Осталось кандидатов: ${candidateTriangles.length}`);
     }
 
-    console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
+    if (this.debug) console.log(`\n📊 ПОСТРОЕНО СТРУКТУР: ${structures.length}`);
 
 // 🔥 ПРИНУДИТЕЛЬНОЕ ЗАПОЛНЕНИЕ pointIds ИЗ ТРЕУГОЛЬНИКОВ
 for (const structure of structures) {
@@ -1277,7 +1277,7 @@ for (const structure of structures) {
             }
         }
         if (addedCount > 0) {
-            console.log(`   🔧 Структура ${structure.id}: добавлено ${addedCount} точек в pointIds (всего ${structure.pointIds.size})`);
+            if (this.debug) console.log(`   🔧 Структура ${structure.id}: добавлено ${addedCount} точек в pointIds (всего ${structure.pointIds.size})`);
         }
     }
    
@@ -1286,7 +1286,7 @@ for (const structure of structures) {
         for (const tri of structure.triangles.values()) {
             if (tri.id) structure.triangleIds.add(tri.id);
         }
-        console.log(`   🔧 Структура ${structure.id}: восстановлено triangleIds: ${structure.triangleIds.size}`);
+        if (this.debug) console.log(`   🔧 Структура ${structure.id}: восстановлено triangleIds: ${structure.triangleIds.size}`);
     }
 }
 
@@ -1297,7 +1297,7 @@ for (const structure of structures) {
    
     // Если pointIds пустые - собираем из треугольников
     if (pointIdsSize === 0 && structure.triangles) {
-        console.log(`   🔧 Восстанавливаю pointIds для структуры ${structure.id}...`);
+        if (this.debug) console.log(`   🔧 Восстанавливаю pointIds для структуры ${structure.id}...`);
        
         for (const tri of structure.triangles.values()) {
             if (tri.p1?.id) structure.pointIds.add(tri.p1.id);
@@ -1306,7 +1306,7 @@ for (const structure of structures) {
         }
        
         pointIdsSize = structure.pointIds?.size || 0;
-        console.log(`      ✅ Восстановлено ${pointIdsSize} точек`);
+        if (this.debug) console.log(`      ✅ Восстановлено ${pointIdsSize} точек`);
     }
    
     // Также проверяем triangleIds
@@ -1314,7 +1314,7 @@ for (const structure of structures) {
         for (const tri of structure.triangles.values()) {
             if (tri.id) structure.triangleIds.add(tri.id);
         }
-        console.log(`      ✅ Восстановлено ${structure.triangleIds.size} треугольников`);
+        if (this.debug) console.log(`      ✅ Восстановлено ${structure.triangleIds.size} треугольников`);
     }
    
     // Выводим статистику по структуре
@@ -1324,7 +1324,7 @@ for (const structure of structures) {
 }
 
     // ===== ШАГ 9: ФИНАЛЬНАЯ ВАЛИДАЦИЯ СТРУКТУР =====
-    console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
+    if (this.debug) console.log(`\n🔍 ЭТАП 3: Финальная валидация структур`);
 
     let finalValidationResult = null;
     let allValidatedPoints = [];
@@ -1336,7 +1336,7 @@ for (const structure of structures) {
         const structureAnchors = structure.getAnchors();
         if (structureAnchors.length === 0) continue;
 
-        console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
+        if (this.debug) console.log(`\n   Валидация структуры ${structure.id} (${structureAnchors.length} якорей)...`);
 
         const validationResult = this.validator.validateAll(
             newExactGraph,
@@ -1398,24 +1398,24 @@ for (const structure of structures) {
 
  // 🔥 ЛОГ: ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ ДИАГНОСТИКИ
     if (anchorsForValidation && anchorsForValidation.length > 0) {
-        console.log(`\n🔍 ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ TRANSFORM:`);
+        if (this.debug) console.log(`\n🔍 ПЕРВЫЕ 5 ЯКОРЕЙ ДЛЯ TRANSFORM:`);
         const sampleAnchors = anchorsForValidation.slice(0, 5);
         for (let i = 0; i < sampleAnchors.length; i++) {
             const a = sampleAnchors[i];
             const pA = newExactGraph.nodes.get(a.pointA);
             const pB = existingModel.graph.nodes.get(a.pointB);
             if (pA && pB) {
-                console.log(`   ${i+1}. ${a.pointA.substring(0,16)} (${pA.x.toFixed(0)},${pA.y.toFixed(0)}) → ${a.pointB.substring(0,16)} (${pB.x.toFixed(0)},${pB.y.toFixed(0)})`);
+                if (this.debug) console.log(`   ${i+1}. ${a.pointA.substring(0,16)} (${pA.x.toFixed(0)},${pA.y.toFixed(0)}) → ${a.pointB.substring(0,16)} (${pB.x.toFixed(0)},${pB.y.toFixed(0)})`);
             }
         }
     }
  
  // 🔥 ЛОГ: НАЧАЛЬНЫЙ TRANSFORM (до всех коррекций)
     if (finalTransform) {
-        console.log(`\n📐 НАЧАЛЬНЫЙ TRANSFORM (до коррекций):`);
-        console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
-        console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-        console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+        if (this.debug) console.log(`\n📐 НАЧАЛЬНЫЙ TRANSFORM (до коррекций):`);
+        if (this.debug) console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
+        if (this.debug) console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+        if (this.debug) console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
     }
  
     // ===== СБОР ПОДТВЕРЖДЁННЫХ ТОЧЕК =====
@@ -1552,7 +1552,7 @@ if (newPairsFound > 0) {
 
     // ===== ШАГ 12: КОРРЕКЦИЯ ПО BOUNDING BOX =====
     if (finalValidatedMatches.length >= 3 && finalTransform) {
-        console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
+        if (this.debug) console.log(`\n🔧 ЗАПУСК КОРРЕКЦИИ ПО BOUNDING BOX...`);
 
         const photoPoints = [];
         const modelPoints = [];
@@ -1626,10 +1626,10 @@ if (newPairsFound > 0) {
             const safeScaleY = Math.min(Math.max(scaleY, 0.8), 1.2);
             const avgScale = (safeScaleX + safeScaleY) / 2;
 
-            console.log(`\n📊 BOUNDING BOX АНАЛИЗ:`);
-            console.log(`   • Требуемый масштаб X: ${scaleX.toFixed(3)} → ${safeScaleX.toFixed(3)}`);
-            console.log(`   • Требуемый масштаб Y: ${scaleY.toFixed(3)} → ${safeScaleY.toFixed(3)}`);
-            console.log(`   • Усреднённый масштаб: ${avgScale.toFixed(3)}`);
+            if (this.debug) console.log(`\n📊 BOUNDING BOX АНАЛИЗ:`);
+            if (this.debug) console.log(`   • Требуемый масштаб X: ${scaleX.toFixed(3)} → ${safeScaleX.toFixed(3)}`);
+            if (this.debug) console.log(`   • Требуемый масштаб Y: ${scaleY.toFixed(3)} → ${safeScaleY.toFixed(3)}`);
+            if (this.debug) console.log(`   • Усреднённый масштаб: ${avgScale.toFixed(3)}`);
 
             finalTransform = {
                 scale: currentScale * avgScale,
@@ -1642,14 +1642,14 @@ if (newPairsFound > 0) {
                 }
             };
 
-            console.log(`\n✅ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
-            console.log(`   • Новый масштаб: ${finalTransform.scale.toFixed(3)} (было ${currentScale.toFixed(3)})`);
+            if (this.debug) console.log(`\n✅ КОРРЕКЦИЯ ЗАВЕРШЕНА`);
+            if (this.debug) console.log(`   • Новый масштаб: ${finalTransform.scale.toFixed(3)} (было ${currentScale.toFixed(3)})`);
         }
     }
 
 // ===== КОРРЕКЦИЯ ПОЛОЖЕНИЯ НОВЫХ ТОЧЕК ПО ЯКОРЯМ =====
 if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForValidation.length >= 3) {
-    console.log(`\n🔧 КОРРЕКЦИЯ ПОЛОЖЕНИЯ ${this.lastUniqueInPhoto.length} НОВЫХ ТОЧЕК ПО ЯКОРЯМ...`);
+    if (this.debug) console.log(`\n🔧 КОРРЕКЦИЯ ПОЛОЖЕНИЯ ${this.lastUniqueInPhoto.length} НОВЫХ ТОЧЕК ПО ЯКОРЯМ...`);
    
     // Собираем якорные пары (точки, которые уже сопоставлены)
     const anchorPairs = [];
@@ -1694,7 +1694,7 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForVal
         const avgDx = totalWeight > 0 ? totalDx / totalWeight : 0;
         const avgDy = totalWeight > 0 ? totalDy / totalWeight : 0;
        
-        console.log(`   📊 Среднее смещение по якорям: dx=${avgDx.toFixed(2)}px, dy=${avgDy.toFixed(2)}px`);
+        if (this.debug) console.log(`   📊 Среднее смещение по якорям: dx=${avgDx.toFixed(2)}px, dy=${avgDy.toFixed(2)}px`);
        
         // Применяем коррекцию ко всем новым точкам
         if (Math.abs(avgDx) > 0.5 || Math.abs(avgDy) > 0.5) {
@@ -1704,17 +1704,17 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForVal
                 point.y += avgDy;
                 correctedCount++;
             }
-            console.log(`   ✅ Скорректировано ${correctedCount} новых точек (сдвиг компенсирован)`);
+            if (this.debug) console.log(`   ✅ Скорректировано ${correctedCount} новых точек (сдвиг компенсирован)`);
            
             // Также корректируем transform, чтобы следующие фото ложились точнее
             finalTransform.translation.x += avgDx;
             finalTransform.translation.y += avgDy;
-            console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+            if (this.debug) console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
         } else {
-            console.log(`   ✅ Смещение минимально (${avgDx.toFixed(2)}, ${avgDy.toFixed(2)}), коррекция не требуется`);
+            if (this.debug) console.log(`   ✅ Смещение минимально (${avgDx.toFixed(2)}, ${avgDy.toFixed(2)}), коррекция не требуется`);
         }
     } else {
-        console.log(`   ⚠️ Недостаточно якорей для коррекции (нужно минимум 3, есть ${anchorPairs.length})`);
+        if (this.debug) console.log(`   ⚠️ Недостаточно якорей для коррекции (нужно минимум 3, есть ${anchorPairs.length})`);
     }
 }
  
@@ -1722,7 +1722,7 @@ if (this.lastUniqueInPhoto && this.lastUniqueInPhoto.length > 0 && anchorsForVal
 // ===== СОХРАНЯЕМ УНИКАЛЬНЫЕ ТОЧКИ ФОТО С КЛАСТЕРНОЙ ТРАНСФОРМАЦИЕЙ =====
 const finalMatchedPointsA = new Set(finalValidatedMatches?.map(m => m?.pointA) || []);
 const unmatchedPhotoPointsForModel = originalPoints.filter(p => !finalMatchedPointsA.has(p.id));
-console.log(`   📸 Несопоставленных точек фото для добавления в модель: ${unmatchedPhotoPointsForModel.length}`);
+if (this.debug) console.log(`   📸 Несопоставленных точек фото для добавления в модель: ${unmatchedPhotoPointsForModel.length}`);
 
 // 🔥 Строим карту: pointId → structure
 const pointToStructureMap = new Map();
@@ -1835,15 +1835,15 @@ for (const p of unmatchedPhotoPointsForModel) {
     });
 }
 
-console.log(`   📊 Источники трансформации для новых точек:`);
-console.log(`      • Своя структура: ${transformStats.ownStructure}`);
-console.log(`      • Ближайшая структура: ${transformStats.nearestStructure}`);
-console.log(`      • Глобальная: ${transformStats.global}`);
+if (this.debug) console.log(`   📊 Источники трансформации для новых точек:`);
+if (this.debug) console.log(`      • Своя структура: ${transformStats.ownStructure}`);
+if (this.debug) console.log(`      • Ближайшая структура: ${transformStats.nearestStructure}`);
+if (this.debug) console.log(`      • Глобальная: ${transformStats.global}`);
 
 this.lastUniqueInPhoto = uniquePhotoPoints;
 
 // ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ (ПЕРЕДАЁМ uniquePhotoPoints ЯВНО) =====
-console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
+if (this.debug) console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
 const updateResult = this._updateModel(
     existingModel,
@@ -1912,7 +1912,7 @@ existingModel.structures = structures.map(s => {
         }
         pointIds = Array.from(pointSet);
         if (pointIds.length > 0) {
-            console.log(`      🔧 При сохранении восстановлено pointIds: ${pointIds.length} точек для ${s.id}`);
+            if (this.debug) console.log(`      🔧 При сохранении восстановлено pointIds: ${pointIds.length} точек для ${s.id}`);
         }
     }
   
@@ -1937,7 +1937,7 @@ existingModel.structures = structures.map(s => {
 
 // ===== КОРРЕКЦИЯ СДВИГА ПО МЕДИАНЕ ВСЕХ ПОДТВЕРЖДЁННЫХ ТОЧЕК =====
 if (finalValidatedMatches && finalValidatedMatches.length >= 3 && finalTransform) {
-    console.log(`\n🔧 КОРРЕКЦИЯ СДВИГА ПО МЕДИАНЕ ${finalValidatedMatches.length} ПОДТВЕРЖДЁННЫХ ТОЧЕК...`);
+    if (this.debug) console.log(`\n🔧 КОРРЕКЦИЯ СДВИГА ПО МЕДИАНЕ ${finalValidatedMatches.length} ПОДТВЕРЖДЁННЫХ ТОЧЕК...`);
    
     // Собираем смещения по всем подтверждённым точкам
     const offsetsX = [];
@@ -1974,18 +1974,18 @@ if (finalValidatedMatches && finalValidatedMatches.length >= 3 && finalTransform
         finalTransform.translation.x += medianX;
         finalTransform.translation.y += medianY;
        
-        console.log(`   📊 Медианное смещение: dx=${medianX.toFixed(2)}px, dy=${medianY.toFixed(2)}px`);
-        console.log(`   📊 Среднее смещение (для сравнения): dx=${avgX.toFixed(2)}px, dy=${avgY.toFixed(2)}px`);
-        console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
-        console.log(`   🔒 Модель НЕ смещалась — координаты точек модели неизменны`);
+        if (this.debug) console.log(`   📊 Медианное смещение: dx=${medianX.toFixed(2)}px, dy=${medianY.toFixed(2)}px`);
+        if (this.debug) console.log(`   📊 Среднее смещение (для сравнения): dx=${avgX.toFixed(2)}px, dy=${avgY.toFixed(2)}px`);
+        if (this.debug) console.log(`   🔄 Transform скорректирован: новый сдвиг (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
+        if (this.debug) console.log(`   🔒 Модель НЕ смещалась — координаты точек модели неизменны`);
     } else {
-        console.log(`   ⚠️ Недостаточно точек для коррекции (${offsetsX.length})`);
+        if (this.debug) console.log(`   ⚠️ Недостаточно точек для коррекции (${offsetsX.length})`);
     }
 }
 
 // 🔥 ВЫВОДИМ КОНТРОЛЬНЫЕ ТОЧКИ ПОСЛЕ ВСЕХ КОРРЕКЦИЙ
 if (finalValidatedMatches && finalValidatedMatches.length >= 5 && finalTransform) {
-    console.log(`\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ (ПОСЛЕ ВСЕХ КОРРЕКЦИЙ):`);
+    if (this.debug) console.log(`\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ (ПОСЛЕ ВСЕХ КОРРЕКЦИЙ):`);
     this._logControlPoints(finalValidatedMatches, newExactGraph, existingModel.graph, finalTransform);
 }
  
@@ -2018,7 +2018,7 @@ const serializedStructures = structures.map(s => {
             if (tri.p3?.id) pointSet.add(tri.p3.id);
         }
         pointIds = Array.from(pointSet);
-        console.log(`   🔧 Сериализация: для ${s.id} собрано ${pointIds.length} точек из треугольников`);
+        if (this.debug) console.log(`   🔧 Сериализация: для ${s.id} собрано ${pointIds.length} точек из треугольников`);
     }
   
     return {
@@ -2129,9 +2129,9 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
         // 🔥 ЛОГ: координаты модели ДО добавления новых точек
         const nodesBefore = Array.from(model.graph.nodes.values());
         if (nodesBefore.length > 0) {
-            console.log(`\n📍 ДО ДОБАВЛЕНИЯ — существующие точки (первые 5):`);
+            if (this.debug) console.log(`\n📍 ДО ДОБАВЛЕНИЯ — существующие точки (первые 5):`);
             nodesBefore.slice(0, 5).forEach((node, i) => {
-                console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [conf=${node.confirmationCount || 1}]`);
+                if (this.debug) console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [conf=${node.confirmationCount || 1}]`);
             });
         }
 
@@ -2159,7 +2159,7 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
     const pointsToAdd = uniquePhotoPoints || this.lastUniqueInPhoto || [];
    
     if (pointsToAdd.length > 0) {
-        console.log(`   📸 Добавляем ${pointsToAdd.length} новых точек в модель (уже трансформированных)`);
+        if (this.debug) console.log(`   📸 Добавляем ${pointsToAdd.length} новых точек в модель (уже трансформированных)`);
       
         for (const photoPoint of pointsToAdd) {
             // Проверка на дубликат
@@ -2201,28 +2201,28 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
         console.log(`      ✅ Добавлена точка: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [confirmation=1, structure=${photoPoint.structureId || 'none'}]`);
     }
             } else if (this.debug) {
-                console.log(`      ⏭️ Пропущен дубликат: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [dist=${closestDist.toFixed(1)}px]`);
+                if (this.debug) console.log(`      ⏭️ Пропущен дубликат: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [dist=${closestDist.toFixed(1)}px]`);
             }
         }
       
-        console.log(`   📊 Добавлено новых узлов: ${newNodesAdded}`);
+        if (this.debug) console.log(`   📊 Добавлено новых узлов: ${newNodesAdded}`);
     }
 
 if (pointsToAdd.length > 0) {
-            console.log(`\n📍 ДОБАВЛЯЮ НОВЫЕ ТОЧКИ (первые 5):`);
+            if (this.debug) console.log(`\n📍 ДОБАВЛЯЮ НОВЫЕ ТОЧКИ (первые 5):`);
             pointsToAdd.slice(0, 5).forEach((p, i) => {
-                console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) [трансформированные]`);
+                if (this.debug) console.log(`   ${i+1}. ${p.id}: (${p.x.toFixed(1)}, ${p.y.toFixed(1)}) [трансформированные]`);
             });
         }
        
         // 🔥 ЛОГ: координаты модели ПОСЛЕ добавления
         const nodesAfter = Array.from(model.graph.nodes.values());
         if (nodesAfter.length > nodesBefore.length) {
-            console.log(`\n📍 ПОСЛЕ ДОБАВЛЕНИЯ — все точки (первые 5):`);
+            if (this.debug) console.log(`\n📍 ПОСЛЕ ДОБАВЛЕНИЯ — все точки (первые 5):`);
             nodesAfter.slice(0, 5).forEach((node, i) => {
                 const oldNode = nodesBefore.find(n => n.id === node.id);
                 const status = oldNode ? 'существующая' : 'НОВАЯ';
-                console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [${status}] [conf=${node.confirmationCount || 1}]`);
+                if (this.debug) console.log(`   ${i+1}. ${node.id.substring(0,16)}: (${node.x.toFixed(1)}, ${node.y.toFixed(1)}) [${status}] [conf=${node.confirmationCount || 1}]`);
             });
         }
 
@@ -2365,10 +2365,10 @@ _extractTrianglesFromGraph(graph) {
 
         // 5. Вычисляем смещения и выводим таблицу
         const offsets = [];
-        console.log('\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ СОПОСТАВЛЕНИЯ:');
-        console.log('┌─────────────┬──────────────────────┬──────────────────────┬──────────────────┐');
-        console.log('│   Точка     │     В модели (x,y)   │   В фото (x,y)       │  Смещение (dx,dy)│');
-        console.log('├─────────────┼──────────────────────┼──────────────────────┼──────────────────┤');
+        if (this.debug) console.log('\n🔍 КОНТРОЛЬНЫЕ ТОЧКИ СОПОСТАВЛЕНИЯ:');
+        if (this.debug) console.log('┌─────────────┬──────────────────────┬──────────────────────┬──────────────────┐');
+        if (this.debug) console.log('│   Точка     │     В модели (x,y)   │   В фото (x,y)       │  Смещение (dx,dy)│');
+        if (this.debug) console.log('├─────────────┼──────────────────────┼──────────────────────┼──────────────────┤');
 
         for (const cp of controlPoints) {
             if (!cp.point) continue;
@@ -2386,10 +2386,10 @@ _extractTrianglesFromGraph(graph) {
            
             offsets.push({ dx: parseFloat(dx), dy: parseFloat(dy) });
 
-            console.log(`│ ${cp.name.padEnd(11)} │ (${modelX.padStart(5)},${modelY.padStart(5)})      │ (${photoX.padStart(5)},${photoY.padStart(5)})      │ (${dx.padStart(5)},${dy.padStart(5)})     │`);
+            if (this.debug) console.log(`│ ${cp.name.padEnd(11)} │ (${modelX.padStart(5)},${modelY.padStart(5)})      │ (${photoX.padStart(5)},${photoY.padStart(5)})      │ (${dx.padStart(5)},${dy.padStart(5)})     │`);
         }
 
-        console.log('└─────────────┴──────────────────────┴──────────────────────┴──────────────────┘');
+        if (this.debug) console.log('└─────────────┴──────────────────────┴──────────────────────┴──────────────────┘');
 
         // 6. Статистика
         if (offsets.length > 0) {
@@ -2397,8 +2397,8 @@ _extractTrianglesFromGraph(graph) {
             const avgDy = offsets.reduce((sum, o) => sum + Math.abs(o.dy), 0) / offsets.length;
             const maxOffset = Math.max(...offsets.map(o => Math.sqrt(o.dx*o.dx + o.dy*o.dy)));
 
-            console.log(`📊 СРЕДНЕЕ АБСОЛЮТНОЕ СМЕЩЕНИЕ: |dx|=${avgDx.toFixed(1)}px, |dy|=${avgDy.toFixed(1)}px`);
-            console.log(`📊 МАКСИМАЛЬНОЕ СМЕЩЕНИЕ: ${maxOffset.toFixed(1)}px`);
+            if (this.debug) console.log(`📊 СРЕДНЕЕ АБСОЛЮТНОЕ СМЕЩЕНИЕ: |dx|=${avgDx.toFixed(1)}px, |dy|=${avgDy.toFixed(1)}px`);
+            if (this.debug) console.log(`📊 МАКСИМАЛЬНОЕ СМЕЩЕНИЕ: ${maxOffset.toFixed(1)}px`);
            
             // Дополнительно: проверяем трапециевидное искажение
             if (topPoint && bottomPoint && leftPoint && rightPoint) {

@@ -65,16 +65,16 @@ class TopologicalAccumulator {
             lastUpdated: new Date()
         };
 
-        console.log(`🏗 TopologicalAccumulator (v4.0 - Перестроение графа) создан: "${this.name}"`);
-        console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ' : 'ПОЛНЫЙ'}`);
-        console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
-        console.log(`   🔄 Перестроение графа: ВКЛЮЧЕНО`);
+        if (this.debug) console.log(`🏗 TopologicalAccumulator (v4.0 - Перестроение графа) создан: "${this.name}"`);
+        if (this.debug) console.log(`   🔥 Режим: ${this.fastMode ? 'БЫСТРЫЙ' : 'ПОЛНЫЙ'}`);
+        if (this.debug) console.log(`   🔷 Порог сходства: ${this.similarityThreshold * 100}%`);
+        if (this.debug) console.log(`   🔄 Перестроение графа: ВКЛЮЧЕНО`);
     }
 
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     async processPoints(points, options = {}) {
-        console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
+        if (this.debug) console.log(`\n🎯 ОБРАБОТКА ${points.length} ТОЧЕК...`);
 
         const photoId = options.photoId || `photo_${Date.now()}`;
         const contours = options.contours || [];
@@ -93,7 +93,7 @@ class TopologicalAccumulator {
 
         // 2. Если есть существующая модель - улучшаем
         if (modelIdHint && this.modelManager.hasModel(modelIdHint)) {
-            console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю улучшение...`);
+            if (this.debug) console.log(`\n✅ НАЙДЕНА МОДЕЛЬ, запускаю улучшение...`);
 
             const existingModel = this.modelManager.getModel(modelIdHint);
 
@@ -139,7 +139,7 @@ if (outlineContour) {
                 const shouldRebuild = this.graphRebuilder.shouldRebuild(existingModel, newPointsCount);
 
                 if (shouldRebuild || options.forceRebuild) {
-                    console.log(`\n🔄 ЗАПУСК ПЕРЕСТРОЕНИЯ ГРАФА...`);
+                    if (this.debug) console.log(`\n🔄 ЗАПУСК ПЕРЕСТРОЕНИЯ ГРАФА...`);
                     this.graphRebuilder.rebuildModel(existingModel, { photoId });
                     this.stats.rebuildCount++;
                 } else {
@@ -172,18 +172,18 @@ if (outlineContour) {
                     transform: existingModel.transform
                 };
 
-                console.log(`\n📊 СТАТИСТИКА МОДЕЛИ ПОСЛЕ УЛУЧШЕНИЯ:`);
-console.log(`   • Всего узлов: ${existingModel.graph.nodes.size}`);
-console.log(`   • Подтверждено: ${enhanceResult.matches?.length || 0}`);
-console.log(`   • Граф перестроен: ${shouldRebuild ? '✅ ДА' : '❌ НЕТ'}`);
+                if (this.debug) console.log(`\n📊 СТАТИСТИКА МОДЕЛИ ПОСЛЕ УЛУЧШЕНИЯ:`);
+if (this.debug) console.log(`   • Всего узлов: ${existingModel.graph.nodes.size}`);
+if (this.debug) console.log(`   • Подтверждено: ${enhanceResult.matches?.length || 0}`);
+if (this.debug) console.log(`   • Граф перестроен: ${shouldRebuild ? '✅ ДА' : '❌ НЕТ'}`);
 
 // 🔥 ЛОГ: какой transform возвращает TopologicalAccumulator
 const returnTransform = enhanceResult.transform || existingModel.transform;
 if (returnTransform) {
-    console.log(`\n📤 TopologicalAccumulator ВОЗВРАЩАЕТ TRANSFORM:`);
-    console.log(`   • Масштаб: ${returnTransform.scale.toFixed(3)}`);
-    console.log(`   • Поворот: ${(returnTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`   • Сдвиг: (${returnTransform.translation.x.toFixed(1)}, ${returnTransform.translation.y.toFixed(1)})`);
+    if (this.debug) console.log(`\n📤 TopologicalAccumulator ВОЗВРАЩАЕТ TRANSFORM:`);
+    if (this.debug) console.log(`   • Масштаб: ${returnTransform.scale.toFixed(3)}`);
+    if (this.debug) console.log(`   • Поворот: ${(returnTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    if (this.debug) console.log(`   • Сдвиг: (${returnTransform.translation.x.toFixed(1)}, ${returnTransform.translation.y.toFixed(1)})`);
 }
 
 return {
@@ -307,7 +307,7 @@ if (outlineContour) {
                 // Перестраиваем граф
                 const shouldRebuild = this.graphRebuilder.shouldRebuild(exactMatch, enhanceResult.newNodesAdded || 0);
                 if (shouldRebuild || options.forceRebuild) {
-                    console.log(`\n🔄 ЗАПУСК ПЕРЕСТРОЕНИЯ ГРАФА...`);
+                    if (this.debug) console.log(`\n🔄 ЗАПУСК ПЕРЕСТРОЕНИЯ ГРАФА...`);
                     this.graphRebuilder.rebuildModel(exactMatch, { photoId });
                     this.stats.rebuildCount++;
                 }
@@ -317,10 +317,10 @@ this.stats.totalEnhancements = this.modelManager.stats.totalEnhancements;
 
 // 🔥 ЛОГ: какой transform возвращается при exact match
 if (enhanceResult.transform) {
-    console.log(`\n📤 TopologicalAccumulator (exact match) ВОЗВРАЩАЕТ TRANSFORM:`);
-    console.log(`   • Масштаб: ${enhanceResult.transform.scale.toFixed(3)}`);
-    console.log(`   • Поворот: ${(enhanceResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`   • Сдвиг: (${enhanceResult.transform.translation.x.toFixed(1)}, ${enhanceResult.transform.translation.y.toFixed(1)})`);
+    if (this.debug) console.log(`\n📤 TopologicalAccumulator (exact match) ВОЗВРАЩАЕТ TRANSFORM:`);
+    if (this.debug) console.log(`   • Масштаб: ${enhanceResult.transform.scale.toFixed(3)}`);
+    if (this.debug) console.log(`   • Поворот: ${(enhanceResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    if (this.debug) console.log(`   • Сдвиг: (${enhanceResult.transform.translation.x.toFixed(1)}, ${enhanceResult.transform.translation.y.toFixed(1)})`);
 }
 
 return {
@@ -400,7 +400,7 @@ return {
                 // Перестраиваем граф
                 const shouldRebuild = this.graphRebuilder.shouldRebuild(existingModel, enhanceResult.newNodesAdded || 0);
                 if (shouldRebuild || options.forceRebuild) {
-                    console.log(`\n🔄 ЗАПУСК ПЕРЕСТРОЕНИЯ ГРАФА...`);
+                    if (this.debug) console.log(`\n🔄 ЗАПУСК ПЕРЕСТРОЕНИЯ ГРАФА...`);
                     this.graphRebuilder.rebuildModel(existingModel, { photoId });
                     this.stats.rebuildCount++;
                 }
@@ -411,10 +411,10 @@ this.stats.totalEnhancements = this.modelManager.stats.totalEnhancements;
 
 // 🔥 ЛОГ: какой transform возвращается при WL match
 if (enhanceResult.transform) {
-    console.log(`\n📤 TopologicalAccumulator (WL match) ВОЗВРАЩАЕТ TRANSFORM:`);
-    console.log(`   • Масштаб: ${enhanceResult.transform.scale.toFixed(3)}`);
-    console.log(`   • Поворот: ${(enhanceResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
-    console.log(`   • Сдвиг: (${enhanceResult.transform.translation.x.toFixed(1)}, ${enhanceResult.transform.translation.y.toFixed(1)})`);
+    if (this.debug) console.log(`\n📤 TopologicalAccumulator (WL match) ВОЗВРАЩАЕТ TRANSFORM:`);
+    if (this.debug) console.log(`   • Масштаб: ${enhanceResult.transform.scale.toFixed(3)}`);
+    if (this.debug) console.log(`   • Поворот: ${(enhanceResult.transform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    if (this.debug) console.log(`   • Сдвиг: (${enhanceResult.transform.translation.x.toFixed(1)}, ${enhanceResult.transform.translation.y.toFixed(1)})`);
 }
 
 return {
@@ -690,7 +690,7 @@ if (outlineContour) {
             return { success: false, error: 'Модель не найдена' };
         }
 
-        console.log(`\n🔄 ПРИНУДИТЕЛЬНОЕ ПЕРЕСТРОЕНИЕ ГРАФА МОДЕЛИ ${modelId.substring(0, 12)}...`);
+        if (this.debug) console.log(`\n🔄 ПРИНУДИТЕЛЬНОЕ ПЕРЕСТРОЕНИЕ ГРАФА МОДЕЛИ ${modelId.substring(0, 12)}...`);
        
         this.graphRebuilder.rebuildModel(model, { force: true });
         this.stats.rebuildCount++;
@@ -774,7 +774,7 @@ if (outlineContour) {
                 type: firstContour.type || 'footprint_outline'
             };
            
-            console.log(`   📐 Контур скорректирован по якорю: сдвиг (${shiftX.toFixed(1)}, ${shiftY.toFixed(1)})`);
+            if (this.debug) console.log(`   📐 Контур скорректирован по якорю: сдвиг (${shiftX.toFixed(1)}, ${shiftY.toFixed(1)})`);
         } else if (outlineContours.length > 0) {
             // Если якоря нет — используем как есть
             outlineContour = {
