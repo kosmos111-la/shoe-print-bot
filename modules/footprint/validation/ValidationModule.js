@@ -102,7 +102,8 @@ class ValidationModule {
         // Сортируем по ошибке и находим медиану
         errors.sort((a, b) => a.error - b.error);
         const medianError = errors[Math.floor(errors.length / 2)].error;
-        const threshold = Math.max(medianError * 2.5, 20); // минимум 20 пикселей
+        // 🔥 ЖЁСТЧЕ: множитель 1.5 вместо 2.5, минимум 10px вместо 20px
+        const threshold = Math.max(medianError * 1.5, 10); // минимум 10 пикселей
        
         // Оставляем только точки с ошибкой < threshold
         const filteredA = [];

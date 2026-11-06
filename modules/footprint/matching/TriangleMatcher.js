@@ -133,6 +133,7 @@ if (this.debug) {
 }
         return {
     matches: pointMatches,
+    similarity: pointMatches.length / Math.max(Math.min(pointsA.length, pointsB.length), 1),
     triangles: trianglesA,  // 🔥 ВОЗВРАЩАЕМ ВСЕ ТРЕУГОЛЬНИКИ
     stats: this.stats
 };

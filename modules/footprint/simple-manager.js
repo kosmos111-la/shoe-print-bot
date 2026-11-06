@@ -34,7 +34,7 @@ class SimpleFootprintManager {
             usePointTracker = false,
             enableTopology = true,
             enableMergeVisualization = true,
-            topologySimilarityThreshold = 0.7,
+            topologySimilarityThreshold = 0.5,
             minPointsForFootprint = 5,
             enableCoordinateDiagnostics = false,
             useLegacyVectorAlgorithm = false,
@@ -270,6 +270,17 @@ if (this.config.enableTopology) {
 
     decision = topologicalResult.decision;
     similarity = topologicalResult.similarity || 0;
+    
+    // 🔥 ГАРАНТИЯ ДЛЯ ПЕРВОГО ФОТО (status === 'created'):
+    // main.js читает result.success / result.decision / result.similarity —
+    // всегда возвращаем полный объект, даже если topologicalResult пустой
+    if (!topologicalResult) {
+        decision = 'new_footprint';
+        similarity = 0;
+    } else if (topologicalResult.status === 'created') {
+        decision = 'new_footprint';
+        similarity = 0;
+    }
 
     console.log(`🎯 ТОПОЛОГИЧЕСКОЕ РЕШЕНИЕ В ПЕСОЧНИЦЕ: ${decision} (${(similarity * 100).toFixed(1)}%)`);
 

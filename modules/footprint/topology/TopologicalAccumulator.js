@@ -16,7 +16,7 @@ class TopologicalAccumulator {
         this.name = options.name || `Топологическая_модель_${Date.now()}`;
         this.debug = options.debug || false;
         this.fastMode = options.fastMode || false;
-        this.similarityThreshold = options.similarityThreshold || 0.6;
+        this.similarityThreshold = options.similarityThreshold || 0.5;
 
         // 🔥 НОВЫЕ КОМПОНЕНТЫ (Фаза 3)
         this.modelManager = new ModelManager({ debug: this.debug });
