@@ -478,44 +478,6 @@ if (outlineContour) {
 
     // ==================== ТРЕУГОЛЬНОЕ СРАВНЕНИЕ ====================
 
-    async compareByTriangleMatching(model1, model2, options = {}) {
-        const startTime = Date.now();
-        if (this.debug) console.log(`\n🔍 Треугольное сопоставление...`);
-
-        const points1 = this.graphProcessor.extractPointsFromModel(model1);
-        const points2 = this.graphProcessor.extractPointsFromModel(model2);
-
-        if (!points1.length || !points2.length) {
-            return {
-                success: false,
-                matches: [],
-                count: 0,
-                sufficient: false,
-                similarity: 0,
-                time: Date.now() - startTime
-            };
-        }
-
-        const triangleMatcher = new TriangleMatcher({ debug: false });
-        const result = triangleMatcher.findMatches(points1, points2, model1.graph, model2.graph);
-
-        const matchedPointA = new Set(result.matches.map(m => m.pointA));
-        const matchedPointB = new Set(result.matches.map(m => m.pointB));
-
-        return {
-            success: true,
-            matches: result.matches,
-            triangles: result.triangles,
-            count: result.matches.length,
-            sufficient: result.matches.length >= 12,
-            similarity: result.matches.length / Math.min(points1.length, points2.length),
-            time: Date.now() - startTime,
-            noMatchA: points1.filter(p => !matchedPointA.has(p.id)).map(p => p.id),
-            noMatchB: points2.filter(p => !matchedPointB.has(p.id)).map(p => p.id),
-            stats: result.stats
-        };
-    }
-
     // ==================== MATCHMAP ====================
 
     buildTriangleMatchMap(result, targetModelId = null) {

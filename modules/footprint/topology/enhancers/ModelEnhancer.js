@@ -43,44 +43,6 @@ class ModelEnhancer {
     // ==================== ПРИВАТНЫЕ МЕТОДЫ (БУДУТ ДОБАВЛЯТЬСЯ ПО ШАГАМ) ====================
 
 /**
-     * Извлекает все треугольники из графа
-     */
-    extractTrianglesFromGraph(graph) {
-        const triangles = [];
-        const nodeIds = Array.from(graph.nodes.keys());
-        const edges = graph.edges;
-       
-        for (let i = 0; i < nodeIds.length; i++) {
-            for (let j = i + 1; j < nodeIds.length; j++) {
-                for (let k = j + 1; k < nodeIds.length; k++) {
-                    const a = nodeIds[i];
-                    const b = nodeIds[j];
-                    const c = nodeIds[k];
-                   
-                    if (edges.has([a, b].sort().join('--')) &&
-                        edges.has([b, c].sort().join('--')) &&
-                        edges.has([c, a].sort().join('--'))) {
-                       
-                        const p1 = graph.nodes.get(a);
-                        const p2 = graph.nodes.get(b);
-                        const p3 = graph.nodes.get(c);
-                       
-                        if (p1 && p2 && p3) {
-                            triangles.push({ p1, p2, p3, id: `tri_${a}_${b}_${c}` });
-                        }
-                    }
-                }
-            }
-        }
-       
-        if (this.debug) {
-            console.log(`   📐 Извлечено треугольников: ${triangles.length}`);
-        }
-       
-        return triangles;
-    }  
-
-/**
      * Сливает дублирующиеся точки в графе
      */
     mergeDuplicatePoints(graph, threshold = 5) {
@@ -587,7 +549,6 @@ twoStagePositioning(anchors, allMatches, graphA, graphB, morphologyMap, modelMor
     if (this.debug) console.log(`\n📊 РАЗДЕЛЕНИЕ ТОЧЕК ПО КАТЕГОРИЯМ:`);
 
     const anchorSet = new Set(anchors.map(a => a.pointA));
-    const allPointsA = new Set(allMatches.map(m => m.pointA));
 
     const confusedPoints = [];
     for (const match of allMatches) {
@@ -788,72 +749,6 @@ _findCommonEdgeInTriangle(triangle, structure) {
         }
     }
     return null;
-}
-
-_compareTrianglesGeometrically(tPhoto, tModel, structure) {
-    // Углы
-    const anglePhoto1 = GeometryUtils.angleBetween(tPhoto.p1, tPhoto.p2, tPhoto.p3);
-    const anglePhoto2 = GeometryUtils.angleBetween(tPhoto.p2, tPhoto.p3, tPhoto.p1);
-    const anglePhoto3 = GeometryUtils.angleBetween(tPhoto.p3, tPhoto.p1, tPhoto.p2);
-  
-    const angleModel1 = GeometryUtils.angleBetween(tModel.p1, tModel.p2, tModel.p3);
-    const angleModel2 = GeometryUtils.angleBetween(tModel.p2, tModel.p3, tModel.p1);
-    const angleModel3 = GeometryUtils.angleBetween(tModel.p3, tModel.p1, tModel.p2);
-  
-    const angleDiff = (Math.abs(anglePhoto1 - angleModel1) +
-                       Math.abs(anglePhoto2 - angleModel2) +
-                       Math.abs(anglePhoto3 - angleModel3)) / 3;
-  
-    const angleTolerance = Math.min(20, 10 + Math.floor(structure.triangleIds.size / 5));
-    if (angleDiff > angleTolerance) return false;
-  
-    // Пропорции сторон
-    const sidesPhoto = [
-        GeometryUtils.distance(tPhoto.p1, tPhoto.p2),
-        GeometryUtils.distance(tPhoto.p2, tPhoto.p3),
-        GeometryUtils.distance(tPhoto.p3, tPhoto.p1)
-    ].sort((a, b) => a - b);
-  
-    const sidesModel = [
-        GeometryUtils.distance(tModel.p1, tModel.p2),
-        GeometryUtils.distance(tModel.p2, tModel.p3),
-        GeometryUtils.distance(tModel.p3, tModel.p1)
-    ].sort((a, b) => a - b);
-  
-    const ratiosPhoto = [sidesPhoto[0] / sidesPhoto[2], sidesPhoto[1] / sidesPhoto[2]];
-    const ratiosModel = [sidesModel[0] / sidesModel[2], sidesModel[1] / sidesModel[2]];
-  
-    const ratioDiff = (Math.abs(ratiosPhoto[0] - ratiosModel[0]) +
-                       Math.abs(ratiosPhoto[1] - ratiosModel[1])) / 2;
-  
-    if (ratioDiff > 0.2) return false;
-  
-    // Масштаб
-    const scalePhoto = (sidesPhoto[0] + sidesPhoto[1] + sidesPhoto[2]) / 3;
-    const scaleModel = (sidesModel[0] + sidesModel[1] + sidesModel[2]) / 3;
-    const scaleEstimate = scaleModel / scalePhoto;
-    const scaleDiff = Math.abs(scaleEstimate - structure.transform.scale) / Math.max(structure.transform.scale, 0.001);
-  
-    if (scaleDiff > 0.2) return false;
-  
-    return true;
-}
-
-_findNearestModelPoint(point, graphB, threshold = 15) {
-    let bestPoint = null;
-    let bestDist = Infinity;
-  
-    for (const [id, modelPoint] of graphB.nodes) {
-        const dx = modelPoint.x - point.x;
-        const dy = modelPoint.y - point.y;
-        const dist = Math.sqrt(dx*dx + dy*dy);
-      
-        if (dist < bestDist && dist < threshold) {
-            bestDist = dist;
-            bestPoint = modelPoint;
-        }
-    }
-    return bestPoint;
 }
 
 _tryAddGeometricTriangle(triangle, structure, graphA, graphB, morphologyMap, modelMorphology) {
@@ -2091,32 +1986,6 @@ _extractPointsFromModel(model) {
         });
     }
     return points;
-}
-
-/**
-* Создание якорей из треугольников
-*/
-_createAnchorsFromTriangles(triangleResult, graphA, graphB) {
-    const anchors = [];
-    if (!triangleResult.triangles) return anchors;
-    for (const tri of triangleResult.triangles) {
-        if (tri.pB1 && tri.pB2 && tri.pB3) {
-            anchors.push({ pointA: tri.p1.id, pointB: tri.pB1.id, confidence: tri.confidence || 0.9, triangleId: tri.id });
-            anchors.push({ pointA: tri.p2.id, pointB: tri.pB2.id, confidence: tri.confidence || 0.9, triangleId: tri.id });
-            anchors.push({ pointA: tri.p3.id, pointB: tri.pB3.id, confidence: tri.confidence || 0.9, triangleId: tri.id });
-        }
-    }
-    return anchors;
-}
-
-/**
-* Валидация matches
-*/
-_validateMatches(matches, graphA, graphB, morphologyMap, modelMorphology) {
-    const anchors = matches.map(m => ({ pointA: m.pointA, pointB: m.pointB, confidence: m.confidence || 0.8 }));
-    if (anchors.length < 3) return { success: false, reason: 'insufficient_anchors' };
-    const result = this.validator.validateAll(graphA, graphB, anchors, morphologyMap, modelMorphology);
-    return { success: result.success, transform: result.transform, results: result.results };
 }
 
 /**
