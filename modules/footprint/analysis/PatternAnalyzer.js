@@ -386,10 +386,6 @@ class PatternAnalyzer {
                 ? JSON.stringify(gapInfo)
                 : '0';
            
-            // Для отладки можно раскомментировать
-            // if (this.debug && gaps[nodeId] !== '0') {
-            //     console.log(`   Точка ${nodeId.slice(0,8)}: gapPattern = ${gaps[nodeId]}`);
-            // }
         }
        
         return gaps;

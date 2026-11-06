@@ -51,13 +51,13 @@ class StructureBuilder {
         this.softnessLevel++;
         switch(this.softnessLevel) {
             case 1:
-                console.log('🔧 Переход на МЯГКИЙ режим (уровень 1):');
+                if (this.debug) console.log('🔧 Переход на МЯГКИЙ режим (уровень 1):');
                 this.minConfidence = this.softMinConfidence;
                 this.maxScaleDeviation = this.softMaxScaleDeviation;
                 this.maxRotationDeviation = this.softMaxRotationDeviation;
                 break;
             case 2:
-                console.log('🔧 Переход на ОЧЕНЬ МЯГКИЙ режим (уровень 2):');
+                if (this.debug) console.log('🔧 Переход на ОЧЕНЬ МЯГКИЙ режим (уровень 2):');
                 this.minConfidence = 0.5;
                 this.maxScaleDeviation = 0.2;
                 this.maxRotationDeviation = 15;
@@ -156,7 +156,7 @@ class StructureBuilder {
         });
 
         if (newPoints.length > 0 && this.debug) {
-            console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
+            if (this.debug) console.log(`      🔍 Новые точки в треугольнике: ${newPoints.map(p => p.id.substring(0,8)).join(', ')}`);
         }
 
         const isExpansion = structure.pointIds.size > 3;
@@ -477,7 +477,7 @@ class StructureBuilder {
             retryAdded = this.retryRejectedCandidates(structure, graphA, graphB, morphologyMap, modelMorphology);
             retryIteration++;
             if (retryAdded > 0 && this.debug) {
-                console.log(`   🔄 Итерация ${retryIteration}: добавлено ${retryAdded} треугольников при повторной проверке`);
+                if (this.debug) console.log(`   🔄 Итерация ${retryIteration}: добавлено ${retryAdded} треугольников при повторной проверке`);
                 if (structure.triangleIds.size >= 2 && this.validator) {
                     const anchors = structure.getAnchors ? structure.getAnchors() : [];
                     if (anchors.length >= 3) {

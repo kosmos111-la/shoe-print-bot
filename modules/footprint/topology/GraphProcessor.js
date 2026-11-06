@@ -133,8 +133,8 @@ class GraphProcessor {
                 exactGraph.edges.add([contourAnchorId, np.id].sort().join('--'));
             }
            
-            console.log(`📍 Центр контура (${cx.toFixed(1)}, ${cy.toFixed(1)}) добавлен как якорная точка ${contourAnchorId}`);
-            console.log(`   Соединён с ближайшими точками: ${nearestPoints.map(p => p.id.substring(0,12)).join(', ')}`);
+            if (this.debug) console.log(`📍 Центр контура (${cx.toFixed(1)}, ${cy.toFixed(1)}) добавлен как якорная точка ${contourAnchorId}`);
+            if (this.debug) console.log(`   Соединён с ближайшими точками: ${nearestPoints.map(p => p.id.substring(0,12)).join(', ')}`);
         }
        
         // 🔥 ЛОГ: координаты при создании модели

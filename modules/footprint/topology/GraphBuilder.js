@@ -12,7 +12,7 @@ class GraphBuilder {
     // ==================== ОСНОВНОЙ МЕТОД ====================
 
     buildGraph(points, name = '') {
-        console.log(`🔷 Строю граф Делоне "${name}" из ${points.length} точек...`);
+        if (this.debug) console.log(`🔷 Строю граф Делоне "${name}" из ${points.length} точек...`);
 
         if (points.length < 3) {
             console.log('⚠️ Слишком мало точек для триангуляции');

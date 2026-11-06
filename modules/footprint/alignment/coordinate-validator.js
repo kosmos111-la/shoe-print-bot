@@ -16,15 +16,15 @@ class CoordinateValidator {
         const trans1 = footprint1.getTransformation();
         const trans2 = footprint2.getTransformation();
        
-        console.log(`📌 След 1 "${footprint1.name}":`);
-        console.log(`   • Угол: ${trans1?.rotationAngle?.toFixed(1) || 0}°`);
-        console.log(`   • Зеркало: ${trans1?.isMirrored ? 'да' : 'нет'}`);
-        console.log(`   • Матрица: ${trans1?.matrix ? 'есть' : 'нет'}`);
+        if (this.debug) console.log(`📌 След 1 "${footprint1.name}":`);
+        if (this.debug) console.log(`   • Угол: ${trans1?.rotationAngle?.toFixed(1) || 0}°`);
+        if (this.debug) console.log(`   • Зеркало: ${trans1?.isMirrored ? 'да' : 'нет'}`);
+        if (this.debug) console.log(`   • Матрица: ${trans1?.matrix ? 'есть' : 'нет'}`);
        
-        console.log(`\n📌 След 2 "${footprint2.name}":`);
-        console.log(`   • Угол: ${trans2?.rotationAngle?.toFixed(1) || 0}°`);
-        console.log(`   • Зеркало: ${trans2?.isMirrored ? 'да' : 'нет'}`);
-        console.log(`   • Матрица: ${trans2?.matrix ? 'есть' : 'нет'}`);
+        if (this.debug) console.log(`\n📌 След 2 "${footprint2.name}":`);
+        if (this.debug) console.log(`   • Угол: ${trans2?.rotationAngle?.toFixed(1) || 0}°`);
+        if (this.debug) console.log(`   • Зеркало: ${trans2?.isMirrored ? 'да' : 'нет'}`);
+        if (this.debug) console.log(`   • Матрица: ${trans2?.matrix ? 'есть' : 'нет'}`);
        
         // 2. Проверяем согласованность
         const issues = [];
@@ -58,15 +58,15 @@ class CoordinateValidator {
         const points1 = this.getPointsInfo(footprint1);
         const points2 = this.getPointsInfo(footprint2);
        
-        console.log(`\n📊 ИНФОРМАЦИЯ О ТОЧКАХ:`);
-        console.log(`   ${footprint1.name}: ${points1.count} точек, границы: ${points1.width.toFixed(1)}x${points1.height.toFixed(1)}`);
-        console.log(`   ${footprint2.name}: ${points2.count} точек, границы: ${points2.width.toFixed(1)}x${points2.height.toFixed(1)}`);
+        if (this.debug) console.log(`\n📊 ИНФОРМАЦИЯ О ТОЧКАХ:`);
+        if (this.debug) console.log(`   ${footprint1.name}: ${points1.count} точек, границы: ${points1.width.toFixed(1)}x${points1.height.toFixed(1)}`);
+        if (this.debug) console.log(`   ${footprint2.name}: ${points2.count} точек, границы: ${points2.width.toFixed(1)}x${points2.height.toFixed(1)}`);
        
         // Проверка пропорций
         const ratio1 = points1.width / Math.max(1, points1.height);
         const ratio2 = points2.width / Math.max(1, points2.height);
        
-        console.log(`   Пропорции: ${ratio1.toFixed(2)} vs ${ratio2.toFixed(2)}`);
+        if (this.debug) console.log(`   Пропорции: ${ratio1.toFixed(2)} vs ${ratio2.toFixed(2)}`);
        
         // Если один след вертикальный, а другой горизонтальный
         const VERTICAL_THRESHOLD = 0.5;
@@ -96,8 +96,8 @@ class CoordinateValidator {
         } else {
             console.log(`⚠️ Обнаружены проблемы:`);
             issues.forEach(issue => {
-                console.log(`   • ${issue.type}: ${issue.message}`);
-                console.log(`     Рекомендация: ${issue.suggestion}`);
+                if (this.debug) console.log(`   • ${issue.type}: ${issue.message}`);
+                if (this.debug) console.log(`     Рекомендация: ${issue.suggestion}`);
             });
            
             return {
