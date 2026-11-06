@@ -550,7 +550,8 @@ if (this.config.enableMergeVisualization && bot && chatId && topologicalResult &
                         success: true,
                         footprintId: session.id,
                         photoId: photoId,
-                        nodesAdded: points.length,
+                        // 🔥 TDZ-фикс: в этом скоупе есть const points (ниже, строка 627) — берём photoPoints
+                        nodesAdded: photoPoints.length,
                         totalPhotos: session.photos.length,
                         topologicalDecision: decision || 'new_footprint',
                         topologicalSimilarity: similarity || 0,

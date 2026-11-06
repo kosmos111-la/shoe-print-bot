@@ -10,6 +10,8 @@ class TopologyManager {
         this.userId = options.userId || 'default';
         this.name = options.name || `Топология_${this.userId}`;
         this.debug = options.debug || false;
+        // 🔥 ПОРОГ СХОДСТВА (0.45 из конфига, передаётся в аккумулятор)
+        this.similarityThreshold = options.similarityThreshold || 0.45;
 
         // 🔥 РЕЖИМ ПЕСОЧНИЦЫ - по умолчанию false для накопления!
         this.sandboxMode = options.sandboxMode === true;
@@ -230,7 +232,8 @@ class TopologyManager {
             return 'new_footprint';
         } else if (result.status === 'enhanced_full' || result.status === 'enhanced_fast' || result.status === 'enhanced_optimal') {
             return 'same_footprint_enhanced';
-        } else if (result.similarity >= 0.6) {
+        // 🔥 ХАРДКОД УБРАН: используем порог из конфига (0.45)
+        } else if (result.similarity >= this.similarityThreshold) {
             return 'same_footprint';
         } else {
             return 'different_footprint';
