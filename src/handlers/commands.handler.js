@@ -22,6 +22,44 @@ const { userStats, globalStats, userLastAnalysis, photoBatchDetector, photoQueue
  */
 module.exports = function registerCommandsHandler(bot, ctx) {
 
+// ===== HELPERS: получение моделей пользователя (обёртка над getPermanentModels) =====
+// SimpleFootprintManager хранит модели как { id, name, model, stats },
+// где model = SimpleFootprint c полями graph/metadata/photoHistory/userId/stats/name.
+// Распаковываем в плоский формат, который ожидают команды.
+function getUserModels(userId) {
+    const fm = ctx.footprintManager;
+    if (!fm || typeof fm.getPermanentModels !== 'function') return [];
+    return fm.getPermanentModels(userId).map(m => ({
+        id: m.id,
+        name: (m.model && m.model.name) || m.name || 'Без имени',
+        graph: m.model && m.model.graph,
+        metadata: (m.model && m.model.metadata) || {},
+        photoHistory: (m.model && m.model.photoHistory) || [],
+        userId: (m.model && m.model.userId) || userId,
+        stats: (m.model && m.model.stats) || m.stats || {},
+        model: m.model || m
+    }));
+}
+
+function getModelById(modelId) {
+    const fm = ctx.footprintManager;
+    if (!fm || typeof fm.getPermanentModels !== 'function') return null;
+    // getPermanentModels без userId вернёт ВСЕ модели; ищем по id/префиксу
+    const all = fm.getPermanentModels();
+    const found = all.find(m => m.id === modelId || (m.id && m.id.startsWith(modelId)));
+    if (!found) return null;
+    return {
+        id: found.id,
+        name: (found.model && found.model.name) || found.name || 'Без имени',
+        graph: found.model && found.model.graph,
+        metadata: (found.model && found.model.metadata) || {},
+        photoHistory: (found.model && found.model.photoHistory) || [],
+        stats: (found.model && found.model.stats) || found.stats || {},
+        model: found.model || found
+    };
+}
+
+
 // ===== ЛОКАЛЬНОЕ СОСТОЯНИЕ КОМАНД =====
 
 // =============================================================================
@@ -1764,7 +1802,7 @@ bot.onText(/\/my_footprints/, async (msg) => {
             return;
         }
 
-        const userModels = ctx.footprintManager.getUserModels(userId);
+        const userModels = getUserModels(userId);
 
         if (!userModels || userModels.length === 0) {
             await bot.sendMessage(chatId,
@@ -1839,7 +1877,7 @@ bot.onText(/\/view_footprint_([a-f0-9_]+)/i, async (msg, match) => {
         await bot.sendMessage(chatId, `🔍 Загружаю модель ${shortId}...`);
 
         // Найти модель по ID
-        const userModels = ctx.footprintManager.getUserModels(userId);
+        const userModels = getUserModels(userId);
         const model = userModels.find(m => m.id && m.id.startsWith(shortId));
 
         if (!model) {
@@ -2007,7 +2045,7 @@ bot.onText(/\/footprint_stats/, async (msg) => {
         }
 
         const stats = ctx.footprintManager.getSystemStats();
-        const userModels = ctx.footprintManager.getUserModels(userId);
+        const userModels = getUserModels(userId);
 
         let response = `📊 **СТАТИСТИКА СИСТЕМЫ ОТПЕЧАТКОВ**\n\n`;
         response += `👣 **Всего моделей в системе:** ${stats.storage?.totalModels || 0}\n`;
@@ -2064,10 +2102,10 @@ bot.onText(/\/visualize_model(?: (.+))?/, async (msg, match) => {
         let model;
         if (modelId) {
             // Ищем модель по ID
-            model = ctx.footprintManager.getModelById(modelId);
+            model = getModelById(modelId);
         } else {
             // Берем последнюю модель пользователя
-            const userModels = ctx.footprintManager.getUserModels(userId);
+            const userModels = getUserModels(userId);
             if (userModels.length > 0) {
                 model = userModels[userModels.length - 1];
             }
@@ -2237,7 +2275,7 @@ bot.onText(/\/view_model(?: (.+))?/, async (msg, match) => {
             return;
         }
 
-        const model = ctx.footprintManager.getModelById(modelId);
+        const model = getModelById(modelId);
         if (!model) {
             await bot.sendMessage(chatId,
                 `❌ **МОДЕЛЬ НЕ НАЙДЕНА**\n\n` +
@@ -2353,9 +2391,9 @@ bot.onText(/\/visualize_stats(?: (.+))?/, async (msg, match) => {
 
         let model;
         if (modelId) {
-            model = ctx.footprintManager.getModelById(modelId);
+            model = getModelById(modelId);
         } else {
-            const userModels = ctx.footprintManager.getUserModels(userId);
+            const userModels = getUserModels(userId);
             if (userModels.length > 0) {
                 model = userModels[userModels.length - 1];
             }
