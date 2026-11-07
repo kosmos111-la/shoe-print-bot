@@ -75,25 +75,36 @@ class TopographyAnalyzer {
                 return { angle: 0, confidence: 0, method: 'InsufficientData' };
             }
 
-            // Метод 1: Анализ bounding box
-            const bboxAnalysis = this.analyzeWithBoundingBox(data.allPoints);
-           
-            // Метод 2: Анализ распределения точек
+            // 🔥 Метод 1 (основной): анализ распределения точек (PCA) — непрерывный угол наклона оси
             const distributionAnalysis = this.analyzeWithPointDistribution(data.allPoints);
-           
-            // Комбинируем результаты
-            const angle = (bboxAnalysis.angle + distributionAnalysis.angle) / 2;
-            const confidence = (bboxAnalysis.confidence + distributionAnalysis.confidence) / 2;
-           
-            return {
-                angle: this.normalizeAngle(angle),
-                confidence: Math.min(confidence, 1),
-                method: 'Combined',
-                details: {
-                    bbox: bboxAnalysis,
-                    distribution: distributionAnalysis
-                }
-            };
+            
+            // 🔥 Метод 2 (fallback): анализ bounding box — класс ориентации (0/90/45)
+            const bboxAnalysis = this.analyzeWithBoundingBox(data.allPoints);
+            
+            // 🔥 ИСПРАВЛЕНО: PCA даёт реальный угол наклона (непрерывный).
+            // BBox усреднять НЕЛЬЗЯ — он возвращает квантованный класс (0/90/45),
+            // усреднение двух систем координат даёт ложные углы (напр. 184°).
+            let angle = 0, confidence = 0, method = 'Fallback';
+            if (distributionAnalysis.confidence >= 0.3) {
+                // Уверенный PCA — угол реального наклона главной оси
+                angle = this.normalizeAngle(distributionAnalysis.angle);
+                confidence = distributionAnalysis.confidence;
+                method = 'Distribution (PCA)';
+            } else {
+                // Квадратная форма — bbox-класс как fallback
+                angle = bboxAnalysis.angle;
+                confidence = bboxAnalysis.confidence;
+                method = 'BBox fallback';
+            }
+                return {
+                    angle: this.normalizeAngle(angle),
+                    confidence: Math.min(confidence, 1),
+                    method: method,
+                    details: {
+                        bbox: bboxAnalysis,
+                        distribution: distributionAnalysis
+                    }
+                };
            
         } catch (error) {
             console.log('⚠️ Ошибка определения ориентации:', error);
@@ -157,7 +168,14 @@ class TopographyAnalyzer {
        
         // Вычисляем угол через собственные векторы (упрощенная версия)
         const angle = 0.5 * Math.atan2(2 * covXY, covXX - covYY) * 180 / Math.PI;
-        const confidence = Math.abs(covXX - covYY) / (covXX + covYY + 1e-10);
+        // 🔥 ИСПРАВЛЕНО: уверенность через собственные значения — ИНВАРИАНТНА к повороту.
+        // Старый |covXX-covYY|/(covXX+covYY) при 45° даёт ~0, хотя след вытянутый.
+        // Вытянутость (lambda1-lambda2)/(lambda1+lambda2) одинакова при любом повороте.
+        const trace = covXX + covYY + 1e-10;
+        const det = Math.sqrt((covXX - covYY) * (covXX - covYY) + 4 * covXY * covXY);
+        const lambda1 = (covXX + covYY + det) / 2;
+        const lambda2 = (covXX + covYY - det) / 2;
+        const confidence = Math.min((lambda1 - lambda2) / trace, 0.7);
        
         return {
             angle: this.normalizeAngle(angle),
