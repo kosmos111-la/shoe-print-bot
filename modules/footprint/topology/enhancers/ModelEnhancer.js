@@ -1926,13 +1926,13 @@ for (const node of existingModel.graph.nodes.values()) {
 const dist = { 0: 0, 1: 0, 2: 0, 3: 0, fourPlus: 0 };
 for (const node of existingModel.graph.nodes.values()) {
     const c = node.confirmationCount || 0;
-    if (c >= 4) dist[fourPlus]++;
+    if (c >= 4) dist.fourPlus++;
     else if (c === 3) dist[3]++;
     else if (c === 2) dist[2]++;
     else if (c === 1) dist[1]++;
     else dist[0]++;
 }
-console.log(`📊 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ: 0 раз: ${dist[0]}, 1 раз: ${dist[1]}, 2 раза: ${dist[2]}, 3 раза: ${dist[3]}, 4+: ${dist[fourPlus]} (maxAllowed=${maxAllowed}, photoCount=${existingModel.metadata?.photoCount || 1})`);
+console.log(`📊 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ: 0 раз: ${dist[0]}, 1 раз: ${dist[1]}, 2 раза: ${dist[2]}, 3 раза: ${dist[3]}, 4+: ${dist.fourPlus} (maxAllowed=${maxAllowed}, photoCount=${existingModel.metadata?.photoCount || 1})`);
 
 this.stats.enhancements++;
 this.stats.magneticPulls += 1;
