@@ -158,8 +158,8 @@ _magneticPull(matches, photoGraph, modelGraph, transform, threshold = 10) {
             const avgX = (projected.x * weight + modelPoint.x * (1 - weight));
             const avgY = (projected.y * weight + modelPoint.y * (1 - weight));
 
-            modelPoint.x = avgX;
-            modelPoint.y = avgY;
+            // modelPoint.x = avgX; // дрейф убран
+            // modelPoint.y = avgY; // дрейф убран
             modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
             modelPoint.pulled = true;
             modelPoint.pullDistance = dist;
@@ -250,8 +250,8 @@ _magneticPull(matches, photoGraph, modelGraph, transform, threshold = 10) {
                 const avgX = (projected.x * weight + bestCandidate.point.x * (1 - weight));
                 const avgY = (projected.y * weight + bestCandidate.point.y * (1 - weight));
 
-                bestCandidate.point.x = avgX;
-                bestCandidate.point.y = avgY;
+                    // bestCandidate.point.x = avgX; // дрейф убран
+                    // bestCandidate.point.y = avgY; // дрейф убран
                 bestCandidate.point.confirmationCount = (bestCandidate.point.confirmationCount || 1) + 1;
                 bestCandidate.point.pulled = true;
                 bestCandidate.point.pullDistance = bestCandidate.dist;
@@ -1894,7 +1894,7 @@ for (const node of existingModel.graph.nodes.values()) {
 const stability = uniquePoints > 0 ? (confirmedPointsCount / uniquePoints * 100).toFixed(1) : 0;
 
 console.log(`\n📊 СТАТИСТИКА МОДЕЛИ:`);
-console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedInModel}`);
+console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirmedPointsCount}`);
 console.log(`   • Всего в модели теперь: ${uniquePoints}`);
 console.log(`   • Стабильность: ${stability}%`);
 
@@ -2041,16 +2041,24 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
             // Проверка на дубликат
             let isDuplicate = false;
             let closestDist = Infinity;
+            let closestNode = null;
           
             for (const [modelId, modelNode] of model.graph.nodes) {
-                const dist = GeometryUtils.distance(modelNode, photoPoint);
-                closestDist = Math.min(closestDist, dist);
-                if (dist < 5) {
-                    isDuplicate = true;
-                    break;
-                }
+                const dist = GeometryUtils.distance(modelNode, photoPoint);
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestNode = modelNode;
+                }
             }
-          
+            
+            // 🔥 Если нашли точку в радиусе 5px — СЛИВАЕМ (не добавляем новую)
+            if (closestNode && closestDist < 5) {
+                // Координаты модели НЕ меняем — только увеличиваем подтверждение
+                closestNode.confirmationCount = (closestNode.confirmationCount || 1) + 1;
+                closestNode.lastConfirmed = new Date();
+                closestNode.mergedFromPhoto = true;
+                isDuplicate = true;
+            }
             if (!isDuplicate) {
     const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
     model.graph.nodes.set(newNodeId, {

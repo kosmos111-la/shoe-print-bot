@@ -275,7 +275,7 @@ for (const point of points) {
         if (dist < GROUP_THRESHOLD) {
             existing.x = (existing.x + point.x) / 2;
             existing.y = (existing.y + point.y) / 2;
-            existing.confirmationCount = (existing.confirmationCount || 1) + (point.confirmationCount || 1);
+            existing.confirmationCount = Math.max(existing.confirmationCount || 1, point.confirmationCount || 1); // макс, не сумма
             existing.count++;
             found = true;
             break;
