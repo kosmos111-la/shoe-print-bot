@@ -108,6 +108,17 @@ class ModelEnhancer {
 * @param {number} threshold - порог расстояния для притягивания (px)
 * @returns {Object} - { pulledMatches, pulledCount }
 */
+
+/**
+ * Увеличивает confirmationCount точки модели НЕ БОЛЕЕ 1 раза за обработку фото.
+ * Защита от множественных +1 (несколько точек фото в радиусе одной точки модели).
+ */
+_bumpConfirmation(node) {
+    if (!node || !node.id || this._confirmedThisPhoto.has(node.id)) return false;
+    this._confirmedThisPhoto.add(node.id);
+    node.confirmationCount = (node.confirmationCount || 0) + 1;
+    return true;
+}
 _magneticPull(matches, photoGraph, modelGraph, transform, threshold = 10) {
     const pulledMatches = [];
     const usedPhotoPoints = new Set();
@@ -160,7 +171,7 @@ _magneticPull(matches, photoGraph, modelGraph, transform, threshold = 10) {
 
             // modelPoint.x = avgX; // дрейф убран
             // modelPoint.y = avgY; // дрейф убран
-            modelPoint.confirmationCount = (modelPoint.confirmationCount || 1) + 1;
+            this._bumpConfirmation(modelPoint); // +1 (не более раза за фото)
             modelPoint.pulled = true;
             modelPoint.pullDistance = dist;
 
@@ -252,7 +263,7 @@ _magneticPull(matches, photoGraph, modelGraph, transform, threshold = 10) {
 
                     // bestCandidate.point.x = avgX; // дрейф убран
                     // bestCandidate.point.y = avgY; // дрейф убран
-                bestCandidate.point.confirmationCount = (bestCandidate.point.confirmationCount || 1) + 1;
+                this._bumpConfirmation(bestCandidate.point); // +1 (не более раза за фото)
                 bestCandidate.point.pulled = true;
                 bestCandidate.point.pullDistance = bestCandidate.dist;
 
@@ -858,6 +869,9 @@ _getModelPointFromStructure(pointId, structure) {
 async enhance(existingModel, newExactGraph, newMorphology, originalPoints, options = {}) {
     const { photoId, contours, outlineContour, fastMode = false } = options;
    
+   
+   // 🔥 ЗАЩИТА: одна точка модели может получить максимум +1 подтверждение за обработку фото
+   this._confirmedThisPhoto = new Set();
     console.log(`\n🚀 ModelEnhancer: улучшение модели ${existingModel.id?.substring(0,12)}...`);
 
     // ===== ШАГ 1: ТРЕУГОЛЬНОЕ СРАВНЕНИЕ =====
@@ -2024,7 +2038,7 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
     for (const modelPointId of confirmedModelPoints) {
         const modelNode = model.graph.nodes.get(modelPointId);
         if (modelNode) {
-            modelNode.confirmationCount = (modelNode.confirmationCount || 0) + 1;
+            this._bumpConfirmation(modelNode); // +1 (не более раза за фото)
             modelNode.lastConfirmed = new Date();
         }
     }
@@ -2054,7 +2068,7 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
             // 🔥 Если нашли точку в радиусе 5px — СЛИВАЕМ (не добавляем новую)
             if (closestNode && closestDist < 5) {
                 // Координаты модели НЕ меняем — только увеличиваем подтверждение
-                closestNode.confirmationCount = (closestNode.confirmationCount || 1) + 1;
+                this._bumpConfirmation(closestNode); // +1 (не более раза за фото)
                 closestNode.lastConfirmed = new Date();
                 closestNode.mergedFromPhoto = true;
                 isDuplicate = true;
