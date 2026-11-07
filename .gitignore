@@ -28,3 +28,7 @@ Thumbs.db
 # IDE
 .vscode/
 .idea/
+
+# Node.js
+node_modules/
+npm-debug.log*

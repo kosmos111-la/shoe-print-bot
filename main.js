@@ -24,6 +24,16 @@ const axios = require('axios');
 const fs = require('fs');
 const path = require('path');
 
+// =============================================================
+// 📦 МОДУЛИ (рефакторинг): utils, state, services
+// =============================================================
+const { getContourCenter, rotatePredictions, normalizeFootprintOrientation } = require('./src/utils/geometry');
+const { smartPostProcessing, analyzePredictions, generateTopologyText } = require('./src/utils/predictions');
+const { escapeHtml, isCoordinates, parseDateTime, getCorrectionDescription } = require('./src/utils/text');
+const store = require('./src/state/store');
+const { userStats, globalStats, userLastAnalysis, photoBatchDetector, photoQueue, processingUsers } = store;
+const { createBot, setupWebhook } = require('./src/services/telegram.service');
+
 // =============================================================================
 // 🛡️ ГЛОБАЛЬНЫЕ ОБРАБОТЧИКИ ОШИБОК (ДОЛЖНЫ БЫТЬ ПЕРВЫМИ)
 // =============================================================================
@@ -71,103 +81,14 @@ const { FeedbackManager } = require('./modules/feedback/feedback-manager');
 /**
 * Вычисляет центр контура
 */
-function getContourCenter(points) {
-    if (!points || points.length === 0) return { x: 0, y: 0 };
-    const xs = points.map(p => p.x);
-    const ys = points.map(p => p.y);
-    return {
-        x: (Math.min(...xs) + Math.max(...xs)) / 2,
-        y: (Math.min(...ys) + Math.max(...ys)) / 2
-    };
-}
 
 /**
 * Поворачивает точки предсказаний
 */
-function rotatePredictions(predictions, angle, centerX, centerY) {
-    const rad = angle * Math.PI / 180;
-    const cos = Math.cos(rad);
-    const sin = Math.sin(rad);
-   
-    return predictions.map(pred => {
-        if (!pred.points) return pred;
-       
-        const rotatedPoints = pred.points.map(point => ({
-            x: centerX + (point.x - centerX) * cos - (point.y - centerY) * sin,
-            y: centerY + (point.x - centerX) * sin + (point.y - centerY) * cos
-        }));
-       
-        return {
-            ...pred,
-            points: rotatedPoints,
-            originalRotation: angle,
-            originalConfidence: pred.confidence
-        };
-    });
-}
 
 /**
 * Определяет ориентацию следа и при необходимости поворачивает предсказания
 */
-function normalizeFootprintOrientation(predictions) {
-    // Находим все протекторы
-    const protectors = predictions.filter(p => p.class === 'shoe-protector');
-    if (protectors.length < 3) {
-        return { predictions, rotation: 0 };
-    }
-   
-    // Вычисляем центр масс всех протекторов
-    let sumX = 0, sumY = 0;
-    for (const p of protectors) {
-        const center = getContourCenter(p.points);
-        sumX += center.x;
-        sumY += center.y;
-    }
-    const centerX = sumX / protectors.length;
-    const centerY = sumY / protectors.length;
-   
-    // Находим "носок" (точка с минимальной Y) и "пятку" (точка с максимальной Y)
-    let minY = Infinity, maxY = -Infinity;
-    let toePoint = null, heelPoint = null;
-   
-    for (const p of protectors) {
-        const center = getContourCenter(p.points);
-        if (center.y < minY) {
-            minY = center.y;
-            toePoint = center;
-        }
-        if (center.y > maxY) {
-            maxY = center.y;
-            heelPoint = center;
-        }
-    }
-   
-    if (!toePoint || !heelPoint) {
-        return { predictions, rotation: 0 };
-    }
-   
-    // Вычисляем угол наклона оси след-носок
-    const dx = toePoint.x - heelPoint.x;
-    const dy = toePoint.y - heelPoint.y;
-    let angle = Math.atan2(dy, dx) * 180 / Math.PI;
-   
-    // Поворачиваем так, чтобы носок был сверху, пятка снизу
-    const targetAngle = -90;
-    let rotationNeeded = targetAngle - angle;
-   
-    while (rotationNeeded > 180) rotationNeeded -= 360;
-    while (rotationNeeded < -180) rotationNeeded += 360;
-   
-    if (Math.abs(rotationNeeded) < 10) {
-        return { predictions, rotation: 0 };
-    }
-   
-    const rotatedPredictions = rotatePredictions(predictions, rotationNeeded, centerX, centerY);
-   
-    console.log(`🔄 Нормализация ориентации: поворот на ${rotationNeeded.toFixed(1)}°`);
-   
-    return { predictions: rotatedPredictions, rotation: rotationNeeded };
-}
 
 // =============================================================================
 // 🚀 НОВАЯ ГРАФОВАЯ СИСТЕМА ЦИФРОВЫХ ОТПЕЧАТКОВ
@@ -234,22 +155,12 @@ config.FOOTPRINT = {
 };
 
 // Вспомогательная функция для экранирования HTML
-function escapeHtml(text) {
-    if (!text) return '';
-    return text
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#039;');
-}
 
 // =============================================================================
 // 📊 ВСПОМОГАТЕЛЬНЫЕ ФУНКЦИИ ДЛЯ ПОИСКА
 // =============================================================================
 
 // Кэш последних анализов
-const userLastAnalysis = new Map();
 
 // Сохранить последний анализ
 function saveUserLastAnalysis(userId, analysis) {
@@ -465,7 +376,7 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = new TelegramBot(config.TELEGRAM_TOKEN);
+const bot = createBot(config.TELEGRAM_TOKEN);
 // polling не указываем
 
 // 🔧 НАСТРОЙКА EXPRESS
@@ -484,13 +395,6 @@ app.use(express.urlencoded({
 // =============================================================================
 // 📊 СИСТЕМА СТАТИСТИКИ
 // =============================================================================
-const userStats = new Map();
-const globalStats = {
-    totalUsers: 0,
-    totalPhotos: 0,
-    totalAnalyses: 0,
-    lastAnalysis: null
-};
 
 function updateUserStats(userId, username, action = 'photo') {
     if (!userStats.has(userId)) {
@@ -525,67 +429,11 @@ function updateUserStats(userId, username, action = 'photo') {
 // =============================================================================
 // 🔧 ПОСТОБРАБОТКА
 // =============================================================================
-function smartPostProcessing(predictions) {
-    if (!predictions || predictions.length === 0) return [];
-
-    const filtered = predictions.filter(pred => {
-        if (!pred.points || pred.points.length < 3) return false;
-        const points = pred.points;
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-        const width = Math.max(...xs) - Math.min(...xs);
-        const height = Math.max(...ys) - Math.min(...ys);
-        const area = width * height;
-        return area > 100;
-    });
-
-    return filtered;
-}
 
 // =============================================================================
 // 🔧 АНАЛИЗ ДАННЫХ
 // =============================================================================
-function analyzePredictions(predictions) {
-    const classes = {};
-    predictions.forEach(pred => {
-        classes[pred.class] = (classes[pred.class] || 0) + 1;
-    });
 
-    return {
-        total: predictions.length,
-        classes: classes,
-        hasOutline: !!classes['Outline-trail'],
-        protectorCount: classes['shoe-protector'] || 0
-    };
-}
-
-function generateTopologyText(predictions) {
-    const protectors = predictions.filter(p => p.class === 'shoe-protector');
-    if (protectors.length === 0) return "Детали протектора не обнаружены";
-
-    let text = `🔍 Топология протектора:\n`;
-    text += `• Всего деталей: ${protectors.length}\n`;
-
-    // Анализ распределения
-    const centers = protectors.map(pred => {
-        const points = pred.points;
-        const xs = points.map(p => p.x);
-        const ys = points.map(p => p.y);
-        return {
-            x: (Math.min(...xs) + Math.max(...xs)) / 2,
-            y: (Math.min(...ys) + Math.max(...ys)) / 2
-        };
-    });
-
-    // Простой анализ кластеризации
-    const leftCount = centers.filter(c => c.x < 400).length;
-    const rightCount = centers.filter(c => c.x >= 400).length;
-
-    text += `• Распределение: ${leftCount} слева, ${rightCount} справа\n`;
-    text += `• Плотность: ${(protectors.length / 10).toFixed(1)} дет/сектор\n`;
-
-    return text;
-}
 
 // =============================================================================
 // 🤖 TELEGRAM БОТ - КОМАНДЫ
@@ -1379,27 +1227,8 @@ bot.on('message', async (msg) => {
 });
 
 // 📍 Вспомогательные функции для координат
-function isCoordinates(text) {
-    // Проверяем формат "число число" или "число,число"
-    const coordRegex = /^-?\d+\.?\d*[\s,]+-?\d+\.?\d*$/;
-    return coordRegex.test(text);
-}
 
 // 🔧 ФУНКЦИЯ ПАРСИНГА ДАТЫ
-function parseDateTime(dateString) {
-    try {
-        let date = new Date(dateString);
-        if (isNaN(date.getTime())) {
-            const parts = dateString.split('.');
-            if (parts.length === 3) {
-                date = new Date(parts[2], parts[1] - 1, parts[0]);
-            }
-        }
-        return isNaN(date.getTime()) ? null : date;
-    } catch (error) {
-        return null;
-    }
-}
 
 // =============================================================================
 // 🏁 КОНЕЦ БЛОКА КАЛЬКУЛЯТОРОВ
@@ -2220,9 +2049,6 @@ bot.onText(/\/yandex/, async (msg) => {
 // 🆕 СИСТЕМА ОЧЕРЕДИ И ДЕТЕКТОР ПАЧКИ ФОТО
 // =============================================================================
 
-const photoBatchDetector = new Map(); // userId -> {photos: [], timer: null}
-const photoQueue = new Map(); // userId -> array of photos
-const processingUsers = new Set(); // userIds being processed
 
 // Функция для обработки очереди фото
 async function processPhotoQueue(userId, chatId) {
@@ -4511,71 +4337,14 @@ bot.on('callback_query', async (callbackQuery) => {
 });
 
 // Вспомогательная функция для описаний исправлений
-function getCorrectionDescription(type) {
-    const descriptions = {
-        'animal': '🐾 След животного',
-        'other_shoe': '👞 Другая обувь',
-        'bounds': '📏 Неправильные границы',
-        'multiple': '👣 Несколько следов',
-        'not_footprint': '🚫 Не след вообще',
-        'other_class': '🔍 Другой класс',
-        'correct': '✅ Правильно'
-    };
-
-    return descriptions[type] || type;
-}
 
 // =============================================================================
 // 🌐 НАСТРОЙКА ВЕБХУКА ДЛЯ RENDER.COM
 // =============================================================================
 
-async function setupWebhook() {
-    try {
-        console.log('🔄 Настраиваю вебхук...');
-
-        // 1. Удаляем старый вебхук
-        const deleted = await bot.deleteWebHook({ drop_pending_updates: true });
-        console.log('✅ Старый вебхук удален:', deleted);
-
-        // 2. Ждем 2 секунды
-        await new Promise(resolve => setTimeout(resolve, 2000));
-
-        // 3. Устанавливаем новый вебхук
-        // ⚠️ ВАЖНО: Используйте ВАШ URL от Render
-        const webhookUrl = `https://shoe-print-bot.onrender.com/bot${config.TELEGRAM_TOKEN}`;
-        console.log('🔗 Устанавливаю вебхук:', webhookUrl);
-
-        const result = await bot.setWebHook(webhookUrl, {
-            max_connections: 40,
-            allowed_updates: ["message", "callback_query", "polling_answer"]
-        });
-
-        console.log('✅ Вебхук установлен:', result);
-
-        // 4. Проверяем
-        const info = await bot.getWebHookInfo();
-        console.log('📊 Информация о вебхуке:');
-        console.log('- URL:', info.url);
-        console.log('- Ошибок:', info.last_error_message || 'нет');
-        console.log('- Ожидающих обновлений:', info.pending_update_count);
-
-    } catch (error) {
-        console.log('❌ КРИТИЧЕСКАЯ ошибка вебхука:', error.message);
-        console.log('⚠️ Если вебхук не работает, запускаю polling как запасной вариант...');
-
-        // Fallback на polling если вебхук не работает
-        setTimeout(() => {
-            bot.startPolling().then(() => {
-                console.log('✅ Polling запущен как запасной вариант');
-            }).catch(pollErr => {
-                console.log('❌ Не удалось запустить polling:', pollErr.message);
-            });
-        }, 5000);
-    }
-}
 
 // Запускаем настройку вебхука через 3 секунды после старта
-setTimeout(setupWebhook, 3000);
+setTimeout(() => setupWebhook(bot, config.TELEGRAM_TOKEN), 3000);
 
 // Периодическая проверка вебхука
 setInterval(async () => {
@@ -4583,7 +4352,7 @@ setInterval(async () => {
         const info = await bot.getWebHookInfo();
         if (!info.url || info.pending_update_count > 50) {
             console.log('⚠️ Вебхук требует внимания, переустанавливаю...');
-            await setupWebhook();
+            await setupWebhook(bot, config.TELEGRAM_TOKEN);
         }
     } catch (error) {
         console.log('❌ Ошибка проверки вебхука:', error.message);
