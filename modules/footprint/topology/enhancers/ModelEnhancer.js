@@ -1941,13 +1941,20 @@ console.log(`   • Масштаб: ${finalTransform.scale.toFixed(3)}`);
 console.log(`   • Поворот: ${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
 console.log(`   • Сдвиг: (${finalTransform.translation.x.toFixed(1)}, ${finalTransform.translation.y.toFixed(1)})`);
 
+
+// 🔥 ФИНАЛЬНЫЙ SIMILARITY (шаг 3): totalMatched = ПОСЛЕ RelativePositioning
+// finalMatches = якоря + достроенные точки (в логе «Сопоставлено всего: 66/82»)
+// minPoints = МИНИМАЛЬНОЕ число точек из двух графов (честный знаменатель)
+const totalMatched = finalMatches?.length || 0;
+const minPoints = Math.min(newExactGraph.nodes.size, existingModel.graph.nodes.size) || 1;
+const finalSimilarity = totalMatched / minPoints;
 return {
     success: true,
     matches: finalValidatedMatches,
     transform: finalTransform,
     newNodesAdded: updateResult.newNodesAdded,
     mergedCount: mergedCount,
-    similarity: triangleResult.similarity,
+    similarity: finalSimilarity,
     structures: serializedStructures,
     stats: this.stats,
     uniquePhotoPoints: uniquePhotoPoints
