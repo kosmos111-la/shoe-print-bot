@@ -1757,7 +1757,9 @@ bot.onText(/\/footprint_save(?: (.+))?/, async (msg, match) => {
 
         await bot.sendMessage(chatId, `💾 Сохраняю сессию как модель "${modelName}"...`);
 
-        const saveResult = ctx.footprintManager.saveSessionAsModel(userId, modelName);
+        // ⚠️ Функция в разработке — заменено на вежливую заглушку
+        await bot.sendMessage(chatId, '⚠️ Эта функция находится в разработке и пока недоступна.');
+        return;
 
         if (saveResult.success) {
             let response = `✅ **МОДЕЛЬ СОХРАНЕНА!**\n\n`;
@@ -1992,9 +1994,9 @@ bot.onText(/\/find_similar_footprints/, async (msg) => {
         tempFootprint.addAnalysis(lastAnalysis, { search: true });
 
         // Ищем похожие модели
-        const searchResult = ctx.footprintManager.findSimilarModels(tempFootprint, userId, {
-            maxResults: 5
-        });
+        // ⚠️ Функция в разработке — заменено на вежливую заглушку
+        await bot.sendMessage(chatId, '⚠️ Эта функция находится в разработке и пока недоступна.');
+        return;
 
         if (!searchResult.success || searchResult.similarCount === 0) {
             await bot.sendMessage(chatId,
@@ -2175,7 +2177,9 @@ bot.onText(/\/visualize_compare(?: (.+))?/, async (msg, match) => {
         const [modelId1, modelId2] = input.split(' ');
         await bot.sendMessage(chatId, '🎨 Создаю визуализацию сравнения...');
 
-        const result = await ctx.footprintManager.visualizeComparison(modelId1, modelId2);
+        // ⚠️ Функция в разработке — заменено на вежливую заглушку
+        await bot.sendMessage(chatId, '⚠️ Эта функция находится в разработке и пока недоступна.');
+        return;
 
         if (result.success && result.visualization && fs.existsSync(result.visualization)) {
             await bot.sendPhoto(chatId, result.visualization, {
@@ -2219,7 +2223,9 @@ bot.onText(/\/visualize_session/, async (msg) => {
     try {
         await bot.sendMessage(chatId, '🎨 Создаю визуализацию сессии...');
 
-        const result = await ctx.footprintManager.visualizeSession(userId);
+        // ⚠️ Функция в разработке — заменено на вежливую заглушку
+        await bot.sendMessage(chatId, '⚠️ Эта функция находится в разработке и пока недоступна.');
+        return;
 
         if (result.success && result.visualization && fs.existsSync(result.visualization)) {
             await bot.sendPhoto(chatId, result.visualization, {
@@ -2558,7 +2564,9 @@ bot.onText(/\/visualize_merge/, async (msg) => {
         }
 
         // Получаем последнюю визуализацию объединения
-        const mergeViz = ctx.footprintManager.getLastMergeVisualization(userId);
+        // ⚠️ Функция в разработке — заменено на вежливую заглушку
+        await bot.sendMessage(chatId, '⚠️ Эта функция находится в разработке и пока недоступна.');
+        return;
 
         if (!mergeViz) {
             await bot.sendMessage(chatId,
@@ -2681,7 +2689,9 @@ bot.onText(/\/force_update_confirmations/, async (msg) => {
         await bot.sendMessage(chatId, '🔧 Принудительно обновляю подтверждения узлов...');
 
         // Вызываем метод принудительного обновления
-        const result = await ctx.footprintManager.forceUpdateSessionConfirmations(userId);
+        // ⚠️ Функция в разработке — заменено на вежливую заглушку
+        await bot.sendMessage(chatId, '⚠️ Эта функция находится в разработке и пока недоступна.');
+        return;
 
         if (result.success) {
             let message = `✅ **ПОДТВЕРЖДЕНИЯ ОБНОВЛЕНЫ!**\n\n`;
