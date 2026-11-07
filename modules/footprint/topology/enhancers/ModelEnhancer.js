@@ -1912,6 +1912,28 @@ console.log(`   • 🟠 Подтвержденных (2+ фото): ${confirm
 console.log(`   • Всего в модели теперь: ${uniquePoints}`);
 console.log(`   • Стабильность: ${stability}%`);
 
+// 🔥 SAFETY NET: счётчик не может превышать количество обработанных фото
+// photoCount = сколько фото уже обработано (текущее фото +1 в обработке)
+const maxAllowed = (existingModel.metadata?.photoCount || 1) + 1;
+for (const node of existingModel.graph.nodes.values()) {
+    if (node.confirmationCount > maxAllowed) {
+        if (this.debug) console.log(`⚠️ Ограничиваю подтверждение узла ${node.id?.substring(0,12)}: ${node.confirmationCount} → ${maxAllowed}`);
+        node.confirmationCount = maxAllowed;
+    }
+}
+
+// 🔥 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ (для диагностики по логам)
+const dist = { 0: 0, 1: 0, 2: 0, 3: 0, fourPlus: 0 };
+for (const node of existingModel.graph.nodes.values()) {
+    const c = node.confirmationCount || 0;
+    if (c >= 4) dist[fourPlus]++;
+    else if (c === 3) dist[3]++;
+    else if (c === 2) dist[2]++;
+    else if (c === 1) dist[1]++;
+    else dist[0]++;
+}
+console.log(`📊 РАСПРЕДЕЛЕНИЕ ПОДТВЕРЖДЕНИЙ: 0 раз: ${dist[0]}, 1 раз: ${dist[1]}, 2 раза: ${dist[2]}, 3 раза: ${dist[3]}, 4+: ${dist[fourPlus]} (maxAllowed=${maxAllowed}, photoCount=${existingModel.metadata?.photoCount || 1})`);
+
 this.stats.enhancements++;
 this.stats.magneticPulls += 1;
 
