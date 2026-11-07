@@ -426,10 +426,10 @@ if (ctx.footprintManager && predictionsForAnalysis && predictionsForAnalysis.len
 
             // Проверяем, есть ли активная сессия
            // let session = ctx.footprintManager.getActiveSession(userId); было
-          let session = ctx.footprintManager.ctx.sessionManager.getActiveSession(userId);
+          let session = ctx.footprintManager.sessionManager.getActiveSession(userId);
 if (!session) {
     console.log('🔄 Создаю новую сессию...');
-    session = ctx.footprintManager.ctx.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
+    session = ctx.footprintManager.sessionManager.createSession(userId, `Сессия_${new Date().toLocaleTimeString('ru-RU')}`);
     console.log(`✅ Создана сессия: ${session.id}`);
 }
 
