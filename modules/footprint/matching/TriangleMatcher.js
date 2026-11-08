@@ -6,6 +6,7 @@ class TriangleMatcher {
         this.debug = options.debug || false;
 
         // 🔥 ПОРОГИ
+        this._lastPermutation = [0, 1, 2];
         this.roughThreshold = options.roughThreshold || 0.5;      // Порог для грубой морфологии (50%)
         this.geometryThresholds = options.geometryThresholds || [1.00, 0.95, 0.90, 0.85, 0.80]; // 100%, 95%, 90%, 85%, 80%
 
@@ -276,6 +277,15 @@ if (this.debug) {
             }
         }
      
+        // 🔥 КАРТА РЁБЕР: ключ "id1--id2" (сортированные id) → внешняя точка
+        // Нужна для пересчёта внешних расстояний при перестановке вершин
+        t.edgeExtMap = new Map();
+        for (const e of t.edges) {
+            if (e.externalPoint) {
+                const key = [e.v1.id, e.v2.id].sort().join('--');
+                t.edgeExtMap.set(key, e.externalPoint);
+            }
+        }
         const allDists = [
             sideAB, sideBC, sideCA,
             externalDists[0], externalDists[1], externalDists[2]
@@ -417,7 +427,9 @@ if (this.debug) {
 
         for (const c of candidates) {
             // 🔥 ИСПОЛЬЗУЕМ 6 ПРИЗНАКОВ ДЛЯ СРАВНЕНИЯ
+            this._lastPermutation = [0, 1, 2]; // сброс перед вызовом
             const geometryScore = this.compareSixFeatures(c.triangleA, c.triangleB);
+            const permutation = this._lastPermutation || [0, 1, 2];
 
             if (!results.has(c.aIndex)) {
                 results.set(c.aIndex, new Map());
@@ -425,7 +437,8 @@ if (this.debug) {
 
             results.get(c.aIndex).set(c.bIndex, {
                 morphScore: c.morphScore,
-                geometryScore: geometryScore
+                geometryScore: geometryScore,
+                permutation: permutation,
             });
         }
 
@@ -435,31 +448,67 @@ if (this.debug) {
     /**
      * Сравнение 6 признаков треугольника
      */
+    /**
+     * Сравнение по 6 признакам с перебором 6 перестановок вершин B.
+     * Все 6 признаков (стороны + внешние расстояния) пересчитываются для
+     * КАЖДОГО сопоставления вершин — информация не теряется.
+     * Сохраняет лучшую перестановку в this._lastPermutation для маппинга точек.
+     */
     compareSixFeatures(tA, tB) {
-        const vecA = tA.normalizedDistances;
-        const vecB = tB.normalizedDistances;
-      
-        let score = 0;
-        let count = 0;
-      
-        for (let i = 0; i < 6; i++) {
-            // Если в обоих треугольниках по 0 - пропускаем
-            if (vecA[i] === 0 && vecB[i] === 0) continue;
-          
-            // Если в одном 0, а в другом нет - штрафуем
-            if (vecA[i] === 0 || vecB[i] === 0) {
-                score += 0.3;
-                count++;
-                continue;
-            }
-          
-            // Нормальное сравнение
-            const ratio = Math.min(vecA[i], vecB[i]) / Math.max(vecA[i], vecB[i]);
-            score += ratio;
-            count++;
-        }
-      
-        return count > 0 ? score / count : 0;
+        const sigA = this._sixFeaturesFromPoints(tA.p1, tA.p2, tA.p3, tA.edgeExtMap);
+        let bestScore = 0;
+        let bestPerm = [0, 1, 2];
+        const vertsB = [tB.p1, tB.p2, tB.p3];
+        
+        // 🔥 Перебираем все 6 перестановок вершин B
+        for (const perm of VERTEX_PERMUTATIONS) {
+            const q1 = vertsB[perm[0]], q2 = vertsB[perm[1]], q3 = vertsB[perm[2]];
+            const sigBp = this._sixFeaturesFromPoints(q1, q2, q3, tB.edgeExtMap);
+            const score = this._scoreSixFeatures(sigA, sigBp);
+            if (score > bestScore) { bestScore = score; bestPerm = perm; }
+        }
+        
+        this._lastPermutation = bestPerm;
+        return bestScore;
+    }
+    
+    // 6 признаков из КОНКРЕТНОГО порядка вершин (p1,p2,p3 задают соответствие)
+    _sixFeaturesFromPoints(p1, p2, p3, edgeExtMap) {
+        const sideAB = this.calcDistance(p1, p2);
+        const sideBC = this.calcDistance(p2, p3);
+        const sideCA = this.calcDistance(p3, p1);
+        
+        // Внешние расстояния: ищем по паре id в карте рёбер
+        const ext = [0, 0, 0];
+        const pairs = [[p1, p2], [p2, p3], [p3, p1]];
+        for (let i = 0; i < 3; i++) {
+            const a = pairs[i][0], b = pairs[i][1];
+            if (edgeExtMap) {
+                const key = [a.id, b.id].sort().join('--');
+                const external = edgeExtMap.get(key);
+                if (external) {
+                    const opposite = [p1, p2, p3].find(pt => pt.id !== a.id && pt.id !== b.id);
+                    ext[i] = (external && opposite) ? this.calcDistance(opposite, external) : 0;
+                }
+            }
+        }
+        
+        const allDists = [sideAB, sideBC, sideCA, ext[0], ext[1], ext[2]];
+        const maxDist = Math.max(...allDists.filter(d => d > 0));
+        return allDists.map(d => maxDist > 0 ? d / maxDist : 0);
+    }
+    
+    // Счёт score между двумя 6-векторами (та же формула, что в старом compareSixFeatures)
+    _scoreSixFeatures(vecA, vecB) {
+        let score = 0, count = 0;
+        for (let i = 0; i < 6; i++) {
+            if (vecA[i] === 0 && vecB[i] === 0) continue;
+            if (vecA[i] === 0 || vecB[i] === 0) { score += 0.3; count++; continue; }
+            const ratio = Math.min(vecA[i], vecB[i]) / Math.max(vecA[i], vecB[i]);
+            score += ratio;
+            count++;
+        }
+        return count > 0 ? score / count : 0;
     }
 
     /**
@@ -506,7 +555,9 @@ if (this.debug) {
                     const tB = trianglesB[passed[0].bIndex];
 
                     const pointsA = [tA.p1, tA.p2, tA.p3];
-                    const pointsB = [tB.p1, tB.p2, tB.p3];
+                    const perm = candidates.get(passed[0].bIndex).permutation || [0, 1, 2];
+                    const vertsB = [tB.p1, tB.p2, tB.p3];
+                    const pointsB = [vertsB[perm[0]], vertsB[perm[1]], vertsB[perm[2]]];
 
                     let conflict = false;
                     const tempMatches = new Map();
@@ -536,6 +587,7 @@ if (this.debug) {
                             bIndex: passed[0].bIndex,
                             threshold,
                             geometryScore: passed[0].score,
+                            permutation: perm,
                             morphScore: candidates.get(passed[0].bIndex).morphScore
                         });
                         if (this.debug) console.log(`      ✅ Треугольник ${aIndex}: однозначная пара`);
@@ -663,11 +715,14 @@ buildNeighbors(triangles) {
     for (const anchor of anchors) {
         const tA = trianglesA[anchor.aIndex];
         const tB = trianglesB[anchor.bIndex];
+        const perm = anchor.permutation || this._lastPermutation || [0, 1, 2];
+        const vertsB = [tB.p1, tB.p2, tB.p3];
+        const b1 = vertsB[perm[0]], b2 = vertsB[perm[1]], b3 = vertsB[perm[2]];
 
         // 🔥 СОХРАНЯЕМ СООТВЕТСТВИЯ В ТРЕУГОЛЬНИКЕ
-        tA.pB1 = tB.p1;
-        tA.pB2 = tB.p2;
-        tA.pB3 = tB.p3;
+        tA.pB1 = b1;
+        tA.pB2 = b2;
+        tA.pB3 = b3;
         tA.confidence = anchor.geometryScore;
        
         // 🔥 ТАКЖЕ СОХРАНЯЕМ ВНЕШНИЕ ТОЧКИ ДЛЯ РЁБЕР, ЕСЛИ ОНИ ЕСТЬ
@@ -692,9 +747,9 @@ buildNeighbors(triangles) {
         }
 
         const pairs = [
-            { a: tA.p1.id, b: tB.p1.id, aObj: tA.p1, bObj: tB.p1, aCoord: [tA.p1.x, tA.p1.y], bCoord: [tB.p1.x, tB.p1.y] },
-            { a: tA.p2.id, b: tB.p2.id, aObj: tA.p2, bObj: tB.p2, aCoord: [tA.p2.x, tA.p2.y], bCoord: [tB.p2.x, tB.p2.y] },
-            { a: tA.p3.id, b: tB.p3.id, aObj: tA.p3, bObj: tB.p3, aCoord: [tA.p3.x, tA.p3.y], bCoord: [tB.p3.x, tB.p3.y] }
+            { a: tA.p1.id, b: b1.id, aObj: tA.p1, bObj: b1, aCoord: [tA.p1.x, tA.p1.y], bCoord: [b1.x, b1.y] },
+            { a: tA.p2.id, b: b2.id, aObj: tA.p2, bObj: b2, aCoord: [tA.p2.x, tA.p2.y], bCoord: [b2.x, b2.y] },
+            { a: tA.p3.id, b: b3.id, aObj: tA.p3, bObj: b3, aCoord: [tA.p3.x, tA.p3.y], bCoord: [b3.x, b3.y] }
         ];
 
         for (const { a: pA, b: pB, aObj, bObj, aCoord, bCoord } of pairs) {
@@ -754,4 +809,11 @@ buildNeighbors(triangles) {
     }
 }
 
+
+// Все 6 перестановок индексов вершин — инвариантность к повороту/отражению
+const VERTEX_PERMUTATIONS = [
+    [0, 1, 2], [0, 2, 1],
+    [1, 0, 2], [1, 2, 0],
+    [2, 0, 1], [2, 1, 0]
+];
 module.exports = TriangleMatcher;
