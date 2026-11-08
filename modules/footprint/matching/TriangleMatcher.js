@@ -550,7 +550,7 @@ if (this.debug) {
                 const passed = [];
                 for (const [bIndex, res] of candidates) {
                     if (res.geometryScore >= threshold) {
-                        passed.push({ bIndex, score: res.geometryScore });
+                        passed.push({ bIndex, score: res.geometryScore, permutation: res.permutation || [0, 1, 2] });
                     }
                 }
 
@@ -600,17 +600,47 @@ if (this.debug) {
                     }
 
                 } else if (passed.length > 1) {
-                    newAmbiguous.push({
-                        aIndex,
-                        candidates: passed.map(p => p.bIndex),
-                        threshold,
-                        count: passed.length,
-                        scores: passed.map(p => p.score)
-                    });
-                    if (this.debug) console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
-
+                    // 🔥 IDENTITY-ПРИОРИТЕТ: если среди кандидатов есть тождественная перестановка [0,1,2],
+                    // на прямых снимках это правильная пара — берём её как якорь (вместо ambiguous).
+                    const identityCandidates = passed.filter(p => p.permutation[0] === 0 && p.permutation[1] === 1 && p.permutation[2] === 2);
+                    if (identityCandidates.length >= 1 && passed[0].permutation[0] === 0 && passed[0].permutation[1] === 1 && passed[0].permutation[2] === 2) {
+                        // identity уже первый (наивысший score) — трактуем как однозначный якорь
+                        const tA = trianglesA[aIndex];
+                        const tB = trianglesB[passed[0].bIndex];
+                        const pointsA = [tA.p1, tA.p2, tA.p3];
+                        const perm = passed[0].permutation;
+                        const vertsB = [tB.p1, tB.p2, tB.p3];
+                        const pointsB = [vertsB[perm[0]], vertsB[perm[1]], vertsB[perm[2]]];
+                        let conflict = false;
+                        const tempMatches = new Map();
+                        for (let i = 0; i < 3; i++) {
+                            const pA = pointsA[i].id;
+                            const pB = pointsB[i].id;
+                            if (pointMatches.has(pA)) {
+                                if (pointMatches.get(pA) !== pB) { conflict = true; break; }
+                            } else {
+                                tempMatches.set(pA, pB);
+                            }
+                        }
+                        if (!conflict) {
+                            for (const [pA, pB] of tempMatches) { pointMatches.set(pA, pB); }
+                            newAnchors.push({ aIndex, bIndex: passed[0].bIndex, threshold, geometryScore: passed[0].score, permutation: perm, morphScore: candidates.get(passed[0].bIndex).morphScore });
+                            if (this.debug) console.log(`      ✅ Треугольник ${aIndex}: identity-приоритет среди ${passed.length} кандидатов`);
+                        } else {
+                            nextRemaining.push(aIndex);
+                        }
+                    } else {
+                        newAmbiguous.push({
+                            aIndex,
+                            candidates: passed.map(p => p.bIndex),
+                            threshold,
+                            count: passed.length,
+                            scores: passed.map(p => p.score)
+                        });
+                        if (this.debug) console.log(`      ⚠️ Треугольник ${aIndex}: варианты (${passed.length})`);
+                    }
                 } else {
-                    nextRemaining.push(aIndex);
+                    nextRemaining.push(aIndex);
                 }
             }
 
