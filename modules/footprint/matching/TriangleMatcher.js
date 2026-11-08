@@ -465,7 +465,11 @@ if (this.debug) {
             const q1 = vertsB[perm[0]], q2 = vertsB[perm[1]], q3 = vertsB[perm[2]];
             const sigBp = this._sixFeaturesFromPoints(q1, q2, q3, tB.edgeExtMap);
             const score = this._scoreSixFeatures(sigA, sigBp);
-            if (score > bestScore) { bestScore = score; bestPerm = perm; }
+            // 🔥 БОНУС тождественной перестановке [0,1,2] — приоритет «прямых» треугольников.
+            // Сравнение идёт по effScore (+0.02 для identity), но возвращаем оригинальный score.
+            const isIdentity = perm[0] === 0 && perm[1] === 1 && perm[2] === 2;
+            const effScore = isIdentity ? score + 0.02 : score;
+            if (effScore > bestScore) { bestScore = score; bestPerm = perm; }
         }
         
         this._lastPermutation = bestPerm;
