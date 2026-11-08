@@ -62,6 +62,19 @@ class TriangleMatcher {
         }
 
         const candidates = this.findAllCandidates(trianglesA, trianglesB);
+
+        // 🔍 ДИАГНОСТИКА СТУПЕНИ 1 (морфология): распределение morphScore
+        let morphBuckets = { "0.0-0.3": 0, "0.3-0.5": 0, "0.5-0.7": 0, "0.7-0.85": 0, "0.85-1.0": 0 };
+        for (const c of candidates) {
+            const s = c.morphScore || 0;
+            if (s < 0.3) morphBuckets["0.0-0.3"]++;
+            else if (s < 0.5) morphBuckets["0.3-0.5"]++;
+            else if (s < 0.7) morphBuckets["0.5-0.7"]++;
+            else if (s < 0.85) morphBuckets["0.7-0.85"]++;
+            else morphBuckets["0.85-1.0"]++;
+        }
+        console.log(`\n📊 СТУПЕНЬ 1 (МОРФОЛОГИЯ): кандидатов ${candidates.length} из ${trianglesA.length * trianglesB.length} возможных`);
+        console.log(`   • morphScore < 0.3: ${morphBuckets["0.0-0.3"]}, 0.3-0.5: ${morphBuckets["0.3-0.5"]}, 0.5-0.7: ${morphBuckets["0.5-0.7"]}, 0.7-0.85: ${morphBuckets["0.7-0.85"]}, >= 0.85: ${morphBuckets["0.85-1.0"]}`);
         this.stats.totalCandidates = candidates.length;
 
         if (this.debug) {
@@ -71,6 +84,24 @@ class TriangleMatcher {
         }
 
         const geometryResults = this.verifyGeometry(candidates, trianglesA, trianglesB);
+
+        // 🔍 ДИАГНОСТИКА СТУПЕНИ 2 (геометрия): распределение geometryScore
+        let geomBuckets = { "0.5-0.7": 0, "0.7-0.8": 0, "0.8-0.85": 0, "0.85-0.9": 0, "0.9-0.95": 0, "0.95-1.0": 0 };
+        let triCountWithCandidate = 0;
+        for (const [aIndex, bMap] of geometryResults) {
+            if (bMap && bMap.size > 0) triCountWithCandidate++;
+            for (const res of (bMap ? bMap.values() : [])) {
+                const s = res.geometryScore || 0;
+                if (s < 0.7) geomBuckets["0.5-0.7"]++;
+                else if (s < 0.8) geomBuckets["0.7-0.8"]++;
+                else if (s < 0.85) geomBuckets["0.8-0.85"]++;
+                else if (s < 0.9) geomBuckets["0.85-0.9"]++;
+                else if (s < 0.95) geomBuckets["0.9-0.95"]++;
+                else geomBuckets["0.95-1.0"]++;
+            }
+        }
+        console.log(`\n📊 СТУПЕНЬ 2 (ГЕОМЕТРИЯ): треугольников A с кандидатом: ${triCountWithCandidate}/${trianglesA.length}`);
+        console.log(`   • geometryScore 0.5-0.7: ${geomBuckets["0.5-0.7"]}, 0.7-0.8: ${geomBuckets["0.7-0.8"]}, 0.8-0.85: ${geomBuckets["0.8-0.85"]}, 0.85-0.9: ${geomBuckets["0.85-0.9"]}, 0.9-0.95: ${geomBuckets["0.9-0.95"]}, 0.95-1.0: ${geomBuckets["0.95-1.0"]}`);
 
         // ШАГ 5: Динамический поиск якорей - логи под if(this.debug)
         if (this.debug) console.log(`\n🔍 ШАГ 5: Динамический поиск якорей`);
