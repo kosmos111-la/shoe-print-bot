@@ -37,6 +37,16 @@ function _fmtT(t) {
     return `${Math.round(v)}°C`;
 }
 
+function _ddmm(s) {
+    const str = String(s || '');
+    const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(str);
+    if (iso) return `${iso[3]}.${iso[2]}`;
+    const MON = { 'янв': '01', 'фев': '02', 'мар': '03', 'апр': '04', 'май': '05', 'июн': '06', 'июл': '07', 'авг': '08', 'сен': '09', 'окт': '10', 'ноя': '11', 'дек': '12' };
+    const m = /(\d+)[^а-яё]*([а-яё]{3})/.exec(str);
+    if (m) return `${String(Number(m[1])).padStart(2, '0')}.${MON[m[2]] || '??'}`;
+    return str;
+}
+
 function getClothingLayers(temp, wind, precip) {
     const T = Number(temp);
     const W = Number(wind) || 0;
@@ -56,7 +66,7 @@ function getClothingLayers(temp, wind, precip) {
     else if (T < 0 && W > 0) ids = [1, 2, 3, 4, 5];
     else if (T < 0) ids = [1, 2, 5];
     else if (P > 0) ids = [1, 4, 5];
-    else ids = [1];
+    else ids = [1, 3, 4];
     const out = ids.map(id => `• ${L[id]}`);
     if (T < 0) out.push('• Доп: шапка, баф, перчатки');
     return out;
@@ -105,14 +115,10 @@ function formatWeatherCompact(data) {
 
     out.push('');
     // Блок 2: сводка
-    out.push(`🌡️ <b>Сейчас:</b> ${_fmtT(T)} (ощущается ${_fmtT(Number(cur.feels_like))})`);
+    out.push(`🌡️ <b>Сейчас:</b> ${_fmtT(T)}${cond ? `, ${cond}` : ''} (ощущается ${_fmtT(Number(cur.feels_like))})`);
     out.push(`💨 <b>Ветер:</b> ${W} м/с`);
     const vis = /туман|метель|снег|ливень|гроза/i.test(cond) ? 'ограничена (туман/снег)' : 'хорошая';
     out.push(`👁️ <b>Видимость:</b> ${vis}`);
-    const hist3 = (data.history || []).slice(0, 3);
-    const nast = (hist3.some(d => Number(d.day_temp) > 0) || /морозный|ледян/i.test(cond)) ? 'есть' : 'нет';
-    const zanos = (W > 8 && (hist3.some(d => Number(d.precipitation) > 0) || /снег/i.test(cond))) ? 'высокий' : 'низкий';
-    out.push(`❄️ <b>Риск для следов:</b> наст: ${nast}, занос: ${zanos}`);
 
     out.push('');
     // Блок 3: слои ВКПО
@@ -126,12 +132,12 @@ function formatWeatherCompact(data) {
     const hist = data.history || [];
     if (hist.length) det.push('📖 История 7 дней:');
     for (const d of hist) {
-        det.push(`${d.date.slice(8, 10)}.${d.date.slice(5, 7)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм, 💨${d.wind_speed}м/с`);
+        det.push(`${_ddmm(d.date)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм, 💨${d.wind_speed}м/с`);
     }
     const fc = data.forecast || [];
     if (fc.length) det.push('📈 Прогноз 2 дня:');
     for (const d of fc) {
-        det.push(`${d.date.slice(8, 10)}.${d.date.slice(5, 7)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм`);
+        det.push(`${_ddmm(d.date)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм`);
     }
     det.push('</blockquote>');
     out.push('<blockquote expandable>' + det.join('\n'));
