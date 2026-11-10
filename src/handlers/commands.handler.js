@@ -319,28 +319,26 @@ bot.onText(/\/calculators/, async (msg) => {
 
 // ❄️ Команда калькулятора давности следа на снегу
 bot.onText(/\/calc_snow_age/, async (msg) => {
-    const chatId = msg.chat.id;
-    const userId = msg.from.id;
+    const chatId = msg.chat.id;
+    const userId = msg.from.id;
 
-    // ОЧИЩАЕМ КОНТЕКСТ ПЕРЕД НОВОЙ КОМАНДОЙ
-    delete userContext[userId];
+    // ОЧИЩАЕМ КОНТЕКСТ ПЕРЕД НОВОЙ КОМАНДОЙ
+    delete userContext[userId];
 
-    userContext[userId] = 'waiting_snow_age_mode';
+    userContext[userId] = 'waiting_snow_age_location';
 
-    await bot.sendMessage(chatId,
-        '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
-        '🔮 <b>ВЕРОЯТНОСТНАЯ МОДЕЛЬ С ИСТОРИЕЙ ПОГОДЫ</b>\n\n' +
-        '🎯 <b>Выберите режим:</b>\n\n' +
-        '📅 <b>ОСНОВНОЙ РЕЖИМ</b> (поиск пропавших):\n' +
-        '• Расчет текущего снега по дате пропажи\n' +
-        '• Команда: <code>основной</code>\n\n' +
-        '🧪 <b>ТЕСТОВЫЙ РЕЖИМ</b> (проверка точности):\n' +
-        '• Расчет снега между двумя датами\n' +
-        '• Сравнение с реальными замерами\n' +
-        '• Команда: <code>тестовый</code>\n\n' +
-        '💡 <i>Отправьте "основной" или "тестовый"</i>',
-        { parse_mode: 'HTML' }
-    );
+    await bot.sendMessage(chatId,
+        '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
+        '🎯 <b>Как это работает:</b>\n\n' +
+        '1. 📍 <b>Отправьте местоположение</b> (скрепка → Местоположение)\n\n' +
+        '2. 📅 <b>Укажите дату и время пропажи</b>\n' +
+        '<code>2024-01-15 08:00</code>\n' +
+        '<code>15.01.2024 8:00</code>\n\n' +
+        '3. 📏 <b>Отправьте 3–5 замеров глубины следа</b> (см, через пробел)\n' +
+        '<code>1.5 1.8 1.6</code>\n\n' +
+        '📍 <i>Сначала отправьте местоположение</i>',
+        { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: "📍 Отправить местоположение", request_location: true }]], resize_keyboard: true, one_time_keyboard: true } }
+    );
 });
 
 // 🎯 ОБНОВЛЕННЫЕ КОМАНДЫ ДЛЯ УСТАНОВКИ КОНТЕКСТА
@@ -455,26 +453,6 @@ bot.on('location', async (msg) => {
             return;
         }
 
-        // 🧪 ОБРАБОТКА ДЛЯ СНЕГА (ТЕСТОВЫЙ РЕЖИМ)
-        if (context === 'waiting_test_snow_location') {
-            userContext[userId] = {
-                type: 'test_snow_calc',
-                coordinates: {
-                    lat: location.latitude,
-                    lon: location.longitude
-                },
-                step: 'start_date'
-            };
-
-            await bot.sendMessage(chatId,
-                '📍 Местоположение получено. Теперь укажите <b>дату оставления следа</b>:\n\n' +
-                '<code>2024-01-15 08:00</code>\n' +
-                '<code>15.01.2024 8:00</code>\n\n' +
-                '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
-                { parse_mode: 'HTML' }
-            );
-            return;
-        }
 
         // 🌤️ ОБРАБОТКА ДЛЯ ПОГОДЫ
 if (context === 'calc_weather') {
@@ -519,209 +497,53 @@ bot.on('message', async (msg) => {
     const context = userContext[userId];
 
     try {
-        // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА (дата пропажи)
-        if (context && context.type === 'snow_age_calc') {
-            const disappearanceTime = parseDateTime(text);
+       // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА: шаг 1 — дата пропажи
+       if (context && context.type === 'snow_age_calc' && context.step !== 'depths') {
+           const disappearanceTime = parseDateTime(text);
 
-            if (!disappearanceTime) {
-                await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
-                return;
-            }
+           if (!disappearanceTime) {
+               await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
+               return;
+           }
 
-            await bot.sendMessage(chatId, '❄️🔮 Анализирую эволюцию снежного покрова...');
+           // Шаг 2 — запрашиваем 3–5 замеров глубины следа
+           userContext[userId] = {
+               type: 'snow_age_calc',
+               coordinates: context.coordinates,
+               disappearanceTime: disappearanceTime,
+               step: 'depths'
+           };
 
-            const result = await ctx.calculators.calculateSnowAge(context.coordinates, disappearanceTime);
+           await bot.sendMessage(chatId,
+               '📍 Дата принята: <code>' + disappearanceTime.toISOString().slice(0, 10) + '</code>\n\n' +
+               '📏 Теперь отправьте <b>3–5 замеров глубины следа</b> (см, через пробел):\n\n' +
+               '<code>1.5 1.8 1.6</code>\n\n' +
+               '💡 Берём минимум (исключает намет); разброс > 3 см — «след неравномерный».',
+               { parse_mode: 'HTML' }
+           );
+           return;
+       }
 
-            // Очищаем контекст ПОСЛЕ выполнения
-            delete userContext[userId];
+       // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА: шаг 2 — глубины
+       if (context && context.type === 'snow_age_calc' && context.step === 'depths') {
+           const tokens = text.replace(/,/g, '.').split(/\s+/).filter(t => t !== '');
+           const depths = tokens.map(Number);
 
-            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-            return;
-        }
+           if (depths.length < 3 || depths.length > 5 || depths.some(d => isNaN(d))) {
+               await bot.sendMessage(chatId, '❌ Нужно 3–5 чисел (глубина в см), например: <code>1.5 1.8 1.6</code>', { parse_mode: 'HTML' });
+               return;
+           }
 
-        // 🧪 ОБРАБОТКА ТЕСТОВОГО РЕЖИМА СНЕГА (КООРДИНАТЫ ТЕКСТОМ)
-        if (context === 'waiting_test_snow_location') {
-            // Проверяем, это координаты или что-то еще
-            if (isCoordinates(text)) {
-                // Координаты в текстовом формате
-                const coords = text.split(' ').map(coord => parseFloat(coord));
+           await bot.sendMessage(chatId, '❄️🔮 Анализирую давность следа...');
 
-                userContext[userId] = {
-                    type: 'test_snow_calc',
-                    coordinates: {
-                        lat: coords[0],
-                        lon: coords[1]
-                    },
-                    step: 'start_date'
-                };
+           const result = await ctx.calculators.calculateSnowAge(context.coordinates, context.disappearanceTime, { depths });
 
-                await bot.sendMessage(chatId,
-                    '📍 Координаты приняты. Теперь укажите <b>дату оставления следа</b>:\n\n' +
-                    '<code>2024-01-15 08:00</code>\n' +
-                    '<code>15.01.2024 8:00</code>\n\n' +
-                    '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
-                    { parse_mode: 'HTML' }
-                );
-                return;
-            } else {
-                await bot.sendMessage(chatId,
-                    '❌ Неверный формат координат. Отправьте местоположение или координаты в формате:\n\n' +
-                    '<code>55.7558 37.6173</code>\n\n' +
-                    'Или используйте кнопку ниже для отправки местоположения:',
-                    {
-                        parse_mode: 'HTML',
-                        reply_markup: {
-                            keyboard: [
-                                [{ text: "📍 Отправить местоположение", request_location: true }]
-                            ],
-                            resize_keyboard: true,
-                            one_time_keyboard: true
-                        }
-                    }
-                );
-                return;
-            }
-        }
+           // Очищаем контекст ПОСЛЕ выполнения
+           delete userContext[userId];
 
-        // 🎯 ОБРАБОТКА ВЫБОРА РЕЖИМА СНЕГА
-        if (context === 'waiting_snow_age_mode') {
-            if (text.toLowerCase() === 'основной' || text.toLowerCase() === 'основной режим') {
-                userContext[userId] = 'waiting_snow_age_location';
-
-                await bot.sendMessage(chatId,
-                    '📅 <b>ОСНОВНОЙ РЕЖИМ</b>\n\n' +
-                    '💡 <b>Как использовать:</b>\n\n' +
-                    '1. 📍 <b>Отправьте местоположение</b> поиска\n\n' +
-                    '2. 📅 <b>Укажите дату и время пропажи:</b>\n' +
-                    '<code>2024-01-15 08:00</code>\n' +
-                    '<code>15.01.2024 8:00</code>\n\n' +
-                    '3. 🤖 <b>Бот рассчитает вероятностные коридоры</b> снежного покрова\n\n' +
-                    '📍 <i>Сначала отправьте местоположение</i>',
-                    {
-                        parse_mode: 'HTML',
-                        reply_markup: {
-                            keyboard: [
-                                [{ text: "📍 Отправить местоположение", request_location: true }]
-                            ],
-                            resize_keyboard: true,
-                            one_time_keyboard: true
-                        }
-                    }
-                );
-                return;
-            }
-
-            else if (text.toLowerCase() === 'тестовый' || text.toLowerCase() === 'тестовый режим') {
-                userContext[userId] = 'waiting_test_snow_location';
-
-                await bot.sendMessage(chatId,
-                    '🧪 <b>ТЕСТОВЫЙ РЕЖИМ</b>\n\n' +
-                    '💡 <b>Для проверки точности модели:</b>\n\n' +
-                    '1. 📍 <b>Отправьте местоположение</b> замеров\n\n' +
-                    '2. 📅 <b>Укажите период анализа:</b>\n' +
-                    '• Дата оставления следа\n' +
-                    '• Дата проверки/замеров\n\n' +
-                    '3. 🤖 <b>Бот рассчитает прогноз</b> и вы сможете сравнить с реальными замерами\n\n' +
-                    '📍 <i>Отправьте местоположение или координаты:</i>\n' +
-                    '<code>55.7558 37.6173</code>',
-                    {
-                        parse_mode: 'HTML',
-                        reply_markup: {
-                            keyboard: [
-                                [{ text: "📍 Отправить местоположение", request_location: true }]
-                            ],
-                            resize_keyboard: true,
-                            one_time_keyboard: true
-                        }
-                    }
-                );
-                return;
-            }
-
-            else {
-                await bot.sendMessage(chatId, '❌ Неверный режим. Отправьте "основной" или "тестовый"');
-                return;
-            }
-        }
-
-        // 🧪 ОБРАБОТКА ТЕСТОВОГО РЕЖИМА СНЕГА
-        if (context === 'waiting_test_snow_location') {
-            if (msg.location) {
-                const location = msg.location;
-
-                userContext[userId] = {
-                    type: 'test_snow_calc',
-                    coordinates: {
-                        lat: location.latitude,
-                        lon: location.longitude
-                    },
-                    step: 'start_date'
-                };
-
-                await bot.sendMessage(chatId,
-                    '📍 Местоположение получено. Теперь укажите <b>дату оставления следа</b>:\n\n' +
-                    '<code>2024-01-15 08:00</code>\n' +
-                    '<code>15.01.2024 8:00</code>\n\n' +
-                    '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
-                    { parse_mode: 'HTML' }
-                );
-                return;
-            }
-        }
-
-        if (context && context.type === 'test_snow_calc') {
-            const testContext = context;
-
-            if (testContext.step === 'start_date') {
-                const startDate = parseDateTime(text);
-
-                if (!startDate) {
-                    await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
-                    return;
-                }
-
-                testContext.startDate = startDate;
-                testContext.step = 'end_date';
-
-                await bot.sendMessage(chatId,
-                    '✅ Дата оставления следа принята. Теперь укажите <b>дату проверки/замеров</b>:\n\n' +
-                    '<code>2024-01-20 14:00</code>\n' +
-                    '<code>20.01.2024 14:00</code>\n\n' +
-                    '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
-                    { parse_mode: 'HTML' }
-                );
-                return;
-            }
-
-            if (testContext.step === 'end_date') {
-                const endDate = parseDateTime(text);
-
-                if (!endDate) {
-                    await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-20 14:00</code>', { parse_mode: 'HTML' });
-                    return;
-                }
-
-                if (endDate <= testContext.startDate) {
-                    await bot.sendMessage(chatId, '❌ Дата проверки должна быть ПОСЛЕ даты оставления следа');
-                    return;
-                }
-
-                await bot.sendMessage(chatId, '🧪🔮 Анализирую эволюцию снежного покрова за указанный период...');
-
-                // Используем ту же функцию calculateSnowAge, но с endDate
-                const result = await ctx.calculators.calculateSnowAge(
-                    testContext.coordinates,
-                    testContext.startDate,
-                    { endDate: endDate, testMode: true }
-                );
-
-                // Очищаем контекст ПОСЛЕ выполнения
-                delete userContext[userId];
-
-                await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-                return;
-            }
-        }
+           await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+           return;
+       }
 
         // 🎯 ОБРАБОТКА ПРОСТЫХ КАЛЬКУЛЯТОРОВ
         if (context === 'calc_snow') {
@@ -2772,9 +2594,6 @@ bot.onText(/\/force_update_confirmations/, async (msg) => {
 // Обработчик необработанных исключений
 
 // Graceful shutdown
-
-
-
 
 // =============================================================================
 // =============================================================================

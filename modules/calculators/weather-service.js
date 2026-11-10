@@ -726,6 +726,49 @@ class WeatherService {
             isDark: currentTime >= effectiveSunset
         };
     }
+
+    // ===== ЭПОХИ ДЛЯ МОДЕЛИ ДАВНОСТИ (адаптер Open-Meteo) =====
+    async getEpochs(lat, lon, startDate, endDate) {
+        try {
+            const url = 'https://archive-api.open-meteo.com/v1/archive?' +
+                'latitude=' + lat + '&longitude=' + lon +
+                '&start_date=' + startDate + '&end_date=' + endDate +
+                '&hourly=temperature_2m,precipitation,weather_code&timezone=auto';
+            const resp = await axios.get(url);
+            const hourly = resp.data && resp.data.hourly;
+            if (!hourly || !Array.isArray(hourly.time) || hourly.time.length === 0) return [];
+            const bucketOf = (h) => (h >= 21 || h < 3) ? 0 : (h >= 3 && h < 9) ? 1 : (h >= 9 && h < 15) ? 2 : 3;
+            const buckets = {}; // key: 'date|bucket'
+            for (let i = 0; i < hourly.time.length; i++) {
+                const t = hourly.time[i];
+                const date = t.slice(0, 10);
+                const h = parseInt(t.slice(11, 13), 10);
+                const T = Number(hourly.temperature_2m[i]);
+                const P = Number(hourly.precipitation[i]) || 0;
+                const b = bucketOf(h);
+                const key = date + '|' + b;
+                if (!buckets[key]) buckets[key] = { date, bucket: b, sumT: 0, sumP: 0, n: 0 };
+                buckets[key].sumT += T;
+                buckets[key].sumP += P;
+                buckets[key].n++;
+            }
+            const names = ['ночь', 'утро', 'день', 'вечер'];
+            const epochs = Object.keys(buckets).sort().map(key => {
+                const g = buckets[key];
+                const T = Math.round((g.sumT / g.n) * 10) / 10;
+                const P = Math.round(g.sumP * 100) / 100;
+                let type = 'нет';
+                if (P > 0 && T > 0) type = 'дождь';
+                else if (P > 0) type = 'снег';
+                return { date: g.date, epoch: g.bucket, period: names[g.bucket], rank: g.bucket, T, P, type };
+            });
+            return epochs;
+        } catch (e) {
+            console.log('❌ Ошибка getEpochs:', e.message);
+            return [];
+        }
+    }
+
 }
 
 module.exports = { WeatherService };
