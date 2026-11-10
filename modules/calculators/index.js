@@ -29,95 +29,121 @@ function addDaysISO(iso, t) {
     d.setUTCDate(d.getUTCDate() + t);
     return d.toISOString().slice(0, 10);
 }
+
+// ---------- погода: компактный вывод для поисковика (штурм / сводка / ВКПО / спойлер) ----------
+function _fmtT(t) {
+    const v = Number(t);
+    if (isNaN(v)) return '—°C';
+    return `${Math.round(v)}°C`;
+}
+
+function getClothingLayers(temp, wind, precip) {
+    const T = Number(temp);
+    const W = Number(wind) || 0;
+    const P = Number(precip) || 0;
+    const L = {
+        1: 'Слой 1 (база): влагоотводящее термобельё',
+        2: 'Слой 2 (утепление): флисовое бельё',
+        3: 'Слой 3 (флис): флисовая куртка',
+        4: 'Слой 4 (ветровка): ветрозащитная куртка',
+        5: 'Слой 5 (демисезон): мембранный костюм',
+        6: 'Слой 6 (утеплённый): синтепоновый/пуховой костюм',
+        7: 'Слой 7 (зимний): экстремальный утеплённый костюм',
+    };
+    let ids;
+    if (T < -25) ids = [1, 2, 3, 5, 6, 7];
+    else if (T < -15) ids = [1, 2, 3, 5, 6];
+    else if (T < 0 && W > 0) ids = [1, 2, 3, 4, 5];
+    else if (T < 0) ids = [1, 2, 5];
+    else if (P > 0) ids = [1, 4, 5];
+    else ids = [1];
+    const out = ids.map(id => `• ${L[id]}`);
+    if (T < 0) out.push('• Доп: шапка, баф, перчатки');
+    return out;
+}
+
+function _stormReason(data) {
+    const reasons = [];
+    const cur = data.current || {};
+    const T = Number(cur.temperature);
+    const W = Number(cur.wind_speed) || 0;
+    const cond = String(cur.condition || '').toLowerCase();
+    if (W > 10) reasons.push(`ветер ${W} м/с`);
+    const h6 = (data.hourly || []).slice(0, 6);
+    if (h6.some(h => /снег/i.test(h.condition || '') && Number(h.precipitation) > 5)) reasons.push('сильный снегопад в ближайшие часы');
+    if (h6.some(h => /морозный|ледян|мокрый/i.test(h.condition || ''))) reasons.push('ледяной/морозный дождь');
+    if (h6.some(h => /ливень|сильный дождь|гроза/i.test(h.condition || ''))) reasons.push('сильный дождь/гроза');
+    if (/гроза/i.test(cond)) reasons.push('гроза сейчас');
+    const hist = data.history || [];
+    if (hist.length) {
+        const prevDay = Number(hist[0].day_temp);
+        if (!isNaN(prevDay) && !isNaN(T) && prevDay - T > 5) reasons.push(`резкое падение температуры: было ${_fmtT(prevDay)}, сейчас ${_fmtT(T)}`);
+    }
+    const fc = data.forecast || [];
+    if (fc.length) {
+        const d = Number(fc[0].day_temp), n = Number(fc[0].night_temp);
+        if (!isNaN(d) && !isNaN(n) && d - n > 5) reasons.push('резкое похолодание к ночи');
+    }
+    return reasons.length ? reasons.join('; ') : null;
+}
+
+function formatWeatherCompact(data) {
+    const cur = data.current || {};
+    const T = Number(cur.temperature);
+    const W = Number(cur.wind_speed) || 0;
+    const P = Number(cur.precipitation) || 0;
+    const cond = String(cur.condition || '');
+    const loc = String(data.location || '').toUpperCase();
+    const out = [];
+
+    // шапка
+    out.push(`🌤️ <b>${loc}</b>`);
+
+    // Блок 1: штурмовое предупреждение (если есть)
+    const storm = _stormReason(data);
+    if (storm) out.push(`⚠️ <b>ШТУРМОВОЕ ПРЕДУПРЕЖДЕНИЕ:</b> ${storm}`);
+
+    out.push('');
+    // Блок 2: сводка
+    out.push(`🌡️ <b>Сейчас:</b> ${_fmtT(T)} (ощущается ${_fmtT(Number(cur.feels_like))})`);
+    out.push(`💨 <b>Ветер:</b> ${W} м/с`);
+    const vis = /туман|метель|снег|ливень|гроза/i.test(cond) ? 'ограничена (туман/снег)' : 'хорошая';
+    out.push(`👁️ <b>Видимость:</b> ${vis}`);
+    const hist3 = (data.history || []).slice(0, 3);
+    const nast = (hist3.some(d => Number(d.day_temp) > 0) || /морозный|ледян/i.test(cond)) ? 'есть' : 'нет';
+    const zanos = (W > 8 && (hist3.some(d => Number(d.precipitation) > 0) || /снег/i.test(cond))) ? 'высокий' : 'низкий';
+    out.push(`❄️ <b>Риск для следов:</b> наст: ${nast}, занос: ${zanos}`);
+
+    out.push('');
+    // Блок 3: слои ВКПО
+    out.push('👕 <b>Экипировка (ВКПО):</b>');
+    out.push(...getClothingLayers(T, W, P));
+
+    out.push('');
+    // Блок 4: детали — свёрнутый спойлер (без пустых строк внутри)
+    const det = [];
+    det.push('📅 Детали: история и прогноз (нажмите, чтобы развернуть)');
+    const hist = data.history || [];
+    if (hist.length) det.push('📖 История 7 дней:');
+    for (const d of hist) {
+        det.push(`${d.date.slice(8, 10)}.${d.date.slice(5, 7)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм, 💨${d.wind_speed}м/с`);
+    }
+    const fc = data.forecast || [];
+    if (fc.length) det.push('📈 Прогноз 2 дня:');
+    for (const d of fc) {
+        det.push(`${d.date.slice(8, 10)}.${d.date.slice(5, 7)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм`);
+    }
+    det.push('</blockquote>');
+    out.push('<blockquote expandable>' + det.join('\n'));
+
+    return out.join('\n');
+}
 function initialize() {
     console.log('✅ Модуль калькуляторов загружен');
 
     const weatherService = new WeatherService();
 
-    // Вспомогательные функции форматирования (внутри initialize)
-    function formatWeatherShort(data, weatherService) {
-    const currentHour = new Date().getHours();
-    const timeIcon = (currentHour >= 6 && currentHour < 18) ? '☀️' : '🌙';
-   
-    let message = `🌤️ <b>${data.location.toUpperCase()}</b> ${timeIcon}\n\n`;
-   
-    message += `📊 <b>Сейчас:</b> ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-    message += `${data.current.condition} | 💨 ${data.current.wind_speed} м/с | 💧 ${data.current.humidity}%\n\n`;
-   
-    if (data.forecast && data.forecast[0]) {
-        const today = data.forecast[0];
-        message += `📈 <b>Сегодня:</b> День ${weatherService.formatTemperature(today.day_temp)} / Ночь ${weatherService.formatTemperature(today.night_temp)}\n`;
-        message += `${today.condition}`;
-        if (today.precipitation > 0) {
-            message += ` | 🌧️ ${today.precipitation}мм`;
-        }
-        message += `\n\n`;
-    }
-   
-    if (data.current.temperature < 5) {
-        message += `🧥 Рекомендация: теплая одежда`;
-    } else if (data.current.temperature < 15) {
-        message += `🧥 Рекомендация: куртка или ветровка`;
-    } else {
-        message += `👕 Рекомендация: легкая одежда`;
-    }
-   
-    if (data.current.wind_speed > 5) {
-        message += `, ветрозащита`;
-    }
-   
-    // Добавляем ссылку на полный отчет
-    message += `\n\n📋 <i>Подробный отчет отправлен ниже 👇</i>`;
-   
-    return message;
-}
-
-    function formatWeatherFull(data, weatherService) {
-        let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
-
-        const currentHour = new Date().getHours();
-        const currentTimeFormatted = weatherService.formatTimeWithStyle(currentHour, `📊 <b>СЕЙЧАС (${data.current.time}):</b>`);
-        message += `${currentTimeFormatted}\n`;
-        message += `🌡️ ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-        message += `${data.current.condition}\n`;
-        message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
-        message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
-
-        message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
-        data.hourly.slice(0, 6).forEach(hour => {
-            const hourNum = hour.hour;
-            const timeText = weatherService.formatTimeWithStyle(hourNum, `${hour.time}`);
-            const tempFormatted = weatherService.formatTemperature(hour.temperature);
-            message += `${timeText} ${tempFormatted}, ${hour.condition}, ${hour.precipitation}\n`;
-        });
-        message += '\n';
-
-        message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
-        data.forecast.forEach(day => {
-            const dayTemp = weatherService.formatTemperature(day.day_temp);
-            const nightTemp = weatherService.formatTemperature(day.night_temp);
-            message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${day.precipitation}\n`;
-        });
-        message += '\n';
-
-        if (data.history && data.history.length > 0) {
-            message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
-            const reversedHistory = [...data.history].reverse();
-            reversedHistory.forEach(day => {
-                const precipIcon = day.precipitation > 0 ? '🌧️' : '';
-                const dayTemp = weatherService.formatTemperature(day.day_temp);
-                const nightTemp = weatherService.formatTemperature(day.night_temp);
-                message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
-            });
-            message += '\n';
-        }
-
-        message += data.searchSummary;
-
-        return message;
-    }
-
-    return {
+       return {
         getMenu: () => ({
             title: "🧮 КАЛЬКУЛЯТОРЫ",
             sections: [
@@ -194,65 +220,50 @@ function initialize() {
        },
 
         // 🌤️ Погода с графиком
-        getWeatherData: async (options = {}, chatId = null, bot = null) => {
-    try {
-        const result = await weatherService.getWeatherData(options);
-        if (!result.success) {
-            return `❌ ${result.error}`;
-        }
+        // 🌤️ Погода с графиком (компактный вывод)
+        getWeatherData: async (options = {}, chatId = null, bot = null) => {
+            try {
+                const result = await weatherService.getWeatherData(options);
+                if (!result.success) {
+                    return `❌ ${result.error}`;
+                }
 
-        const data = result.result;
+                const data = result.result;
+                // Компактный отчёт: штурм / сводка / слои ВКПО / детали-спойлер
+                const compactReport = formatWeatherCompact(data);
 
-        // Формируем полный текстовый отчет (как было раньше)
-        const fullTextReport = formatWeatherFull(data, weatherService);
-       
-        // Формируем краткую подпись для графика (ограничиваем до 900 символов)
-        const shortCaption = formatWeatherShort(data, weatherService);
+                if (chatId && bot) {
+                    try {
+                        const weatherGraph = new WeatherGraph();
+                        const graphBuffer = await weatherGraph.generateWeatherGraph(
+                            data.history,
+                            data.forecast,
+                            data.location,
+                            data.hourlyPrecipitation,
+                            data.snowData
+                        );
+                        if (graphBuffer) {
+                            // Сначала — текст решения, затем график (легенда графика убрана)
+                            await bot.sendMessage(chatId, compactReport, { parse_mode: 'HTML' });
+                            const graphCaption = `📊 <b>${(data.location || '').toUpperCase()}</b> — температура, осадки, снежный покров (7 дней + прогноз 2 дня)`;
+                            await bot.sendPhoto(chatId, graphBuffer, { caption: graphCaption, parse_mode: 'HTML' });
+                            return null;
+                        }
+                    } catch (graphError) {
+                        console.log('⚠️ Ошибка генерации графика:', graphError.message);
+                        return compactReport;
+                    }
+                }
 
-        // Пытаемся отправить график
-        if (chatId && bot) {
-            try {
-                const weatherGraph = new WeatherGraph();
-                const graphBuffer = await weatherGraph.generateWeatherGraph(
-    data.history,
-    data.forecast,
-    data.location,
-    data.hourlyPrecipitation,
-    data.snowData  // 🆕 передаем данные о снеге
-);
-
-                if (graphBuffer) {
-                    // Отправляем график с краткой подписью
-                    await bot.sendPhoto(chatId, graphBuffer, {
-                        caption: shortCaption,
-                        parse_mode: 'HTML'
-                    });
-                   
-                    // Отправляем полный текстовый отчет отдельным сообщением
-                    await bot.sendMessage(chatId, fullTextReport, { parse_mode: 'HTML' });
-                   
-                    return null; // Все отправлено
-                }
-            } catch (graphError) {
-                console.log('⚠️ Ошибка генерации графика:', graphError.message);
-                // Если график не удался, отправляем только текст
-                return fullTextReport;
-            }
-        }
-
-        // Fallback: если нет chatId/bot, отправляем только текст
-        return fullTextReport;
-
-    } catch (error) {
-        console.error('❌ Ошибка:', error);
-        return `❌ Ошибка получения погоды: ${error.message}`;
-    }
-},
-
-        getShoeTypes: () => {
+                return compactReport;
+            } catch (error) {
+                console.error('❌ Ошибка:', error);
+                return `❌ Ошибка получения погоды: ${error.message}`;
+            }
+        },        getShoeTypes: () => {
             return shoeSizeCalculator.getFootwearTypesList();
         }
     };
 }
 
-module.exports = { initialize };
+module.exports = { initialize, formatWeatherCompact, getClothingLayers };
