@@ -20,6 +20,19 @@ const { userStats, globalStats, userLastAnalysis, photoBatchDetector, photoQueue
  * @param {TelegramBot} bot - экземпляр бота
  * @param {Object} ctx - контекст с геттерами на глобальные объекты main.js
  */
+// ⚠️ Предупреждение об ограничениях модели давности следа (сворачиваемый <blockquote expandable>)
+function formatModelWarning() {
+    return [
+        '<blockquote expandable>⚠️ <b>Ограничения модели</b>\n',
+        '• Модель калибрована на <b>сосновой посадке Подмосковья</b> (сезоны 2022–25, ERA5/Open-Meteo). Для <b>других регионов</b> (Сибирь, Урал, юг) — <b>не проверена</b>.\n',
+        '• Точность: свежие следы (0–3 дня) — ±3 дня в 88–93% случаев. Следы 4–7 дней — ±3 дня в 56–67%. Следы <b>8+ дней</b> — <b>«давность неопределима»</b> (глубина насыщается).\n',
+        '• В истории была <b>оттепель/дождь</b> — возможна ошибка, проверьте вручную.\n',
+        '• В истории был <b>резкий снегопад при морозе</b> — возможна ошибка из-за уплотнения.\n',
+        '• Модель <b>не учитывает ветер и плотность снега</b>. Для поля (не леса) — <b>не использовать</b>.\n',
+        '• Результат — <b>подсказка</b>, а не приговор. Сравнивайте с другими следами и погодой.\n',
+        '</blockquote>',
+    ].join('');
+}
 module.exports = function registerCommandsHandler(bot, ctx) {
 
 // ===== HELPERS: получение моделей пользователя (обёртка над getPermanentModels) =====
@@ -326,6 +339,8 @@ bot.onText(/\/calc_snow_age/, async (msg) => {
     delete userContext[userId];
 
     userContext[userId] = 'waiting_snow_age_location';
+    // ⚠️ Ограничения модели — предупреждение до ввода данных (сворачиваемое)
+    await bot.sendMessage(chatId, formatModelWarning(), { parse_mode: 'HTML' });
 
     await bot.sendMessage(chatId,
         '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
@@ -2780,3 +2795,4 @@ bot.onText(/\/system_info/, async (msg) => {
 });
 
 };
+module.exports.formatModelWarning = formatModelWarning;
