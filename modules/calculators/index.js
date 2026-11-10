@@ -165,7 +165,7 @@ function initialize() {
                const season = seasonForDate(p.y, p.m);
                const depths = options.depths || (options.depth != null ? [options.depth] : null);
                if (!depths || depths.length < 3 || depths.length > 5 || depths.some(d => isNaN(Number(d)))) {
-                   return '❌ Нужно 3–5 замеров глубины по следу (см), например: 1.5 1.8 1.6';
+                   return '❌ Нужно 3–5 замеров глубины в ЦЕПИ следов (10–15 м друг от друга, см), например: 1.5 1.8 1.6';
                }
                const nums = depths.map(Number);
                const visitDate = isoDate(p);

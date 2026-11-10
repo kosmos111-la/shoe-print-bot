@@ -246,6 +246,7 @@ function estimateChain(season, visitDate, depths, crustMode = 'auto', externalEp
     const spread = Math.max(...depths) - H;
     const out = {
         n_замеров: depths.length,
+        n_следов: depths.length,
         глубина_мин: _roundHalfEven(H, 1),
         разброс: _roundHalfEven(spread, 1),
         неравномерный: spread > 3.0,
@@ -258,7 +259,7 @@ function estimateChain(season, visitDate, depths, crustMode = 'auto', externalEp
         const logPath = path.join(__dirname, 'tracker_log.txt');
         fs.appendFileSync(logPath,
             `${new Date().toISOString()} | season=${season} | visit=${visitDate} | depths=[${depths.join(', ')}] | ` +
-            `H_min=${out.глубина_мин} | spread=${out.разброс} | result=${formatEstimate(out['оценка'])}\n`, 'utf8');
+            `H_min=${out.глубина_мин} | n_следов=${out.n_следов} | spread=${out.разброс} | result=${formatEstimate(out['оценка'])}\n`, 'utf8');
     } catch (e) { /* ignore */ }
     return out;
 }
@@ -278,7 +279,8 @@ function formatForBot(est, chainResult = null) {
     const lines = [];
     if (chainResult) {
         lines.push(`📍 Глубина: ${chainResult.глубина_мин} см (разброс ${chainResult.разброс} см)`);
-        if (chainResult.неравномерный) lines.push('⚠️ След неравномерный (намет?)');
+        if ((chainResult.n_следов || chainResult.n_замеров) < 3) lines.push('⚠️ Замеров меньше 3 — цепь неполная, точность ниже.');
+        if (chainResult.неравномерный) lines.push('⚠️ Разброс > 3 см — возможен намет или разные условия. Проверьте, что замеры в разных следах цепи.');
     }
     if (est.status === 'недостаточно данных') lines.push('🎯 Давность: недостаточно данных');
     else if (est.status === 'неопределима') lines.push('🎯 Давность: неопределима');
