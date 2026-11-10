@@ -6,7 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 
-const KREF = 0.0264, C = 0.136, KN = 0.50, KTAI = 0.0, H0 = 0.20, EPOCH_DAYS = 0.25;
+// Калибровка на эпохах Open-Meteo (2025-11): KN=0.60, H0=0.50 — recall 0-2 = 0.957 на 2024-25;
+// старая калибровка (KN=0.50, H0=0.20) сохранена в tracker-tool_backup.json.
+const KREF = 0.0264, C = 0.136, KN = 0.60, KTAI = 0.0, H0 = 0.50, EPOCH_DAYS = 0.25;
 const SEASONS = ['2022-23', '2023-24', '2024-25'];
 
 // ---------- эпохи из дневника (JSON) ----------
