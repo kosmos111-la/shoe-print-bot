@@ -17,6 +17,8 @@ class WeatherService {
         this.breakerCoolDown = 10 * 60 * 1000;
         this.retryWait429 = 2500;
         this.retryWaitOther = 1000;
+        // 🔁 Ретранслятор (опционально): свежий IP для Open-Meteo, напр. Cloudflare Worker
+        this.openMeteoRelay = process.env.WEATHER_RELAY || null;
     }
 
     getTemperatureEmoji(temp) {
@@ -185,6 +187,11 @@ class WeatherService {
         const isOpenMeteo = url.indexOf('api.open-meteo.com') !== -1 ||
                         url.indexOf('archive-api.open-meteo.com') !== -1 ||
                         url.indexOf('geocoding-api.open-meteo.com') !== -1;
+        
+        // 🔁 Если задан WEATHER_RELAY — Open-Meteo идёт через него (свежий IP)
+        if (isOpenMeteo && this.openMeteoRelay) {
+            url = this.openMeteoRelay + url.replace('https://', '/');
+        }
         
         // 🔌 Предохранитель 429: лимит выбит — без ретраев, сразу к резерву
         if (isOpenMeteo && this.openMeteo429Count >= 2 &&
