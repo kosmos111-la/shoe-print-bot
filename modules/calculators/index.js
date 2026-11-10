@@ -55,18 +55,19 @@ function getClothingLayers(temp, wind, precip) {
         1: 'Слой 1 (база): влагоотводящее термобельё',
         2: 'Слой 2 (утепление): флисовое бельё',
         3: 'Слой 3 (флис): флисовая куртка',
-        4: 'Слой 4 (ветровка): ветрозащитная куртка',
-        5: 'Слой 5 (демисезон): мембранный костюм',
+        4: 'Слой 4 (летний): полевой костюм ХБ — в жару',
+        5: 'Слой 5 (базовый): софтшел — почти всегда',
         6: 'Слой 6 (утеплённый): синтепоновый/пуховой костюм',
         7: 'Слой 7 (зимний): экстремальный утеплённый костюм',
     };
     let ids;
     if (T < -25) ids = [1, 2, 3, 5, 6, 7];
     else if (T < -15) ids = [1, 2, 3, 5, 6];
-    else if (T < 0 && W > 0) ids = [1, 2, 3, 4, 5];
+    else if (T < 0 && W > 0) ids = [1, 2, 3, 5];
     else if (T < 0) ids = [1, 2, 5];
-    else if (P > 0) ids = [1, 4, 5];
-    else ids = [1, 3, 4];
+    else if (P > 0) ids = [1, 5];
+    else if (T >= 20) ids = [1, 4];
+    else ids = [1, 5];
     const out = ids.map(id => `• ${L[id]}`);
     if (T < 0) out.push('• Доп: шапка, баф, перчатки');
     return out;
@@ -119,6 +120,25 @@ function formatWeatherCompact(data) {
     out.push(`💨 <b>Ветер:</b> ${W} м/с`);
     const vis = /туман|метель|снег|ливень|гроза/i.test(cond) ? 'ограничена (туман/снег)' : 'хорошая';
     out.push(`👁️ <b>Видимость:</b> ${vis}`);
+
+    // Световой день: восход / закат / эффективное потемнение (если есть данные)
+    const st = data.sunTimes;
+    if (st && st.sunriseStr && st.sunsetStr) {
+        out.push(`🌅 <b>Восход:</b> ${st.sunriseStr}`);
+        out.push(`🌇 <b>Закат:</b> ${st.sunsetStr}`);
+        const cloud = Number(cur.cloudiness) || 0;
+        if (cloud > 50 && st.sunrise instanceof Date && st.sunset instanceof Date) {
+              let cf = 1;
+              if (cloud > 80) cf = 0.7; else if (cloud > 50) cf = 0.85;
+              const dayLen = (st.sunset - st.sunrise) / 1000 / 60 / 60;
+              const effSunset = new Date(st.sunset.getTime() - dayLen * (1 - cf) * 3600 * 1000);
+              out.push(`🌆 <b>Эффективное потемнение:</b> ~${effSunset.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} (облачность ${cloud}%)`);
+              const now = new Date();
+              const hoursLeft = (effSunset - now) / 1000 / 60 / 60;
+              if (now >= effSunset) out.push('🌙 <b>Уже темно</b> — нужны фонари');
+              else if (hoursLeft < 2) out.push(`⚠️ <b>Темнеет через ${Math.round(hoursLeft)} ч</b> — готовьте фонари`);
+        }
+    }
 
     out.push('');
     // Блок 3: слои ВКПО
