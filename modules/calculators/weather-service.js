@@ -11,6 +11,12 @@ class WeatherService {
     // 💾 Кэш погоды (10 минут на точку) — защита от лимита Open-Meteo
     this.cache = new Map();
     this.cacheTTL = 10 * 60 * 1000;
+        // 🔌 Предохранитель 429: после 2 подряд 429 — сразу резерв, проба раз в 10 минут
+        this.openMeteo429Count = 0;
+        this.breakerLast429 = 0;
+        this.breakerCoolDown = 10 * 60 * 1000;
+        this.retryWait429 = 2500;
+        this.retryWaitOther = 1000;
     }
 
     getTemperatureEmoji(temp) {
@@ -42,6 +48,7 @@ class WeatherService {
             let locationName = 'Неизвестно';
             let lat, lon;
             let cacheKey = null;
+            let fallbackData = null;
 
             if (options.coordinates) {
                 lat = options.coordinates.lat;
@@ -54,16 +61,24 @@ class WeatherService {
                 locationName = await this.getLocationName(lat, lon);
             } else if (options.location) {
                 const geoData = await this.getCoordinates(options.location);
-                if (!geoData) {
-                    throw new Error('Город не найден');
+                if (geoData) {
+                    lat = geoData.lat;
+                    lon = geoData.lon;
+                    locationName = options.location;
+                    cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+                    const cached = this._cacheGet(cacheKey);
+                    if (cached) return cached;
+                } else if (this.openMeteo429Count >= 2) {
+                    // 🔌 Геокодинг недоступен (лимит) — резерв по названию через wttr.in
+                    cacheKey = 'city:' + options.location.toLowerCase();
+                    const cached = this._cacheGet(cacheKey);
+                    if (cached) return cached;
+                    fallbackData = await this.getWeatherFallbackByName(options.location);
+                    if (!fallbackData) throw new Error('Город не найден (или сервис геокодинга перегружен 429)');
+                    locationName = options.location + ' (резерв)';
+                } else {
+                    throw new Error('Город не найден (или сервис геокодинга перегружен 429)');
                 }
-                lat = geoData.lat;
-                lon = geoData.lon;
-                locationName = options.location;
-                cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
-                const cached = this._cacheGet(cacheKey);
-                if (cached) return cached;
-
             } else {
                 return {
                     success: false,
@@ -74,6 +89,15 @@ class WeatherService {
             const isSimpleMode = options.simple === true;
 
             if (isSimpleMode) {
+            if (fallbackData) {
+                return {
+                    success: true,
+                    result: {
+                        location: locationName,
+                        current: fallbackData.current
+                    }
+                };
+            }
                 const currentWeather = await this.getCurrentWeather(lat, lon);
                 return {
                     success: true,
@@ -86,20 +110,20 @@ class WeatherService {
 
             // ⚡ ОПТИМИЗАЦИЯ (фикс 429): 2 запроса вместо 7, ретраи на 429/5xx
             let forecastBundle = null;
-            let fallbackData = null;
-            try {
-                forecastBundle = await this.getForecastBundle(lat, lon);
-            } catch (fbError) {
-                if (fbError.message.indexOf('429') !== -1) {
-                    // 🔁 Резервный источник (wttr.in), если Open-Meteo исчерпал лимит
-                    fallbackData = await this.getWeatherFallback(lat, lon);
-                    if (!fallbackData) throw fbError;
-                    locationName = locationName + ' (резерв)';
-                } else {
-                    throw fbError;
+            if (!fallbackData) {
+                try {
+                    forecastBundle = await this.getForecastBundle(lat, lon);
+                } catch (fbError) {
+                    if (fbError.message.indexOf('429') !== -1) {
+                        // 🔁 Резервный источник (wttr.in), если Open-Meteo исчерпал лимит
+                        fallbackData = await this.getWeatherFallback(lat, lon);
+                        if (!fallbackData) throw fbError;
+                        locationName = locationName + ' (резерв)';
+                    } else {
+                        throw fbError;
+                    }
                 }
             }
-
             const currentWeather = fallbackData ? fallbackData.current : forecastBundle.current;
             const hourlyForecast = fallbackData ? fallbackData.hourly : forecastBundle.hourly;
             const dailyForecast = fallbackData ? fallbackData.forecast : forecastBundle.forecast;
@@ -158,21 +182,36 @@ class WeatherService {
     }
 
     async fetchWithRetry(url, params, retries = 2) {
+        const isOpenMeteo = url.indexOf('api.open-meteo.com') !== -1 ||
+                        url.indexOf('archive-api.open-meteo.com') !== -1 ||
+                        url.indexOf('geocoding-api.open-meteo.com') !== -1;
+        
+        // 🔌 Предохранитель 429: лимит выбит — без ретраев, сразу к резерву
+        if (isOpenMeteo && this.openMeteo429Count >= 2 &&
+            Date.now() - this.breakerLast429 < this.breakerCoolDown) {
+            throw new Error('Сервис погоды временно перегружен (429), попробуйте позже');
+        }
+        
         let lastError;
         for (let attempt = 0; attempt <= retries; attempt++) {
             try {
-                return await axios.get(url, { params, timeout: 10000 });
+                const response = await axios.get(url, { params, timeout: 10000 });
+                if (isOpenMeteo) this.openMeteo429Count = 0; // Open-Meteo снова работает
+                return response;
             } catch (error) {
                 lastError = error;
                 const status = error.response && error.response.status;
                 if (status === 429 || (status >= 500 && status <= 599)) {
                     if (attempt < retries) {
-                        const waitMs = status === 429 ? 2500 * (attempt + 1) : 1000 * (attempt + 1);
+                        const waitMs = status === 429 ? this.retryWait429 * (attempt + 1) : this.retryWaitOther * (attempt + 1);
                         console.log(`⏳ Open-Meteo ${status}, повтор через ${waitMs} мс (попытка ${attempt + 2}/${retries + 1})`);
                         await new Promise(resolve => setTimeout(resolve, waitMs));
                         continue;
                     }
-                    if (status === 429) {
+                    if (status === 429 && isOpenMeteo) {
+                        // фиксируем 429 для предохранителя
+                        this.openMeteo429Count += 1;
+                        this.breakerLast429 = Date.now();
                         throw new Error('Сервис погоды временно перегружен (429), попробуйте позже');
                     }
                 }
@@ -181,7 +220,6 @@ class WeatherService {
         }
         throw lastError;
     }
-
     _cacheGet(key) {
         const hit = this.cache.get(key);
         if (hit && Date.now() - hit.ts < this.cacheTTL) return hit.data;
@@ -304,97 +342,107 @@ class WeatherService {
     }
 
     // 🔁 РЕЗЕРВНЫЙ ИСТОЧНИК (wttr.in, без ключа) — когда Open-Meteo отдаёт 429
+    // 🔁 РЕЗЕРВНЫЙ ИСТОЧНИК (wttr.in, без ключа) — когда Open-Meteo отдаёт 429
     async getWeatherFallback(lat, lon) {
+        const url = 'https://wttr.in/' + lat + ',' + lon + '?format=j1&lang=ru';
+        return this._fetchWttr(url);
+    }
+    
+    async getWeatherFallbackByName(city) {
+        const url = 'https://wttr.in/' + encodeURIComponent(city) + '?format=j1&lang=ru';
+        return this._fetchWttr(url);
+    }
+    
+    async _fetchWttr(url) {
         try {
-            const response = await axios.get('https://wttr.in/' + lat + ',' + lon + '?format=j1&lang=ru', { timeout: 8000 });
-            const j = response.data;
-            if (!j || !j.current_condition || !j.current_condition[0]) return null;
-            const cc = j.current_condition[0];
-            const now = new Date();
-            const current = {
-                time: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-                temperature: Math.round(Number(cc.temp_C)),
-                feels_like: Math.round(Number(cc.FeelsLikeC)),
-                condition: this.wttrCondition(Number(cc.weatherCode), Number(cc.cloudcover)),
-                wind_speed: (Number(cc.windspeedKmph) / 3.6).toFixed(1),
-                humidity: Number(cc.humidity),
-                precipitation: Number(cc.precipMM || 0),
-                cloudiness: Number(cc.cloudcover || 0)
+            const response = await axios.get(url, { timeout: 8000 });
+        const j = response.data;
+        if (!j || !j.current_condition || !j.current_condition[0]) return null;
+        const cc = j.current_condition[0];
+        const now = new Date();
+        const current = {
+            time: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+            temperature: Math.round(Number(cc.temp_C)),
+            feels_like: Math.round(Number(cc.FeelsLikeC)),
+            condition: this.wttrCondition(Number(cc.weatherCode), Number(cc.cloudcover)),
+            wind_speed: (Number(cc.windspeedKmph) / 3.6).toFixed(1),
+            humidity: Number(cc.humidity),
+            precipitation: Number(cc.precipMM || 0),
+            cloudiness: Number(cc.cloudcover || 0)
+        };
+
+        const forecast = [];
+        const weatherDays = j.weather || [];
+        for (const day of weatherDays.slice(0, 2)) {
+            const dt = new Date(day.date + 'T12:00:00');
+            let precip = 0;
+            for (const h of (day.hourly || [])) precip += Number(h.precipMM || 0);
+            const h0 = (day.hourly || [])[0] || {};
+            forecast.push({
+                date: dt.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                day_temp: Math.round(Number(day.maxtempC)),
+                night_temp: Math.round(Number(day.mintempC)),
+                condition: this.wttrCondition(Number(h0.weatherCode || cc.weatherCode), null),
+                precipitation: Math.round(precip * 10) / 10
+            });
+        }
+
+        const hourly = [];
+        const day0 = weatherDays[0] || {};
+        for (const h of (day0.hourly || [])) {
+            const hm = String(h.time).padStart(4, '0');
+            const hourNum = parseInt(hm.slice(0, 2), 10);
+            const slotDate = new Date(now);
+            slotDate.setHours(hourNum, 0, 0, 0);
+            if (slotDate <= now) continue;
+            const hoursDiff = Math.round((slotDate - now) / (1000 * 60 * 60));
+            let timeDisplay;
+            if (hoursDiff === 0) timeDisplay = 'Сейчас';
+            else if (hoursDiff === 1) timeDisplay = '+1 час';
+            else if (hoursDiff >= 2 && hoursDiff <= 4) timeDisplay = `+${hoursDiff} часа`;
+            else timeDisplay = `+${hoursDiff} часов`;
+            hourly.push({
+                time: timeDisplay,
+                hour: hourNum,
+                temperature: Math.round(Number(h.tempC)),
+                condition: this.wttrCondition(Number(h.weatherCode), null),
+                precipitation: Number(h.precipMM || 0)
+            });
+            if (hourly.length >= 6) break;
+        }
+
+        let sunTimes = null;
+        const ast = (day0.astronomy && day0.astronomy[0]) || null;
+        if (ast && ast.sunrise && ast.sunset) {
+            const mk = (s) => {
+                const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/);
+                if (!m) return null;
+                let hh = parseInt(m[1], 10);
+                if (m[3] === 'PM' && hh < 12) hh += 12;
+                if (m[3] === 'AM' && hh === 12) hh = 0;
+                const d = new Date(now);
+                d.setHours(hh, parseInt(m[2], 10), 0, 0);
+                return d;
             };
-
-            const forecast = [];
-            const weatherDays = j.weather || [];
-            for (const day of weatherDays.slice(0, 2)) {
-                const dt = new Date(day.date + 'T12:00:00');
-                let precip = 0;
-                for (const h of (day.hourly || [])) precip += Number(h.precipMM || 0);
-                const h0 = (day.hourly || [])[0] || {};
-                forecast.push({
-                    date: dt.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
-                    day_temp: Math.round(Number(day.maxtempC)),
-                    night_temp: Math.round(Number(day.mintempC)),
-                    condition: this.wttrCondition(Number(h0.weatherCode || cc.weatherCode), null),
-                    precipitation: Math.round(precip * 10) / 10
-                });
-            }
-
-            const hourly = [];
-            const day0 = weatherDays[0] || {};
-            for (const h of (day0.hourly || [])) {
-                const hm = String(h.time).padStart(4, '0');
-                const hourNum = parseInt(hm.slice(0, 2), 10);
-                const slotDate = new Date(now);
-                slotDate.setHours(hourNum, 0, 0, 0);
-                if (slotDate <= now) continue;
-                const hoursDiff = Math.round((slotDate - now) / (1000 * 60 * 60));
-                let timeDisplay;
-                if (hoursDiff === 0) timeDisplay = 'Сейчас';
-                else if (hoursDiff === 1) timeDisplay = '+1 час';
-                else if (hoursDiff >= 2 && hoursDiff <= 4) timeDisplay = `+${hoursDiff} часа`;
-                else timeDisplay = `+${hoursDiff} часов`;
-                hourly.push({
-                    time: timeDisplay,
-                    hour: hourNum,
-                    temperature: Math.round(Number(h.tempC)),
-                    condition: this.wttrCondition(Number(h.weatherCode), null),
-                    precipitation: Number(h.precipMM || 0)
-                });
-                if (hourly.length >= 6) break;
-            }
-
-            let sunTimes = null;
-            const ast = (day0.astronomy && day0.astronomy[0]) || null;
-            if (ast && ast.sunrise && ast.sunset) {
-                const mk = (s) => {
-                    const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/);
-                    if (!m) return null;
-                    let hh = parseInt(m[1], 10);
-                    if (m[3] === 'PM' && hh < 12) hh += 12;
-                    if (m[3] === 'AM' && hh === 12) hh = 0;
-                    const d = new Date(now);
-                    d.setHours(hh, parseInt(m[2], 10), 0, 0);
-                    return d;
+            const sr = mk(ast.sunrise);
+            const ss = mk(ast.sunset);
+            if (sr && ss) {
+                sunTimes = {
+                    sunrise: sr,
+                    sunset: ss,
+                    sunriseStr: sr.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                    sunsetStr: ss.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                    dayLength: Math.round((ss - sr) / 1000 / 60 / 60 * 10) / 10
                 };
-                const sr = mk(ast.sunrise);
-                const ss = mk(ast.sunset);
-                if (sr && ss) {
-                    sunTimes = {
-                        sunrise: sr,
-                        sunset: ss,
-                        sunriseStr: sr.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-                        sunsetStr: ss.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-                        dayLength: Math.round((ss - sr) / 1000 / 60 / 60 * 10) / 10
-                    };
-                }
             }
+        }
 
-            return { current, hourly, forecast, history: [], hourlyPrecipitation: [], snowData: [], sunTimes };
+        return { current, hourly, forecast, history: [], hourlyPrecipitation: [], snowData: [], sunTimes };
         } catch (error) {
             console.log('⚠️ Резервный источник (wttr.in) недоступен:', error.message);
             return null;
         }
     }
-
     wttrCondition(code, cloudcover) {
         const map = {
             113: '☀️ Ясно', 116: '⛅️ Переменная облачность', 119: '☁️ Облачно',
