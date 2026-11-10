@@ -2,6 +2,24 @@
 
 const axios = require('axios');
 
+// 🌐 Мини-загрузчик .env (без dotenv): заполняет только отсутствующие переменные.
+// Нужен, чтобы WEATHER_RELAY можно было положить в .env репозитория и закоммитить.
+try {
+    const fs = require('fs');
+    const path = require('path');
+    const envFile = path.join(process.cwd(), '.env');
+    if (fs.existsSync(envFile)) {
+        for (const line of fs.readFileSync(envFile, 'utf8').split('\n')) {
+            const m = line.match(/^\s*([A-Za-z_][A-Za-z0-9_]*)\s*=\s*(.*)\s*$/);
+            if (m && process.env[m[1]] === undefined) {
+                process.env[m[1]] = m[2].replace(/^["']|["']$/g, '');
+            }
+        }
+    }
+} catch (e) {
+    // .env нет или не читается — не критично
+}
+
 class WeatherService {
     constructor() {
         this.openMeteoURL = 'https://api.open-meteo.com/v1/forecast';
