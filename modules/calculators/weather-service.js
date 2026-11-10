@@ -6,7 +6,11 @@ class WeatherService {
     constructor() {
         this.openMeteoURL = 'https://api.open-meteo.com/v1/forecast';
         this.openMeteoArchiveURL = 'https://archive-api.open-meteo.com/v1/archive';
-        this.geocodingAPI = 'https://geocoding-api.open-meteo.com/v1/search';
+    this.geocodingAPI = 'https://geocoding-api.open-meteo.com/v1/search';
+
+    // 💾 Кэш погоды (10 минут на точку) — защита от лимита Open-Meteo
+    this.cache = new Map();
+    this.cacheTTL = 10 * 60 * 1000;
     }
 
     getTemperatureEmoji(temp) {
@@ -37,10 +41,16 @@ class WeatherService {
         try {
             let locationName = 'Неизвестно';
             let lat, lon;
+            let cacheKey = null;
 
             if (options.coordinates) {
                 lat = options.coordinates.lat;
                 lon = options.coordinates.lon;
+                // 💾 Кэш: повторные запросы той же точки не бьют по лимиту
+                cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+                const cached = this._cacheGet(cacheKey);
+                if (cached) return cached;
+
                 locationName = await this.getLocationName(lat, lon);
             } else if (options.location) {
                 const geoData = await this.getCoordinates(options.location);
@@ -50,6 +60,10 @@ class WeatherService {
                 lat = geoData.lat;
                 lon = geoData.lon;
                 locationName = options.location;
+                cacheKey = `${lat.toFixed(4)},${lon.toFixed(4)}`;
+                const cached = this._cacheGet(cacheKey);
+                if (cached) return cached;
+
             } else {
                 return {
                     success: false,
@@ -96,7 +110,7 @@ class WeatherService {
                 sunTimes
             );
 
-            return {
+            const payload = {
                 success: true,
                 result: {
                     location: locationName,
@@ -110,6 +124,8 @@ class WeatherService {
                     searchSummary: searchSummary
                 }
             };
+            if (cacheKey) this._cacheSet(cacheKey, payload);
+            return payload;
 
         } catch (error) {
             console.log('❌ Ошибка получения погоды:', error.message);
@@ -130,7 +146,7 @@ class WeatherService {
                 const status = error.response && error.response.status;
                 if (status === 429 || (status >= 500 && status <= 599)) {
                     if (attempt < retries) {
-                        const waitMs = 1000 * (attempt + 1);
+                        const waitMs = status === 429 ? 2500 * (attempt + 1) : 1000 * (attempt + 1);
                         console.log(`⏳ Open-Meteo ${status}, повтор через ${waitMs} мс (попытка ${attempt + 2}/${retries + 1})`);
                         await new Promise(resolve => setTimeout(resolve, waitMs));
                         continue;
@@ -143,6 +159,21 @@ class WeatherService {
             }
         }
         throw lastError;
+    }
+
+    _cacheGet(key) {
+        const hit = this.cache.get(key);
+        if (hit && Date.now() - hit.ts < this.cacheTTL) return hit.data;
+        if (hit) this.cache.delete(key);
+        return null;
+    }
+
+    _cacheSet(key, data) {
+        this.cache.set(key, { ts: Date.now(), data });
+        if (this.cache.size > 500) {
+            const oldest = this.cache.keys().next().value;
+            this.cache.delete(oldest);
+        }
     }
 
     // ⚡ ОДИН запрос: текущая + почасовой + дневной + восход/закат
