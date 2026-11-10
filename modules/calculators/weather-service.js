@@ -85,18 +85,39 @@ class WeatherService {
             }
 
             // ⚡ ОПТИМИЗАЦИЯ (фикс 429): 2 запроса вместо 7, ретраи на 429/5xx
-            const forecastBundle = await this.getForecastBundle(lat, lon);
-            let archive = { history: [], hourlyPrecipitation: [], snowData: [] };
+            let forecastBundle = null;
+            let fallbackData = null;
             try {
-                archive = await this.getArchiveBundle(lat, lon, 7);
-            } catch (archiveError) {
-                console.log('⚠️ Ошибка архива погоды (не критично):', archiveError.message);
+                forecastBundle = await this.getForecastBundle(lat, lon);
+            } catch (fbError) {
+                if (fbError.message.indexOf('429') !== -1) {
+                    // 🔁 Резервный источник (wttr.in), если Open-Meteo исчерпал лимит
+                    fallbackData = await this.getWeatherFallback(lat, lon);
+                    if (!fallbackData) throw fbError;
+                    locationName = locationName + ' (резерв)';
+                } else {
+                    throw fbError;
+                }
             }
 
-            const currentWeather = forecastBundle.current;
-            const hourlyForecast = forecastBundle.hourly;
-            const dailyForecast = forecastBundle.forecast;
-            const sunTimes = forecastBundle.sunTimes;
+            const currentWeather = fallbackData ? fallbackData.current : forecastBundle.current;
+            const hourlyForecast = fallbackData ? fallbackData.hourly : forecastBundle.hourly;
+            const dailyForecast = fallbackData ? fallbackData.forecast : forecastBundle.forecast;
+            const sunTimes = fallbackData ? fallbackData.sunTimes : forecastBundle.sunTimes;
+
+            let archive = { history: [], hourlyPrecipitation: [], snowData: [] };
+            if (fallbackData) {
+                archive.history = fallbackData.history;
+                archive.hourlyPrecipitation = fallbackData.hourlyPrecipitation;
+                archive.snowData = fallbackData.snowData;
+            } else {
+                try {
+                    archive = await this.getArchiveBundle(lat, lon, 7);
+                } catch (archiveError) {
+                    console.log('⚠️ Ошибка архива погоды (не критично):', archiveError.message);
+                }
+            }
+
             const weatherHistory = archive.history;
             const hourlyPrecipitation = archive.hourlyPrecipitation;
             const snowData = archive.snowData;
@@ -282,6 +303,122 @@ class WeatherService {
         }
     }
 
+    // 🔁 РЕЗЕРВНЫЙ ИСТОЧНИК (wttr.in, без ключа) — когда Open-Meteo отдаёт 429
+    async getWeatherFallback(lat, lon) {
+        try {
+            const response = await axios.get('https://wttr.in/' + lat + ',' + lon + '?format=j1&lang=ru', { timeout: 8000 });
+            const j = response.data;
+            if (!j || !j.current_condition || !j.current_condition[0]) return null;
+            const cc = j.current_condition[0];
+            const now = new Date();
+            const current = {
+                time: now.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                temperature: Math.round(Number(cc.temp_C)),
+                feels_like: Math.round(Number(cc.FeelsLikeC)),
+                condition: this.wttrCondition(Number(cc.weatherCode), Number(cc.cloudcover)),
+                wind_speed: (Number(cc.windspeedKmph) / 3.6).toFixed(1),
+                humidity: Number(cc.humidity),
+                precipitation: Number(cc.precipMM || 0),
+                cloudiness: Number(cc.cloudcover || 0)
+            };
+
+            const forecast = [];
+            const weatherDays = j.weather || [];
+            for (const day of weatherDays.slice(0, 2)) {
+                const dt = new Date(day.date + 'T12:00:00');
+                let precip = 0;
+                for (const h of (day.hourly || [])) precip += Number(h.precipMM || 0);
+                const h0 = (day.hourly || [])[0] || {};
+                forecast.push({
+                    date: dt.toLocaleDateString('ru-RU', { weekday: 'short', day: 'numeric', month: 'short' }),
+                    day_temp: Math.round(Number(day.maxtempC)),
+                    night_temp: Math.round(Number(day.mintempC)),
+                    condition: this.wttrCondition(Number(h0.weatherCode || cc.weatherCode), null),
+                    precipitation: Math.round(precip * 10) / 10
+                });
+            }
+
+            const hourly = [];
+            const day0 = weatherDays[0] || {};
+            for (const h of (day0.hourly || [])) {
+                const hm = String(h.time).padStart(4, '0');
+                const hourNum = parseInt(hm.slice(0, 2), 10);
+                const slotDate = new Date(now);
+                slotDate.setHours(hourNum, 0, 0, 0);
+                if (slotDate <= now) continue;
+                const hoursDiff = Math.round((slotDate - now) / (1000 * 60 * 60));
+                let timeDisplay;
+                if (hoursDiff === 0) timeDisplay = 'Сейчас';
+                else if (hoursDiff === 1) timeDisplay = '+1 час';
+                else if (hoursDiff >= 2 && hoursDiff <= 4) timeDisplay = `+${hoursDiff} часа`;
+                else timeDisplay = `+${hoursDiff} часов`;
+                hourly.push({
+                    time: timeDisplay,
+                    hour: hourNum,
+                    temperature: Math.round(Number(h.tempC)),
+                    condition: this.wttrCondition(Number(h.weatherCode), null),
+                    precipitation: Number(h.precipMM || 0)
+                });
+                if (hourly.length >= 6) break;
+            }
+
+            let sunTimes = null;
+            const ast = (day0.astronomy && day0.astronomy[0]) || null;
+            if (ast && ast.sunrise && ast.sunset) {
+                const mk = (s) => {
+                    const m = s.match(/(\d{1,2}):(\d{2})\s*(AM|PM)/);
+                    if (!m) return null;
+                    let hh = parseInt(m[1], 10);
+                    if (m[3] === 'PM' && hh < 12) hh += 12;
+                    if (m[3] === 'AM' && hh === 12) hh = 0;
+                    const d = new Date(now);
+                    d.setHours(hh, parseInt(m[2], 10), 0, 0);
+                    return d;
+                };
+                const sr = mk(ast.sunrise);
+                const ss = mk(ast.sunset);
+                if (sr && ss) {
+                    sunTimes = {
+                        sunrise: sr,
+                        sunset: ss,
+                        sunriseStr: sr.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                        sunsetStr: ss.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                        dayLength: Math.round((ss - sr) / 1000 / 60 / 60 * 10) / 10
+                    };
+                }
+            }
+
+            return { current, hourly, forecast, history: [], hourlyPrecipitation: [], snowData: [], sunTimes };
+        } catch (error) {
+            console.log('⚠️ Резервный источник (wttr.in) недоступен:', error.message);
+            return null;
+        }
+    }
+
+    wttrCondition(code, cloudcover) {
+        const map = {
+            113: '☀️ Ясно', 116: '⛅️ Переменная облачность', 119: '☁️ Облачно',
+            122: '🌫️ Пасмурно', 143: '🌫️ Туман', 152: '💨 Смог', 248: '🌫️ Туман', 260: '🌫️ Туман',
+            176: '🌧️ Небольшой дождь', 263: '🌧️ Небольшой дождь', 293: '🌧️ Небольшой дождь',
+            296: '🌧️ Дождь', 266: '🌧️ Дождь', 302: '🌧️ Дождь', 299: '🌧️ Небольшой дождь',
+            305: '🌧️ Дождь', 353: '🌧️ Небольшой дождь', 356: '🌧️ Дождь',
+            308: '🌧️ Сильный дождь', 359: '🌧️ Сильный дождь',
+            179: '🌧️❄️ Дождь со снегом', 182: '🌧️❄️ Дождь со снегом', 185: '🌧️❄️ Дождь со снегом',
+            281: '🌧️❄️ Дождь со снегом', 284: '🌧️❄️ Дождь со снегом', 311: '🌧️❄️ Дождь со снегом',
+            314: '🌧️❄️ Дождь со снегом', 317: '🌧️❄️ Дождь со снегом', 320: '🌧️❄️ Дождь со снегом',
+            350: '🌧️❄️ Ледяной дождь', 374: '🌧️❄️ Ледяной дождь', 377: '🌧️❄️ Ледяной дождь',
+            200: '⛈️ Гроза', 386: '⛈️ Гроза', 389: '⛈️ Гроза',
+            227: '🌨️ Мелкий снег', 323: '🌨️ Мелкий снег', 326: '🌨️ Снег', 329: '🌨️ Снег',
+            332: '🌨️ Снег', 335: '🌨️ Снег', 338: '🌨️ Снег', 230: '🌨️ Снег',
+            368: '🌨️ Мелкий снег', 371: '🌨️ Снег', 392: '🌨️❄️ Снег с грозой', 395: '🌨️❄️ Снег с грозой'
+        };
+        if (map[code]) return map[code];
+        if (cloudcover != null && cloudcover <= 10) return '☀️ Ясно';
+        if (cloudcover != null && cloudcover <= 50) return '⛅️ Переменная облачность';
+        return '❓ Неизвестно';
+    }
+
+    // ⚡ ОДИН запрос: история + почасовые осадки + снег
     // ⚡ ОДИН запрос: история + почасовые осадки + снег (без snow_depth — Open-Meteo его больше не принимает)
     async getArchiveBundle(lat, lon, days = 7) {
         const endDate = new Date();
