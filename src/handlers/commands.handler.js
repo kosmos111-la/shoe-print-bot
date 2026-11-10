@@ -33,6 +33,20 @@ function formatModelWarning() {
         '</blockquote>',
     ].join('');
 }
+// 📏 Инструкция «Как делать 3–5 замеров в цепи» (сворачиваемый <blockquote expandable>)
+function formatMeasurementGuide() {
+    return [
+        '<blockquote expandable>📏 <b>Как делать замеры глубины</b>\n',
+        '1. Найдите <b>один чёткий след</b> (отпечаток протектора). Не переходите на соседние следы — все замеры должны быть в ОДНОМ следе.\n',
+        '2. Сделайте <b>3–5 замеров</b> в разных точках этого следа: пятка, носок, середина, края.\n',
+        '3. Используйте <b>металлическую линейку как щуп</b>: нащупайте твёрдый слой (лёд/наст/плотный снег) под рыхлым снегом. Если щуп «стукнулся» — это наст, отметьте это (бот спросит отдельно).\n',
+        '4. Замеряйте <b>только рыхлый свежий снег</b> над твёрдым слоем. Не включайте в замер сам лёд или утрамбованный снег.\n',
+        '5. Если разброс между замерами <b>больше 3 см</b> — след неравномерный (возможно, наметённый ветром). Бот предупредит.\n',
+        '6. Вводите замеры через пробел: например, <code>1.5 1.8 1.6</code>\n',
+        '7. <b>Минимум</b> из замеров бот берёт как основную глубину (исключает намет), <b>разброс</b> — как индикатор надёжности.\n',
+        '</blockquote>',
+    ].join('');
+}
 module.exports = function registerCommandsHandler(bot, ctx) {
 
 // ===== HELPERS: получение моделей пользователя (обёртка над getPermanentModels) =====
@@ -341,6 +355,8 @@ bot.onText(/\/calc_snow_age/, async (msg) => {
     userContext[userId] = 'waiting_snow_age_location';
     // ⚠️ Ограничения модели — предупреждение до ввода данных (сворачиваемое)
     await bot.sendMessage(chatId, formatModelWarning(), { parse_mode: 'HTML' });
+    // 📏 Инструкция по замерам — после предупреждения, до ввода глубин
+    await bot.sendMessage(chatId, formatMeasurementGuide(), { parse_mode: 'HTML' });
 
     await bot.sendMessage(chatId,
         '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
@@ -2796,3 +2812,4 @@ bot.onText(/\/system_info/, async (msg) => {
 
 };
 module.exports.formatModelWarning = formatModelWarning;
+module.exports.formatMeasurementGuide = formatMeasurementGuide;
