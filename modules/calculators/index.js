@@ -62,7 +62,7 @@ function getVkpoKit(temp, wind, precip, condition = '') {
     };
     // динамика (в движении) — база: софтшел почти всегда, кроме жары
     let ids;
-    if (T < -15) ids = [1, 2, 3, 5, 7];
+    if (T < -7) ids = [1, 2, 3, 5, 7];
     else if (T < 0) ids = [1, 2, 3, 5];
     else if (P > 2) ids = [1, 5, 6];
     else if (P > 0) ids = [1, 5];
@@ -161,8 +161,8 @@ function formatWeatherCompact(data) {
     }
 
     out.push('');
-    // Блок 3: слои ВКПО
-    out.push('👕 <b>Экипировка (ВКПО):</b>');
+    // Блок 3: рекомендации по слоям одежды
+    out.push('👕 <b>Рекомендации по слоям одежды:</b>');
     const kit = getVkpoKit(T, W, P, cond);
     out.push('🏃 <b>В движении (база):</b>');
     out.push(...kit.layers);
@@ -283,7 +283,7 @@ function initialize() {
                 }
 
                 const data = result.result;
-                // Компактный отчёт: штурм / сводка / слои ВКПО / детали-спойлер
+                // Компактный отчёт: штурм / сводка / слои / детали-спойлер
                 const compactReport = formatWeatherCompact(data);
 
                 if (chatId && bot) {
