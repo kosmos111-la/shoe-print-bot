@@ -339,12 +339,13 @@ function initialize() {
                             data.forecast,
                             data.location,
                             data.hourlyPrecipitation,
-                            data.snowData
+                            data.snowData,
+                            data.sunTimes
                         );
                         if (graphBuffer) {
                             // Сначала — текст решения, затем график (легенда графика убрана)
                             await bot.sendMessage(chatId, compactReport, { parse_mode: 'HTML' });
-                            const graphCaption = `📊 <b>${(data.location || '').toUpperCase()}</b> — температура, осадки, снежный покров (7 дней + прогноз 2 дня)`;
+                            const graphCaption = `📊 <b>${(data.location || '').toUpperCase()}</b> — температура, осадки, облачность, снежный покров (7 дней + прогноз 2 дня)`;
                             await bot.sendPhoto(chatId, graphBuffer, { caption: graphCaption, parse_mode: 'HTML' });
                             return null;
                         }

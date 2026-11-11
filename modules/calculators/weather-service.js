@@ -266,7 +266,7 @@ class WeatherService {
             latitude: lat,
             longitude: lon,
             current: 'temperature_2m,relative_humidity_2m,apparent_temperature,weather_code,wind_speed_10m,precipitation',
-            hourly: 'temperature_2m,weather_code,precipitation',
+            hourly: 'temperature_2m,weather_code,precipitation,cloud_cover',
             daily: 'weather_code,temperature_2m_max,temperature_2m_min,precipitation_sum,sunrise,sunset',
             forecast_days: 3,
             timezone: 'auto'
@@ -303,7 +303,8 @@ class WeatherService {
                 hour: forecastTime.getHours(),
                 temperature: Math.round(hourly.temperature_2m[i]),
                 condition: this.getWeatherCondition(hourly.weather_code[i]),
-                precipitation: hourly.precipitation[i]
+                precipitation: hourly.precipitation[i],
+                cloudiness: hourly.cloud_cover[i]
             });
             addedCount++;
         }
@@ -518,7 +519,7 @@ class WeatherService {
             start_date: startDate.toISOString().split('T')[0],
             end_date: endDate.toISOString().split('T')[0],
             daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,weather_code,wind_speed_10m_max,snowfall_sum',
-            hourly: 'precipitation,weather_code,temperature_2m',
+            hourly: 'precipitation,weather_code,temperature_2m,cloud_cover',
             timezone: 'auto'
         });
 
@@ -553,7 +554,8 @@ class WeatherService {
                 timeOfDay: timeOfDay,
                 precipitation: hourly.precipitation[i] || 0,
                 temperature: hourly.temperature_2m[i],
-                weather_code: hourly.weather_code[i]
+                weather_code: hourly.weather_code[i],
+                cloudiness: hourly.cloud_cover[i]
             });
         }
 
