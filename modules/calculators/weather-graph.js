@@ -13,11 +13,17 @@ class WeatherGraph {
             zeroLine: '#10b981',
             separator: '#ef4444',
             timeDivider: '#334155',
-            snow: '#7dd3fc'
+            snow: '#7dd3fc',
+            dayBandEven: 'rgba(255, 255, 255, 0.07)',
+            dayBandOdd: 'rgba(0, 0, 0, 0.06)',
+            dayBoundary: 'rgba(51, 65, 85, 0.3)',
+            cloudLight: 'rgba(148, 163, 184, 0.3)',
+            cloudMid: 'rgba(100, 116, 139, 0.5)',
+            cloudHeavy: 'rgba(51, 65, 85, 0.7)'
         };
     }
 
-    async generateWeatherGraph(history, forecast, location, hourlyPrecipitation = null, snowData = null) {
+    async generateWeatherGraph(history, forecast, location, hourlyPrecipitation = null, snowData = null, sunTimes = null) {
         const allDays = await this.prepareDataWithHourly(history, forecast, hourlyPrecipitation);
         if (allDays.length === 0) return null;
 
@@ -48,16 +54,18 @@ class WeatherGraph {
         ctx.save();
         ctx.translate(margins.left, margins.top);
 
+        this.drawDayBands(ctx, allDays, graphWidth, graphHeight);
+        this.drawDayNight(ctx, allDays, graphWidth, graphHeight, sunTimes);
         this.drawGrid(ctx, graphWidth, graphHeight, ranges);
-        this.drawSeparator(ctx, allDays, graphWidth, graphHeight);
-        this.drawSmoothTemperatureLine(ctx, allDays, graphWidth, graphHeight, ranges);
+                this.drawSmoothTemperatureLine(ctx, allDays, graphWidth, graphHeight, ranges);
         this.drawTimeDividers(ctx, allDays, graphWidth, graphHeight);
         this.drawPrecipitationBars(ctx, allDays, graphWidth, graphHeight, ranges, hourlyPrecipitation);
         this.drawSnowLayer(ctx, allDays, snowData, graphWidth, graphHeight, ranges);
+        this.drawCloudBand(ctx, allDays, graphWidth, graphHeight, hourlyPrecipitation);
         this.drawTemperaturePoints(ctx, graphWidth, graphHeight);
         this.drawLabels(ctx, allDays, graphWidth, graphHeight);
         this.drawHeader(ctx, canvas.width, margins.top, location);
-        this.drawLegend(ctx, canvas.width, margins.top);
+        
 
         ctx.restore();
 
@@ -165,19 +173,29 @@ class WeatherGraph {
             if (day.night_temp !== null) allTemps.push(day.night_temp);
         });
 
-        const maxTemp = Math.max(...allTemps, 30);
-        const minTemp = Math.min(...allTemps, -20);
-        const tempRange = maxTemp - minTemp;
-
-        const paddedMax = maxTemp + tempRange * 0.1;
-        const paddedMin = minTemp - tempRange * 0.1;
+        let minTemp, maxTemp;
+        if (allTemps.length === 0) {
+            minTemp = -30;
+            maxTemp = 30;
+        } else {
+            const rawMin = Math.min(...allTemps);
+            const rawMax = Math.max(...allTemps);
+            // динамическая шкала: шаг 5°C, запас ±5°C, минимум диапазон 15°C
+            minTemp = Math.round(rawMin / 5) * 5 - 5;
+            maxTemp = Math.round(rawMax / 5) * 5 + 5;
+            if (maxTemp - minTemp < 15) {
+                const need = 15 - (maxTemp - minTemp);
+                minTemp -= Math.ceil(need / 2 / 5) * 5;
+                maxTemp += Math.ceil(need / 2 / 5) * 5;
+            }
+        }
 
         const maxPrecip = Math.max(...allDays.map(d => d.precipitation), 10);
 
         return {
-            maxTemp: paddedMax,
-            minTemp: paddedMin,
-            tempRange: paddedMax - paddedMin,
+            maxTemp: maxTemp,
+            minTemp: minTemp,
+            tempRange: maxTemp - minTemp,
             maxPrecip: maxPrecip
         };
     }
@@ -196,9 +214,10 @@ class WeatherGraph {
             ctx.stroke();
         }
 
-        const tempSteps = 10;
-        for (let i = 0; i <= tempSteps; i++) {
-            const temp = ranges.minTemp + (i / tempSteps) * ranges.tempRange;
+        // шаг оси: диапазон <=25°C — 2.5°C, шире — 5°C (расстояние между подписями всегда > 15 px)
+        const spanY = ranges.maxTemp - ranges.minTemp;
+        const step = spanY <= 25 ? 2.5 : 5;
+        for (let temp = ranges.minTemp; temp <= ranges.maxTemp + 1e-9; temp += step) {
             const y = height - ((temp - ranges.minTemp) / ranges.tempRange) * height;
 
             ctx.beginPath();
@@ -210,18 +229,21 @@ class WeatherGraph {
 
             ctx.fillStyle = this.colors.textMuted;
             ctx.font = '12px "Segoe UI", Arial';
-            ctx.fillText(`${Math.round(temp)}°C`, -35, y + 4);
+            ctx.fillText(`${temp}°C`, -35, y + 4);
         }
 
-        const zeroY = height - ((0 - ranges.minTemp) / ranges.tempRange) * height;
-        ctx.beginPath();
-        ctx.strokeStyle = this.colors.zeroLine;
-        ctx.lineWidth = 2;
-        ctx.setLineDash([8, 8]);
-        ctx.moveTo(0, zeroY);
-        ctx.lineTo(width, zeroY);
-        ctx.stroke();
-        ctx.setLineDash([]);
+        // нулевая линия — только если 0°C внутри шкалы
+        if (ranges.minTemp <= 0 && ranges.maxTemp >= 0) {
+            const zeroY = height - ((0 - ranges.minTemp) / ranges.tempRange) * height;
+            ctx.beginPath();
+            ctx.strokeStyle = this.colors.zeroLine;
+            ctx.lineWidth = 2;
+            ctx.setLineDash([8, 8]);
+            ctx.moveTo(0, zeroY);
+            ctx.lineTo(width, zeroY);
+            ctx.stroke();
+            ctx.setLineDash([]);
+        }
 
         ctx.restore();
     }
@@ -282,23 +304,29 @@ class WeatherGraph {
             ctx.beginPath();
             ctx.moveTo(points[0].x, points[0].y);
 
-            for (let i = 1; i < points.length - 1; i++) {
-                const p0 = points[i - 1];
-                const p1 = points[i];
-                const p2 = points[i + 1];
-
-                const cp1x = p1.x - (p2.x - p0.x) / 6;
-                const cp1y = p1.y - (p2.y - p0.y) / 6;
-                const cp2x = p1.x + (p2.x - p0.x) / 6;
-                const cp2y = p1.y + (p2.y - p0.y) / 6;
-
-                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p1.x, p1.y);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
             }
 
-            ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
+            // градиент линии по температуре
+            const grad = ctx.createLinearGradient(0, height, 0, 0);
+            const stops = [
+                { t: -30, c: '#1e40af' },
+                { t: -10, c: '#38bdf8' },
+                { t: 0, c: '#ffffff' },
+                { t: 10, c: '#f97316' },
+                { t: 30, c: '#ef4444' }
+            ];
+            const span = ranges.tempRange;
+            for (const s of stops) {
+                const pos = Math.max(0, Math.min(1, (s.t - ranges.minTemp) / span));
+                grad.addColorStop(pos, s.c);
+            }
 
-            ctx.strokeStyle = this.colors.temperature;
-            ctx.lineWidth = 3;
+            ctx.strokeStyle = grad;
+            ctx.lineWidth = 15;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.stroke();
         }
 
@@ -326,7 +354,7 @@ class WeatherGraph {
                     ctx.setLineDash([5, 5]);
                     ctx.moveTo(divider.x, 0);
                     ctx.lineTo(divider.x, height);
-                    ctx.stroke();
+            ctx.stroke();
                     ctx.setLineDash([]);
 
                     ctx.fillStyle = this.colors.textMuted;
@@ -338,72 +366,83 @@ class WeatherGraph {
     }
 
     drawPrecipitationBars(ctx, allDays, width, height, ranges, hourlyPrecipitation) {
-    const totalPoints = allDays.length * 4;
-    const stepX = width / (totalPoints - 1);
-    const maxBarHeight = height * 0.35;
+    const totalPoints = allDays.length * 4;
+    const stepX = width / (totalPoints - 1);
+    const maxBarHeight = height * 0.35;
 
-    for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
-        const baseIndex = dayIndex * 4;
-        const dayDate = allDays[dayIndex].date;
+    for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
+        const baseIndex = dayIndex * 4;
+        const dayDate = allDays[dayIndex].date;
+        const day = allDays[dayIndex];
 
-        const dayPrecipitations = { morning: 0, day: 0, evening: 0, night: 0 };
+        const dayPrecipitations = { morning: 0, day: 0, evening: 0, night: 0 };
+        const dayTemps = { morning: null, day: null, evening: null, night: null };
 
-        if (hourlyPrecipitation) {
-            const dayHours = hourlyPrecipitation.filter(h => h.date === dayDate);
-            dayHours.forEach(hour => {
-                if (hour.timeOfDay === 'morning') dayPrecipitations.morning += hour.precipitation;
-                else if (hour.timeOfDay === 'day') dayPrecipitations.day += hour.precipitation;
-                else if (hour.timeOfDay === 'evening') dayPrecipitations.evening += hour.precipitation;
-                else if (hour.timeOfDay === 'night') dayPrecipitations.night += hour.precipitation;
-            });
-        } else {
-            const totalPrecip = allDays[dayIndex].precipitation;
-            dayPrecipitations.morning = totalPrecip * 0.2;
-            dayPrecipitations.day = totalPrecip * 0.4;
-            dayPrecipitations.evening = totalPrecip * 0.3;
-            dayPrecipitations.night = totalPrecip * 0.1;
-        }
+        if (hourlyPrecipitation) {
+            const dayHours = hourlyPrecipitation.filter(h => h.date === dayDate);
+            dayHours.forEach(hour => {
+                if (hour.timeOfDay === 'morning') dayPrecipitations.morning += hour.precipitation;
+                else if (hour.timeOfDay === 'day') dayPrecipitations.day += hour.precipitation;
+                else if (hour.timeOfDay === 'evening') dayPrecipitations.evening += hour.precipitation;
+                else if (hour.timeOfDay === 'night') dayPrecipitations.night += hour.precipitation;
+                if (dayTemps[hour.timeOfDay] == null && hour.temperature != null) {
+                    dayTemps[hour.timeOfDay] = hour.temperature;
+                }
+            });
+        } else {
+            const totalPrecip = day.precipitation;
+            dayPrecipitations.morning = totalPrecip * 0.2;
+            dayPrecipitations.day = totalPrecip * 0.4;
+            dayPrecipitations.evening = totalPrecip * 0.3;
+            dayPrecipitations.night = totalPrecip * 0.1;
+        }
 
-        const positions = [
-            { time: 'morning', x: (baseIndex + 0.5) * stepX, precip: dayPrecipitations.morning },
-            { time: 'day', x: (baseIndex + 1.5) * stepX, precip: dayPrecipitations.day },
-            { time: 'evening', x: (baseIndex + 2.5) * stepX, precip: dayPrecipitations.evening },
-            { time: 'night', x: (baseIndex + 3.5) * stepX, precip: dayPrecipitations.night }
-        ];
+        // недостающие температуры — из слотов дня (дни прогноза без почасовых данных)
+        if (dayTemps.morning == null) dayTemps.morning = day.morning_temp;
+        if (dayTemps.day == null) dayTemps.day = day.day_temp;
+        if (dayTemps.evening == null) dayTemps.evening = day.evening_temp;
+        if (dayTemps.night == null) dayTemps.night = day.night_temp;
 
-        const barWidth = stepX * 0.5;
+        const positions = [
+            { time: 'morning', x: (baseIndex + 0.5) * stepX, precip: dayPrecipitations.morning },
+            { time: 'day', x: (baseIndex + 1.5) * stepX, precip: dayPrecipitations.day },
+            { time: 'evening', x: (baseIndex + 2.5) * stepX, precip: dayPrecipitations.evening },
+            { time: 'night', x: (baseIndex + 3.5) * stepX, precip: dayPrecipitations.night }
+        ];
 
-        positions.forEach(pos => {
-            if (pos.precip > 0) {
-                const barHeight = (pos.precip / ranges.maxPrecip) * maxBarHeight;
-                const x = pos.x - barWidth / 2;
-                const y = height - barHeight;
+        const barWidth = stepX * 0.5;
 
-                const gradient = ctx.createLinearGradient(x, y, x + barWidth, y + barHeight);
-                if (allDays[dayIndex].type === 'forecast') {
-                    gradient.addColorStop(0, '#c084fc');
-                    gradient.addColorStop(1, '#a855f7');
-                } else {
-                    gradient.addColorStop(0, '#06b6d4');
-                    gradient.addColorStop(1, '#0891b2');
-                }
+        positions.forEach(pos => {
+            if (pos.precip > 0) {
+                const barHeight = (pos.precip / ranges.maxPrecip) * maxBarHeight;
+                const x = pos.x - barWidth / 2;
+                const y = height - barHeight;
 
-                ctx.fillStyle = gradient;
-                ctx.fillRect(x, y, barWidth, barHeight);
+                const gradient = ctx.createLinearGradient(x, y, x + barWidth, y + barHeight);
+                // снег (T < 0) — белый/светло-голубой, дождь (T >= 0) — голубой
+                const isSnow = dayTemps[pos.time] != null && dayTemps[pos.time] < 0;
+                if (isSnow) {
+                    gradient.addColorStop(0, '#e0f2fe');
+                    gradient.addColorStop(1, '#7dd3fc');
+                } else {
+                    gradient.addColorStop(0, '#38bdf8');
+                    gradient.addColorStop(1, '#06b6d4');
+                }
 
-                ctx.strokeStyle = '#ffffff';
-                ctx.lineWidth = 1;
-                ctx.strokeRect(x, y, barWidth, barHeight);
+                ctx.fillStyle = gradient;
+                ctx.fillRect(x, y, barWidth, barHeight);
 
-                // 🔥 УБРАНО УСЛОВИЕ: показываем подписи для всех осадков
-                ctx.fillStyle = this.colors.text;
-                ctx.font = '9px "Segoe UI", Arial';
-                ctx.fillText(`${pos.precip.toFixed(1)}мм`, x + barWidth / 2 - 14, y - 5);
-            }
-        });
-    }
-}
-
+                // значение осадков над столбцом
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 11px "Segoe UI", Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                const mm = pos.precip >= 1 ? Math.round(pos.precip) : (Math.round(pos.precip * 10) / 10);
+                ctx.fillText(mm + ' мм', pos.x, y - 4);
+            }
+        });
+    }
+    }
     drawSnowLayer(ctx, allDays, snowData, width, height, ranges) {
         if (!snowData || snowData.length === 0) return;
 
@@ -431,13 +470,6 @@ class WeatherGraph {
             ctx.fillStyle = gradient;
             ctx.fillRect(x - barWidth / 2, y, barWidth, barHeight);
 
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 1;
-            ctx.strokeRect(x - barWidth / 2, y, barWidth, barHeight);
-
-            ctx.fillStyle = this.colors.text;
-            ctx.font = '9px "Segoe UI", Arial';
-            ctx.fillText(`${snowForDay.snowDepth} см`, x - barWidth / 2 + 5, y - 3);
 
             if (snowForDay.snowfall > 0) {
                 ctx.fillStyle = '#ffffff';
@@ -448,24 +480,168 @@ class WeatherGraph {
     }
 
     drawTemperaturePoints(ctx, width, height) {
-        if (!this.temperaturePoints) return;
+    if (!this.temperaturePoints) return;
 
-        this.temperaturePoints.forEach(point => {
-            ctx.fillStyle = this.colors.temperature;
-            ctx.beginPath();
-            ctx.arc(point.x, point.y, 6, 0, 2 * Math.PI);
-            ctx.fill();
+    this.temperaturePoints.forEach(point => {
+        // белые точки, тонкий тёмный контур для читаемости на светлом фоне
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI);
+        ctx.fill();
 
-            ctx.strokeStyle = '#ffffff';
-            ctx.lineWidth = 2;
+        ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI);
+        ctx.stroke();
+
+        // значение температуры над точкой (под точкой, если верх обрезается)
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px "Segoe UI", Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        const labelY = point.y - 22 < 14 ? point.y + 28 : point.y - 22;
+        ctx.fillText(Math.round(point.temp) + '°', point.x, labelY);
+    });
+    }
+    drawDayBands(ctx, allDays, width, height) {
+        const totalPoints = allDays.length * 4;
+        const stepX = width / (totalPoints - 1);
+
+        // чередующиеся фоны дней: чётный — светлее, нечётный — темнее
+        for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
+            const x0 = dayIndex * 4 * stepX;
+            const x1 = (dayIndex + 1) * 4 * stepX;
+            ctx.fillStyle = (dayIndex % 2 === 0) ? this.colors.dayBandEven : this.colors.dayBandOdd;
+            ctx.fillRect(x0, 0, x1 - x0, height);
+        }
+
+        // тонкие границы дней
+        ctx.strokeStyle = this.colors.dayBoundary;
+        ctx.lineWidth = 1;
+        for (let dayIndex = 1; dayIndex < allDays.length; dayIndex++) {
+            const x = dayIndex * 4 * stepX;
             ctx.beginPath();
-            ctx.arc(point.x, point.y, 6, 0, 2 * Math.PI);
+            ctx.moveTo(x, 0);
+            ctx.lineTo(x, height);
             ctx.stroke();
+        }
+    }
 
-            ctx.fillStyle = '#ffffff';
-            ctx.font = 'bold 10px "Segoe UI", Arial';
-            ctx.fillText(`${Math.round(point.temp)}°`, point.x - 10, point.y - 8);
-        });
+    drawDayNight(ctx, allDays, width, height, sunTimes) {
+        // реальные восход/закат из OM, иначе фиксированные 6:00–18:00
+        let sunriseH = 6;
+        let sunsetH = 18;
+        if (sunTimes && sunTimes.sunrise instanceof Date && sunTimes.sunset instanceof Date) {
+            const sr = sunTimes.sunrise.getHours();
+            const ss = sunTimes.sunset.getHours();
+            if (Number.isFinite(sr) && Number.isFinite(ss) && sr < ss) {
+                sunriseH = sr;
+                sunsetH = ss;
+            }
+        }
+
+        // середины 4 слотов суток: утро, день, вечер, ночь
+        const slotHours = [9, 15, 20, 2];
+        const isDay = slotHours.map(h => h >= sunriseH && h <= sunsetH);
+
+        const totalPoints = allDays.length * 4;
+        const stepX = width / (totalPoints - 1);
+
+        for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
+            const base = dayIndex * 4;
+            let lightStart = 4;
+            let lightEnd = -1;
+            for (let s = 0; s < 4; s++) {
+                if (isDay[s]) {
+                    if (lightStart === 4) lightStart = s;
+                    lightEnd = s;
+                }
+            }
+
+            const xOf = (slot) => (base + slot) * stepX;
+
+            // тёмный участок до восхода
+            if (lightStart > 0) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
+                ctx.fillRect(xOf(0), 0, xOf(lightStart) - xOf(0), height);
+            }
+            // светлый участок от восхода до заката
+            if (lightEnd >= lightStart) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+                ctx.fillRect(xOf(lightStart), 0, xOf(lightEnd + 1) - xOf(lightStart), height);
+            }
+            // тёмный участок после заката
+            if (lightEnd >= 0 && lightEnd < 3) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.03)';
+                ctx.fillRect(xOf(lightEnd + 1), 0, xOf(4) - xOf(lightEnd + 1), height);
+            }
+        }
+    }
+
+    drawCloudBand(ctx, allDays, width, height, hourlyPrecipitation) {
+        if (!hourlyPrecipitation || hourlyPrecipitation.length === 0) return;
+
+        const totalPoints = allDays.length * 4;
+        const stepX = width / (totalPoints - 1);
+        const bandY = height - 8;
+        const bandH = 8;
+        const slotNames = ['morning', 'day', 'evening', 'night'];
+
+        const colorForCloud = (c) => {
+            if (c < 20) return null;
+            if (c < 50) return this.colors.cloudLight;
+            if (c < 80) return this.colors.cloudMid;
+            return this.colors.cloudHeavy;
+        };
+
+        for (let dayIndex = 0; dayIndex < allDays.length; dayIndex++) {
+            const base = dayIndex * 4;
+            const date = allDays[dayIndex].date;
+            const dayHours = hourlyPrecipitation.filter(h => h.date === date);
+            if (dayHours.length === 0) continue;
+
+            for (let s = 0; s < 4; s++) {
+                const slotHours = dayHours.filter(h => h.timeOfDay === slotNames[s] && h.cloudiness != null);
+                if (slotHours.length === 0) continue;
+                const avg = slotHours.reduce((sum, h) => sum + h.cloudiness, 0) / slotHours.length;
+                const color = colorForCloud(avg);
+                if (!color) continue;
+
+                const x0 = (base + s) * stepX;
+                const x1 = (base + s + 1) * stepX;
+                ctx.fillStyle = color;
+                ctx.fillRect(x0, bandY, x1 - x0, bandH);
+            }
+        }
+
+    }
+
+    colorForTemp(temp) {
+        const stops = [
+            { t: -30, c: '#1e40af' },
+            { t: -10, c: '#38bdf8' },
+            { t: 0, c: '#ffffff' },
+            { t: 10, c: '#f97316' },
+            { t: 30, c: '#ef4444' }
+        ];
+        if (temp <= stops[0].t) return stops[0].c;
+        if (temp >= stops[stops.length - 1].t) return stops[stops.length - 1].c;
+        for (let i = 0; i < stops.length - 1; i++) {
+            const a = stops[i];
+            const b = stops[i + 1];
+            if (temp >= a.t && temp <= b.t) {
+                return this._lerpHex(a.c, b.c, (temp - a.t) / (b.t - a.t));
+            }
+        }
+        return stops[0].c;
+    }
+
+    _lerpHex(c1, c2, f) {
+        const p1 = [parseInt(c1.slice(1, 3), 16), parseInt(c1.slice(3, 5), 16), parseInt(c1.slice(5, 7), 16)];
+        const p2 = [parseInt(c2.slice(1, 3), 16), parseInt(c2.slice(3, 5), 16), parseInt(c2.slice(5, 7), 16)];
+        const ch = (i) => Math.round(p1[i] + (p2[i] - p1[i]) * f).toString(16).padStart(2, '0');
+        return `#${ch(0)}${ch(1)}${ch(2)}`;
     }
 
     drawLabels(ctx, allDays, width, height) {
@@ -488,15 +664,6 @@ class WeatherGraph {
             ctx.font = '12px "Segoe UI", Arial';
             ctx.fillText(dayNum, x - 12, height + 65);
 
-            if (allDays[dayIndex].type === 'forecast') {
-                ctx.fillStyle = this.colors.forecastPrecip;
-                ctx.font = '9px "Segoe UI", Arial';
-                ctx.fillText('🔮 прогноз', x - 18, height + 90);
-            } else if (allDays[dayIndex].type === 'history' && dayIndex === 0) {
-                ctx.fillStyle = this.colors.precipitation;
-                ctx.font = '9px "Segoe UI", Arial';
-                ctx.fillText('📊 история', x - 16, height + 90);
-            }
         }
     }
 
@@ -519,61 +686,8 @@ class WeatherGraph {
         ctx.restore();
     }
 
-    drawLegend(ctx, width, topMargin) {
-        ctx.save();
 
-        const startX = width - 320;
-        const startY = topMargin - 40;
 
-        ctx.font = 'bold 12px "Segoe UI", Arial';
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('📖 ЛЕГЕНДА:', startX, startY);
-
-        ctx.fillStyle = this.colors.temperature;
-        ctx.beginPath();
-        ctx.arc(startX + 12, startY + 20, 6, 0, 2 * Math.PI);
-        ctx.fill();
-        ctx.fillStyle = this.colors.text;
-        ctx.font = '11px "Segoe UI", Arial';
-        ctx.fillText('Температура (плавная линия)', startX + 28, startY + 24);
-
-        ctx.beginPath();
-        ctx.strokeStyle = this.colors.timeDivider;
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]);
-        ctx.moveTo(startX + 12, startY + 44);
-        ctx.lineTo(startX + 24, startY + 44);
-        ctx.stroke();
-        ctx.setLineDash([]);
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('Разделение времени суток', startX + 32, startY + 48);
-
-        ctx.fillStyle = this.colors.precipitation;
-        ctx.fillRect(startX + 12, startY + 66, 12, 12);
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('Осадки (дождь, мм)', startX + 32, startY + 78);
-
-        ctx.fillStyle = this.colors.forecastPrecip;
-        ctx.fillRect(startX + 12, startY + 94, 12, 12);
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('Осадки (прогноз)', startX + 32, startY + 106);
-
-        const gradient = ctx.createLinearGradient(startX + 12, startY + 122, startX + 24, startY + 134);
-        gradient.addColorStop(0, '#e0f2fe');
-        gradient.addColorStop(1, '#7dd3fc');
-        ctx.fillStyle = gradient;
-        ctx.fillRect(startX + 12, startY + 122, 12, 12);
-        ctx.fillStyle = this.colors.text;
-        ctx.fillText('❄️ Снежный покров (см)', startX + 32, startY + 134);
-
-        ctx.fillStyle = this.colors.textMuted;
-        ctx.font = '10px "Segoe UI", Arial';
-        ctx.fillText('⏰ 4 точки в сутки: Утро → День → Вечер → Ночь', startX, startY + 160);
-        ctx.fillText('📈 Плавная линия температуры', startX, startY + 178);
-        ctx.fillText('❄️ Голубые столбцы - высота снега', startX, startY + 196);
-
-        ctx.restore();
-    }
 }
 
 module.exports = { WeatherGraph };

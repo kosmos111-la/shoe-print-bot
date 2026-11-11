@@ -3,590 +3,246 @@
 const shoeSizeCalculator = require('./shoe-size');
 const { WeatherService } = require('./weather-service');
 const { WeatherGraph } = require('./weather-graph');  // ← ДОБАВИТЬ ЭТУ СТРОКУ
+const tracker = require('./tracker-tool'); // новая проверенная модель давности (порт tracker_tool.py)
 const axios = require('axios');
 
-class SnowCalculator {
-    constructor() {
-        this.weatherService = new WeatherService();
-    }
 
-    // 🎯 ФИЗИЧЕСКАЯ МОДЕЛЬ СНЕГА (БЕЗ ИЗМЕНЕНИЙ - проверенная за 2 года в лесу)
-    calculateSnowEvolution(weatherHistory) {
-        let snowPack = {
-            totalDepth: 10, // начальная высота снега 10 см
-            freshSnow: 5,
-            compaction: 0,
-            hasCrust: false,
-            crustDepth: 0,
-            hadMelting: false
-        };
 
-        const evolution = [];
-
-        weatherHistory.forEach((day, index) => {
-            // Расчет свежего снега
-            const freshSnow = this.calculateFreshSnowDepth(day);
-            snowPack.totalDepth += freshSnow;
-            snowPack.freshSnow += freshSnow;
-
-            // Уплотнение
-            const compaction = this.calculateSnowCompaction(snowPack, day);
-            snowPack.totalDepth -= compaction;
-            snowPack.freshSnow = Math.max(0, snowPack.freshSnow - compaction * 0.7);
-            snowPack.compaction += compaction;
-
-            // Испарение
-            const evaporation = this.calculateSnowEvaporation(snowPack, day);
-            snowPack.totalDepth = Math.max(0, snowPack.totalDepth - evaporation);
-
-            // Таяние
-            const melting = this.calculateSnowMelting(snowPack, day);
-            snowPack.totalDepth = Math.max(0, snowPack.totalDepth - melting);
-            if (melting > 0) snowPack.hadMelting = true;
-
-            // Образование наста
-            this.updateCrustFormation(snowPack, day, index);
-
-            evolution.push({
-                date: day.date,
-                precipitation: day.precipitation,
-                temperature: day.temperature,
-                freshSnow: freshSnow,
-                compaction: compaction,
-                evaporation: evaporation,
-                melting: melting,
-                totalDepth: snowPack.totalDepth,
-                hasCrust: snowPack.hasCrust,
-                crustDepth: snowPack.crustDepth
-            });
-        });
-
-        return evolution;
+// ---------- helpers для новой модели давности ----------
+function pad2(n) { return String(n).padStart(2, '0'); }
+function parseDateOnly(input) {
+    const d = (input instanceof Date) ? new Date(input.getTime()) : new Date(input);
+    if (isNaN(d.getTime())) return null;
+    return { y: d.getFullYear(), m: d.getMonth() + 1, d: d.getDate() };
+}
+function isoDate(p) { return p.y + '-' + pad2(p.m) + '-' + pad2(p.d); }
+function seasonForDate(y, m) {
+    // сезоны дневника: ноябрь–апрель; май–октябрь — сезона нет
+    if (m >= 11 || m <= 4) {
+        const y0 = m >= 11 ? y : y - 1;
+        return y0 + '-' + pad2((y0 + 1) % 100);
     }
-
-    calculateFreshSnowDepth(day) {
-        // Используем реальные данные о снеге если есть
-        if (day.snow && day.snow > 0) {
-            return day.snow * 10; // Переводим см снега в эквивалент воды
-        }
-       
-        // Если снега нет, но есть осадки и температура подходящая
-        if (day.precipitation <= 0 || day.temperature > 2) return 0;
-       
-        // Плотность снега в зависимости от температуры
-        let density;
-        if (day.temperature < -15) density = 0.05;      // очень холодный - пушистый
-        else if (day.temperature < -5) density = 0.08;  // холодный
-        else if (day.temperature < 0) density = 0.12;   // влажный
-        else return 0;                                  // выше 0 - дождь
-       
-        return (day.precipitation / density) / 10; // перевод в см
-    }
-
-    calculateSnowCompaction(snowPack, day) {
-        if (snowPack.totalDepth <= 0) return 0;
-
-        let rate;
-        if (day.temperature < -10) rate = 0.02;      // малое уплотнение на морозе
-        else if (day.temperature < -2) rate = 0.05;  // среднее уплотнение
-        else if (day.temperature < 2) rate = 0.10;   // сильное уплотнение
-        else rate = 0.15;                           // очень сильное при оттепели
-
-        // Уплотнение зависит от ветра и общего слоя снега
-        const windFactor = 1 + (day.wind_speed / 20);
-        return snowPack.totalDepth * rate * windFactor * 0.1;
-    }
-
-    calculateSnowEvaporation(snowPack, day) {
-        if (snowPack.totalDepth <= 0) return 0;
-
-        let rate;
-        if (day.wind_speed < 2) rate = 0.1;
-        else if (day.wind_speed < 5) rate = 0.3;
-        else if (day.wind_speed < 10) rate = 0.7;
-        else rate = 1.2;
-
-        const humidityFactor = day.humidity < 60 ? 1.5 : 1.0;
-        return rate * humidityFactor * 0.1;
-    }
-
-    calculateSnowMelting(snowPack, day) {
-        if (day.temperature <= 0) return 0;
-
-        // Таяние пропорционально положительной температуре
-        const meltingRate = 2.0; // см на градус в день
-        return Math.max(0, day.temperature * meltingRate * 0.1);
-    }
-
-    updateCrustFormation(snowPack, day, dayIndex) {
-        const canFormCrust = day.temperature < -2 &&
-                           day.precipitation === 0 &&
-                           day.wind_speed < 5;
-
-        if (canFormCrust) {
-            if (!snowPack.hasCrust) {
-                snowPack.hasCrust = true;
-                snowPack.crustDepth = 0.1;
-            } else {
-                snowPack.crustDepth = Math.min(3.0, snowPack.crustDepth + 0.1);
-            }
-        } else {
-            // Разрушение наста при осадках или потеплении
-            if (day.precipitation > 1 || day.temperature > 0) {
-                snowPack.hasCrust = false;
-                snowPack.crustDepth = 0;
-            }
-        }
-    }
-
-    // 🎯 РАСЧЕТ НЕОПРЕДЕЛЕННОСТЕЙ
-    calculateSnowUncertainties(weatherHistory, coordinates) {
-        const lat = coordinates.lat;
-
-        // Базовые неопределенности
-        let uncertainties = {
-            precipitation: 0.15,
-            temperature: 0.10,
-            snowDensity: 0.20,
-            compaction: 0.12,
-            localEffects: 0.15
-        };
-
-        // Корректировка по широте
-        if (lat > 60) uncertainties.localEffects += 0.05;  // Север - больше вариаций
-        if (lat < 45) uncertainties.localEffects += 0.08;  // Юг - непредсказуемый снег
-
-        // Корректировка по данным погоды
-        const tempVariance = this.calculateTemperatureVariance(weatherHistory);
-        uncertainties.temperature += tempVariance * 0.1;
-
-        const precipVariance = this.calculatePrecipitationVariance(weatherHistory);
-        uncertainties.precipitation += precipVariance * 0.15;
-
-        // Общая неопределенность
-        uncertainties.total = Math.min(0.6,
-            Math.sqrt(
-                Math.pow(uncertainties.precipitation, 2) +
-                Math.pow(uncertainties.temperature, 2) +
-                Math.pow(uncertainties.snowDensity, 2) +
-                Math.pow(uncertainties.compaction, 2) +
-                Math.pow(uncertainties.localEffects, 2)
-            )
-        );
-
-        return uncertainties;
-    }
-
-    calculateProbabilityCorridors(baseResult, uncertainties) {
-        const baseDepth = baseResult.totalDepth || baseResult.estimatedSnowDepth;
-        const totalUncertainty = uncertainties.total;
-       
-        // 🛡️ ЗАЩИТА ОТ NaN И НЕКОРРЕКТНЫХ ЗНАЧЕНИЙ
-        if (isNaN(baseDepth) || baseDepth <= 0) {
-            console.log('⚠️ Некорректная базовая глубина снега:', baseDepth);
-            return {
-                depth: {
-                    high_confidence: {
-                        min: 0,
-                        max: 10,
-                        probability: 0.8,
-                        description: "Высокая вероятность"
-                    },
-                    medium_confidence: {
-                        min: 0,
-                        max: 15,
-                        probability: 0.95,
-                        description: "Очень высокая вероятность"
-                    }
-                },
-                detection_probability: 0.5,
-                crust_probability: baseResult.hasCrust ? 0.8 : 0.3,
-                preservation_probability: 0.6
-            };
-        }
-       
-        // 🎯 НОРМАЛЬНЫЙ РАСЧЕТ
-        const highMin = Math.max(0, Math.round(baseDepth * (1 - totalUncertainty * 0.5)));
-        const highMax = Math.round(baseDepth * (1 + totalUncertainty * 0.5));
-        const mediumMin = Math.max(0, Math.round(baseDepth * (1 - totalUncertainty)));
-        const mediumMax = Math.round(baseDepth * (1 + totalUncertainty));
-       
-        return {
-            depth: {
-                high_confidence: {
-                    min: highMin,
-                    max: highMax,
-                    probability: 0.8,
-                    description: "Высокая вероятность"
-                },
-                medium_confidence: {
-                    min: mediumMin,
-                    max: mediumMax,
-                    probability: 0.95,
-                    description: "Очень высокая вероятность"
-                }
-            },
-            detection_probability: this.calculateDetectionProbability(baseResult, uncertainties),
-            crust_probability: baseResult.hasCrust ? 0.8 : 0.3,
-            preservation_probability: this.calculatePreservationProbability(baseResult, uncertainties)
-        };
-    }
-
-    calculateDetectionProbability(baseResult, uncertainties) {
-        let probability = 0.7;
-
-        if (baseResult.totalDepth > 25) probability += 0.2;
-        else if (baseResult.totalDepth > 15) probability += 0.1;
-
-        probability -= uncertainties.total * 0.3;
-
-        if (baseResult.hasCrust) probability += 0.15;
-        if (baseResult.hadMelting) probability -= 0.2;
-
-        return Math.max(0.3, Math.min(0.95, probability));
-    }
-
-    calculatePreservationProbability(baseResult, uncertainties) {
-        let probability = 0.8;
-        if (baseResult.hadMelting) probability -= 0.3;
-        probability -= uncertainties.total * 0.2;
-        return Math.max(0.4, Math.min(0.95, probability));
-    }
-
-    // 🎯 АНАЛИЗ ОПАСНОСТЕЙ
-    analyzeSnowDangers(snowEvolution) {
-        const warnings = [];
-        const current = snowEvolution[snowEvolution.length - 1];
-
-        if (current.hasCrust && current.crustDepth > 1) {
-            warnings.push({
-                type: 'CRUST_WARNING',
-                level: 'HIGH',
-                message: `Образовался наст толщиной ${current.crustDepth.toFixed(1)} см`
-            });
-        }
-
-        const hasSignificantMelting = snowEvolution.some(day => day.melting > 1);
-        if (hasSignificantMelting) {
-            warnings.push({
-                type: 'THAW_WARNING',
-                level: 'MEDIUM',
-                message: 'Были периоды значительного таяния'
-            });
-        }
-
-        const heavySnowDays = snowEvolution.filter(day => day.freshSnow > 8).length;
-        if (heavySnowDays > 2) {
-            warnings.push({
-                type: 'HEAVY_SNOW_WARNING',
-                level: 'HIGH',
-                message: `Зафиксировано ${heavySnowDays} дней с сильным снегопадом`
-            });
-        }
-
-        return warnings;
-    }
-
-    // 🎯 ФОРМАТИРОВАНИЕ РЕЗУЛЬТАТА
-    formatSnowAnalysisResult(result) {
-        let message = '';
-       
-        if (result.testMode) {
-            message += `🧪 <b>ТЕСТОВЫЙ РАСЧЕТ СНЕЖНОГО ПОКРОВА</b>\n\n`;
-            message += `📅 <b>Период анализа:</b> ${result.startDate.toLocaleDateString('ru-RU')} → ${result.endDate.toLocaleDateString('ru-RU')}\n`;
-            message += `⏱️ <b>Длительность:</b> ${result.periodDays} суток\n\n`;
-            message += `🌲 <b>РАСЧЕТ НА РЕАЛЬНЫХ ДАННЫХ ПОГОДЫ</b>\n\n`;
-        } else {
-            message += `🌲 <b>ВЕРОЯТНОСТНЫЙ РАСЧЕТ СНЕГА</b>\n\n`;
-            message += `📍 <b>Место:</b> ${result.location.lat.toFixed(4)}°N, ${result.location.lon.toFixed(4)}°E\n`;
-            message += `📅 <b>Период анализа:</b> ${result.periodDays} дней\n`;
-            message += `⏰ <b>Время пропажи:</b> ${result.disappearanceTime.toLocaleString('ru-RU')}\n\n`;
-        }
-       
-        // 🛡️ ЗАЩИТА ОТ NaN
-        const estimatedDepth = isNaN(result.estimatedSnowDepth) ? 15 : result.estimatedSnowDepth;
-        const highMin = isNaN(result.probability.depth.high_confidence.min) ? Math.max(0, Math.round(estimatedDepth * 0.7)) : result.probability.depth.high_confidence.min;
-        const highMax = isNaN(result.probability.depth.high_confidence.max) ? Math.round(estimatedDepth * 1.3) : result.probability.depth.high_confidence.max;
-        const mediumMin = isNaN(result.probability.depth.medium_confidence.min) ? Math.max(0, Math.round(estimatedDepth * 0.6)) : result.probability.depth.medium_confidence.min;
-        const mediumMax = isNaN(result.probability.depth.medium_confidence.max) ? Math.round(estimatedDepth * 1.4) : result.probability.depth.medium_confidence.max;
-       
-        message += `📊 <b>БАЗОВЫЙ РАСЧЕТ:</b> ${estimatedDepth.toFixed(1)} см снега\n\n`;
-       
-        message += `🎯 <b>ВЕРОЯТНОСТНЫЕ КОРИДОРЫ:</b>\n\n`;
-        message += `📏 <b>ГЛУБИНА СНЕГА:</b>\n`;
-        message += `• 80% вероятность: ${highMin}-${highMax} см\n`;
-        message += `• 95% вероятность: ${mediumMin}-${mediumMax} см\n\n`;
-       
-        message += `🎲 <b>ВЕРОЯТНОСТИ:</b>\n`;
-        message += `• Обнаружения следа: ${(result.probability.detection_probability * 100).toFixed(0)}%\n`;
-        message += `• Наличия наста: ${(result.probability.crust_probability * 100).toFixed(0)}%\n`;
-        message += `• Сохранения следа: ${(result.probability.preservation_probability * 100).toFixed(0)}%\n\n`;
-       
-        message += `📈 <b>СОСТАВ СНЕГА:</b>\n`;
-        message += `• Свежий снег: ${result.freshSnowDepth.toFixed(1)} см\n`;
-        message += `• Уплотнение: ${result.compaction.toFixed(1)} см\n`;
-        message += `• Осадки за период: ${result.totalPrecipitation.toFixed(1)} мм\n`;
-        message += `• Суммарное уплотнение: ${result.totalCompaction.toFixed(1)} см\n\n`;
-       
-        if (result.warnings.length > 0) {
-            message += `⚠️ <b>ВНИМАНИЕ:</b>\n`;
-            result.warnings.forEach(warning => {
-                message += `• ${warning.message}\n`;
-            });
-            message += `\n`;
-        }
-       
-        if (result.hasCrust) {
-            message += `🧊 <b>Наст:</b> ${result.crustDepth.toFixed(1)} см - может мешать замерам!\n\n`;
-        }
-       
-        message += `🎯 <b>РЕКОМЕНДАЦИЯ:</b>\n`;
-        message += `Ищите следы с глубиной <b>${highMin}-${highMax} см</b>`;
-       
-        if (result.testMode) {
-            message += `\n\n💡 <b>Сравните с реальными замерами</b> для оценки точности модели`;
-        }
-       
-        return message;
-    }
-
-    // 🎯 ПОЛУЧЕНИЕ РЕАЛЬНЫХ ИСТОРИЧЕСКИХ ДАННЫХ ПОГОДЫ
-    async generateWeatherHistory(startDate, endDate, coordinates) {
-        try {
-            const openMeteoArchiveURL = 'https://archive-api.open-meteo.com/v1/archive';
-           
-            console.log('🌐 Запрос реальных исторических данных:', {
-                lat: coordinates.lat,
-                lon: coordinates.lon, 
-                start: startDate.toISOString().split('T')[0],
-                end: endDate.toISOString().split('T')[0]
-            });
-           
-            const response = await axios.get(openMeteoArchiveURL, {
-                params: {
-                    latitude: coordinates.lat,
-                    longitude: coordinates.lon,
-                    start_date: startDate.toISOString().split('T')[0],
-                    end_date: endDate.toISOString().split('T')[0],
-                    daily: 'temperature_2m_max,temperature_2m_min,precipitation_sum,rain_sum,snowfall_sum,weather_code,wind_speed_10m_max,relative_humidity_2m',
-                    timezone: 'auto'
-                }
-            });
-
-            const daily = response.data.daily;
-            const history = [];
-           
-            console.log('📊 Получены реальные исторические данные за', daily.time.length, 'дней');
-           
-            for (let i = 0; i < daily.time.length; i++) {
-                // Определяем тип осадков
-                let precipitation = daily.precipitation_sum[i] || 0;
-                const rain = daily.rain_sum[i] || 0;
-                const snow = daily.snowfall_sum[i] || 0;
-               
-                // Если есть данные о снеге - используем их
-                if (snow > 0) {
-                    precipitation = snow;
-                }
-               
-                history.push({
-                    date: daily.time[i],
-                    temperature: (daily.temperature_2m_max[i] + daily.temperature_2m_min[i]) / 2,
-                    temperature_min: daily.temperature_2m_min[i],
-                    temperature_max: daily.temperature_2m_max[i],
-                    precipitation: precipitation,
-                    rain: rain,
-                    snow: snow,
-                    wind_speed: daily.wind_speed_10m_max[i] || 0,
-                    humidity: daily.relative_humidity_2m ? daily.relative_humidity_2m[i] : 75,
-                    weather_code: daily.weather_code[i] || 0
-                });
-            }
-           
-            console.log('✅ Успешно получена реальная история погоды за', history.length, 'дней');
-            return history;
-           
-        } catch (error) {
-            console.log('❌ Ошибка получения реальных исторических данных Open-Meteo:', error.message);
-            throw new Error('Не удалось получить реальные данные погоды. Попробуйте позже.');
-        }
-    }
-
-    // 🎯 ВСПОМОГАТЕЛЬНЫЕ МЕТОДЫ
-    calculateTemperatureVariance(weatherHistory) {
-        const temps = weatherHistory.map(day => day.temperature);
-        const mean = temps.reduce((a, b) => a + b) / temps.length;
-        const variance = temps.reduce((sum, temp) => sum + Math.pow(temp - mean, 2), 0) / temps.length;
-        return Math.min(1, Math.sqrt(variance) / 10);
-    }
-
-    calculatePrecipitationVariance(weatherHistory) {
-        const precipitations = weatherHistory.map(day => day.precipitation).filter(p => p > 0);
-        if (precipitations.length < 2) return 0;
-        const mean = precipitations.reduce((a, b) => a + b) / precipitations.length;
-        const variance = precipitations.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / precipitations.length;
-        return Math.min(1, variance / (mean || 1));
-    }
-
-    // 🔮 ПОЛНОЦЕННЫЙ ВЕРОЯТНОСТНЫЙ КАЛЬКУЛЯТОР СНЕГА
-    async calculateSnowAge(coordinates, disappearanceTime, options = {}) {
-        try {
-            console.log('❄️ Запуск калькулятора снега для:', coordinates, 'Options:', options);
-           
-            const now = options.endDate ? new Date(options.endDate) : new Date();
-            const disappearanceDate = new Date(disappearanceTime);
-           
-            if (isNaN(disappearanceDate.getTime())) {
-                throw new Error('Неверная дата пропажи');
-            }
-
-            // 🎯 ГЕНЕРАЦИЯ ИСТОРИИ ПОГОДЫ - ТОЛЬКО РЕАЛЬНЫЕ ДАННЫЕ
-            const weatherHistory = await this.generateWeatherHistory(disappearanceDate, now, coordinates);
-            console.log('📊 Реальные исторические данные за', weatherHistory.length, 'дней');
-           
-            if (!weatherHistory || weatherHistory.length === 0) {
-                throw new Error('Не удалось получить реальные данные погоды за период');
-            }
-
-            // 🎯 РАСЧЕТ ЭВОЛЮЦИИ СНЕГА НА РЕАЛЬНЫХ ДАННЫХ
-            const snowEvolution = this.calculateSnowEvolution(weatherHistory);
-            console.log('📈 Эволюция снега на реальных данных за', snowEvolution.length, 'дней:');
-            snowEvolution.forEach((day, index) => {
-                console.log(`День ${index + 1}: ${day.totalDepth.toFixed(1)}см (свежий: ${day.freshSnow.toFixed(1)}см, уплотнение: ${day.compaction.toFixed(1)}см)`);
-            });
-           
-            const currentSnow = snowEvolution[snowEvolution.length - 1];
-            console.log('📊 Текущий снег:', currentSnow);
-           
-            const warnings = this.analyzeSnowDangers(snowEvolution);
-
-            // 🎯 РАСЧЕТ НЕОПРЕДЕЛЕННОСТЕЙ И ВЕРОЯТНОСТНЫХ КОРИДОРОВ
-            const uncertainties = this.calculateSnowUncertainties(weatherHistory, coordinates);
-            console.log('🎯 Неопределенности:', uncertainties);
-           
-            const probabilityCorridors = this.calculateProbabilityCorridors(currentSnow, uncertainties);
-            console.log('📏 Вероятностные коридоры:', probabilityCorridors);
-           
-            // 🎯 ФОРМАТИРОВАНИЕ РЕЗУЛЬТАТА
-            return this.formatSnowAnalysisResult({
-                disappearanceTime: disappearanceDate,
-                calculationTime: now,
-                location: coordinates,
-                periodDays: weatherHistory.length,
-                estimatedSnowDepth: Math.round(currentSnow.totalDepth * 10) / 10,
-                freshSnowDepth: Math.round(currentSnow.freshSnow * 10) / 10,
-                compaction: Math.round(currentSnow.compaction * 10) / 10,
-                totalPrecipitation: Math.round(snowEvolution.reduce((sum, day) => sum + day.precipitation, 0) * 10) / 10,
-                totalCompaction: Math.round(snowEvolution.reduce((sum, day) => sum + day.compaction, 0) * 10) / 10,
-                totalEvaporation: Math.round(snowEvolution.reduce((sum, day) => sum + day.evaporation, 0) * 10) / 10,
-                warnings: warnings,
-                hasCrust: currentSnow.hasCrust,
-                crustDepth: Math.round(currentSnow.crustDepth * 10) / 10,
-                hadMelting: currentSnow.hadMelting,
-                probability: probabilityCorridors,
-                uncertainties: uncertainties,
-                testMode: options.testMode || false,
-                startDate: disappearanceDate,
-                endDate: now
-            });
-           
-        } catch (error) {
-            console.log('❌ Ошибка вероятностного калькулятора:', error);
-            return `❌ Ошибка расчета: ${error.message}`;
-        }
-    }
+    return null;
+}
+function addDaysISO(iso, t) {
+    const d = new Date(iso + 'T00:00:00Z');
+    d.setUTCDate(d.getUTCDate() + t);
+    return d.toISOString().slice(0, 10);
 }
 
+// ---------- погода: компактный вывод для поисковика (штурм / сводка / ВКПО / спойлер) ----------
+function _fmtT(t) {
+    const v = Number(t);
+    if (isNaN(v)) return '—°C';
+    return `${Math.round(v)}°C`;
+}
+
+function _ddmm(s) {
+    const str = String(s || '');
+    const iso = /(\d{4})-(\d{2})-(\d{2})/.exec(str);
+    if (iso) return `${iso[3]}.${iso[2]}`;
+    const MON = { 'янв': '01', 'фев': '02', 'мар': '03', 'апр': '04', 'май': '05', 'июн': '06', 'июл': '07', 'авг': '08', 'сен': '09', 'окт': '10', 'ноя': '11', 'дек': '12' };
+    const m = /(\d+)[^а-яё]*([а-яё]{3})/.exec(str);
+    if (m) return `${String(Number(m[1])).padStart(2, '0')}.${MON[m[2]] || '??'}`;
+    return str;
+}
+
+function getVkpoKit(temp, wind, precip, condition = '') {
+    const T = Number(temp);
+    const W = Number(wind) || 0;
+    const P = Number(precip) || 0;
+    const L = {
+        1: 'Слой 1: лёгкое термобельё',
+        2: 'Слой 2: тёплое термобельё',
+        3: 'Слой 3: флиска',
+        4: 'Слой 4: летний костюм — в жару',
+        5: 'Слой 5: софтшел — лёгкая защита от дождя и ветра',
+        6: 'Слой 6: харшел (мембрана) — защита от ветра и дождя',
+        7: 'Слой 7: утеплённый внешний слой — зимний',
+    };
+    // динамика (в движении) — база: софтшел почти всегда, кроме жары
+    let ids;
+    if (T < -7) ids = [1, 2, 3, 5, 7];
+    else if (T < 0) ids = [1, 2, 3, 5];
+    else if (P > 2) ids = [1, 5, 6];
+    else if (P > 0) ids = [1, 5];
+    else if (T >= 20) ids = [1, 4];
+    else if (T < 7) ids = [1, 2, 5];
+    else ids = [1, 5];
+    // мокрый снег / морозный дождь при морозе — мембрана нужна
+    if (T < 0 && /морозный|мокрый/i.test(String(condition || '')) && !ids.includes(6)) {
+        ids = [...ids, 6];
+    }
+    // статика: утепление для стоянки/штаба — в рюкзак
+    let backpack = null;
+    if (T >= 20) backpack = null;
+    else if (ids.includes(3)) backpack = { layer: null, text: 'пуховая тёплая безрукавка' };
+    else backpack = { layer: 3, text: 'Слой 3: флиска' };
+    // головной убор
+    let headwear;
+    if (T < -15) headwear = 'тёплая зимняя шапка-ушанка';
+    else if (T < 0) headwear = 'лёгкая флисовая шапка';
+    else if (T < 7) headwear = 'лёгкая шапочка';
+    else if (T >= 20) headwear = 'панама';
+    else headwear = 'панама + лёгкая флисовая шапка (в рюкзак)';
+    return {
+        layers: ids.map(id => `• ${L[id]}`),
+        ids: ids,
+        backpack: backpack,
+        headwear: headwear,
+        cold: T < 0,
+    };
+}
+function _stormReason(data) {
+    const reasons = [];
+    const cur = data.current || {};
+    const T = Number(cur.temperature);
+    const W = Number(cur.wind_speed) || 0;
+    const cond = String(cur.condition || '').toLowerCase();
+    if (W > 10) reasons.push(`ветер ${W} м/с`);
+    const h6 = (data.hourly || []).slice(0, 6);
+    if (h6.some(h => /снег/i.test(h.condition || '') && Number(h.precipitation) > 5)) reasons.push('сильный снегопад в ближайшие часы');
+    if (h6.some(h => /морозный|ледян|мокрый/i.test(h.condition || ''))) reasons.push('ледяной/морозный дождь');
+    if (h6.some(h => /ливень|сильный дождь|гроза/i.test(h.condition || ''))) reasons.push('сильный дождь/гроза');
+    if (/гроза/i.test(cond)) reasons.push('гроза сейчас');
+    const hist = data.history || [];
+    if (hist.length) {
+        const prevDay = Number(hist[0].day_temp);
+        if (!isNaN(prevDay) && !isNaN(T) && prevDay - T > 5) reasons.push(`резкое падение температуры: было ${_fmtT(prevDay)}, сейчас ${_fmtT(T)}`);
+    }
+    const fc = data.forecast || [];
+    if (fc.length) {
+        const d = Number(fc[0].day_temp), n = Number(fc[0].night_temp);
+        if (!isNaN(d) && !isNaN(n) && d - n > 5) reasons.push('резкое похолодание к ночи');
+        const f0c = String(fc[0].condition || '').toLowerCase();
+        if (/гроза|ливень|сильный дождь/i.test(f0c)) reasons.push('сильный дождь/гроза в ближайшие сутки');
+    }
+    // диапазон шторма: сейчас..+16 ч (почасовые 6 ч + прогноз на сутки)
+    return reasons.length ? [...new Set(reasons)].join('; ') : null;
+}
+
+function _weatherNotes(data) {
+    const notes = [];
+    const cur = data.current || {};
+    const P = Number(cur.precipitation) || 0;
+    const hist = data.history || [];
+    // осадки за последние сутки (вчера) — лес возможно мокрый
+    const y = hist[0];
+    if (y) {
+        const yp = Number(y.precipitation) || 0;
+        const yc = String(y.condition || '').toLowerCase();
+        if (yp > 0 || /дождь|ливень|мокрый|морозный/i.test(yc)) {
+            if (/мокрый|морозный/i.test(yc)) notes.push('⚠️ <b>За сутки шёл мокрый снег/морозный дождь</b> — лес возможно мокрый');
+            else if (!/снег/i.test(yc)) notes.push('⚠️ <b>За сутки шёл дождь</b> — лес возможно мокрый');
+        }
+    }
+    // сухо сейчас и в рабочий диапазон, но осадки по прогнозу позже (+8..+16 ч)
+    const hourly = data.hourly || [];
+    const dryNow = P === 0;
+    const dryRange = hourly.every(h => !(Number(h.precipitation) > 0));
+    const fc = data.forecast || [];
+    const f = fc.find(d => Number(d.precipitation) > 0);
+    if (dryNow && dryRange && f) {
+        const fc_ = String(f.condition || '').toLowerCase();
+        let kind = null;
+        if (/мокрый|морозный/i.test(fc_)) kind = 'мокрый снег/морозный дождь';
+        else if (/дождь|ливень/i.test(fc_)) kind = 'дождь';
+        else if (/снег/i.test(fc_)) kind = 'снег';
+        if (kind) notes.push(`⚠️ <b>По прогнозу — ${kind}</b> после рабочего диапазона (+8 ч) — учтите`);
+    }
+    return notes;
+}
+
+function formatWeatherCompact(data) {
+    const cur = data.current || {};
+    const T = Number(cur.temperature);
+    const FT = Number(cur.feels_like);
+    const W = Number(cur.wind_speed) || 0;
+    const P = Number(cur.precipitation) || 0;
+    const cond = String(cur.condition || '');
+    const kitT = isNaN(FT) ? T : FT;
+    const loc = String(data.location || '').toUpperCase();
+    const out = [];
+
+    // шапка
+    out.push(`🌤️ <b>${loc}</b>`);
+
+    // Блок 1: штормовое предупреждение (если есть) + заметки про лес/осадки
+    const storm = _stormReason(data);
+    if (storm) out.push(`⚠️ <b>ШТОРМОВОЕ ПРЕДУПРЕЖДЕНИЕ:</b> ${storm}`);
+    for (const n of _weatherNotes(data)) out.push(n);
+
+    out.push('');
+    // Блок 2: сводка
+    out.push(`🌡️ <b>Сейчас:</b> ${_fmtT(T)}${cond ? `, ${cond}` : ''} (ощущается ${_fmtT(Number(cur.feels_like))})`);
+    out.push(`💨 <b>Ветер:</b> ${W} м/с`);
+    const vis = /туман|метель|снег|ливень|гроза/i.test(cond) ? 'ограничена (туман/снег)' : 'хорошая';
+    out.push(`👁️ <b>Видимость:</b> ${vis}`);
+
+    // Световой день: восход / закат / эффективное потемнение (если есть данные)
+    const st = data.sunTimes;
+    if (st && st.sunriseStr && st.sunsetStr) {
+        out.push(`🌅 <b>Восход:</b> ${st.sunriseStr}`);
+        out.push(`🌇 <b>Закат:</b> ${st.sunsetStr}`);
+        const cloud = Number(cur.cloudiness) || 0;
+    const fmtLoc = (d) => {
+        if (st && st.utcOffsetMs != null) {
+            const w = new Date(d.getTime() + st.utcOffsetMs);
+            return w.toISOString().slice(11, 16);
+        }
+        return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    };
+        if (cloud > 50 && st.sunrise instanceof Date && st.sunset instanceof Date) {
+              let cf = 1;
+              if (cloud > 80) cf = 0.7; else if (cloud > 50) cf = 0.85;
+              const dayLen = (st.sunset - st.sunrise) / 1000 / 60 / 60;
+              const effSunset = new Date(st.sunset.getTime() - dayLen * (1 - cf) * 3600 * 1000);
+              out.push(`🌆 <b>Эффективное потемнение:</b> ~${fmtLoc(effSunset)} (облачность ${cloud}%)`);
+              const now = new Date();
+              const hoursLeft = (effSunset - now) / 1000 / 60 / 60;
+              if (now >= effSunset) out.push('🌙 <b>Уже темно</b> — нужны фонари');
+              else if (hoursLeft < 2) out.push(`⚠️ <b>Темнеет через ${Math.round(hoursLeft)} ч</b> — готовьте фонари`);
+        }
+    }
+
+    out.push('');
+    // Блок 3: рекомендации по слоям одежды
+    out.push(`👕 <b>Рекомендации по слоям одежды (по ощущению ${_fmtT(kitT)}):</b>`);
+    const kit = getVkpoKit(kitT, W, P, cond);
+    out.push('🏃 <b>В движении (база):</b>');
+    out.push(...kit.layers);
+    if (kit.backpack) {
+        out.push(`🎒 <b>Для стоянки/штаба (в рюкзак):</b> ${kit.backpack.text} — утеплиться при остановке`);
+    } else {
+        out.push('🎒 <b>Для стоянки/штаба:</b> утепление не нужно (тепло)');
+    }
+    out.push(`🧢 <b>Головной убор:</b> ${kit.headwear}${kit.cold ? ' (+ баф, перчатки)' : ''}`);
+
+    out.push('');
+    // Блок 4: детали — свёрнутый спойлер (без пустых строк внутри)
+    const det = [];
+    det.push('📅 Детали: история и прогноз (нажмите, чтобы развернуть)');
+    const hist = data.history || [];
+    if (hist.length) det.push('📖 История 7 дней:');
+    for (const d of hist) {
+        det.push(`${_ddmm(d.date)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм, 💨${d.wind_speed}м/с`);
+    }
+    const fc = data.forecast || [];
+    if (fc.length) det.push('📈 Прогноз 2 дня:');
+    for (const d of fc) {
+        det.push(`${_ddmm(d.date)}: День ${_fmtT(d.day_temp)} / Ночь ${_fmtT(d.night_temp)}, ${d.condition}, ${Number(d.precipitation)}мм`);
+    }
+    det.push('</blockquote>');
+    out.push('<blockquote expandable>' + det.join('\n'));
+
+    return out.join('\n');
+}
 function initialize() {
     console.log('✅ Модуль калькуляторов загружен');
 
-    const snowCalculator = new SnowCalculator();
     const weatherService = new WeatherService();
 
-    // Вспомогательные функции форматирования (внутри initialize)
-    function formatWeatherShort(data, weatherService) {
-    const currentHour = new Date().getHours();
-    const timeIcon = (currentHour >= 6 && currentHour < 18) ? '☀️' : '🌙';
-   
-    let message = `🌤️ <b>${data.location.toUpperCase()}</b> ${timeIcon}\n\n`;
-   
-    message += `📊 <b>Сейчас:</b> ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-    message += `${data.current.condition} | 💨 ${data.current.wind_speed} м/с | 💧 ${data.current.humidity}%\n\n`;
-   
-    if (data.forecast && data.forecast[0]) {
-        const today = data.forecast[0];
-        message += `📈 <b>Сегодня:</b> День ${weatherService.formatTemperature(today.day_temp)} / Ночь ${weatherService.formatTemperature(today.night_temp)}\n`;
-        message += `${today.condition}`;
-        if (today.precipitation > 0) {
-            message += ` | 🌧️ ${today.precipitation}мм`;
-        }
-        message += `\n\n`;
-    }
-   
-    if (data.current.temperature < 5) {
-        message += `🧥 Рекомендация: теплая одежда`;
-    } else if (data.current.temperature < 15) {
-        message += `🧥 Рекомендация: куртка или ветровка`;
-    } else {
-        message += `👕 Рекомендация: легкая одежда`;
-    }
-   
-    if (data.current.wind_speed > 5) {
-        message += `, ветрозащита`;
-    }
-   
-    // Добавляем ссылку на полный отчет
-    message += `\n\n📋 <i>Подробный отчет отправлен ниже 👇</i>`;
-   
-    return message;
-}
-
-    function formatWeatherFull(data, weatherService) {
-        let message = `🌤️ <b>ПОГОДА - ${data.location.toUpperCase()}</b>\n\n`;
-
-        const currentHour = new Date().getHours();
-        const currentTimeFormatted = weatherService.formatTimeWithStyle(currentHour, `📊 <b>СЕЙЧАС (${data.current.time}):</b>`);
-        message += `${currentTimeFormatted}\n`;
-        message += `🌡️ ${weatherService.formatTemperature(data.current.temperature)} (ощущается ${weatherService.formatTemperature(data.current.feels_like)})\n`;
-        message += `${data.current.condition}\n`;
-        message += `💨 Ветер: ${data.current.wind_speed} м/с | 💧 Влажность: ${data.current.humidity}%\n`;
-        message += `🌧️ Осадки: ${data.current.precipitation} | ☁️ Облачность: ${data.current.cloudiness}%\n\n`;
-
-        message += `🕒 <b>БЛИЖАЙШИЕ 6 ЧАСОВ:</b>\n`;
-        data.hourly.slice(0, 6).forEach(hour => {
-            const hourNum = hour.hour;
-            const timeText = weatherService.formatTimeWithStyle(hourNum, `${hour.time}`);
-            const tempFormatted = weatherService.formatTemperature(hour.temperature);
-            message += `${timeText} ${tempFormatted}, ${hour.condition}, ${hour.precipitation}\n`;
-        });
-        message += '\n';
-
-        message += `📈 <b>ПРОГНОЗ НА 2 ДНЯ:</b>\n`;
-        data.forecast.forEach(day => {
-            const dayTemp = weatherService.formatTemperature(day.day_temp);
-            const nightTemp = weatherService.formatTemperature(day.night_temp);
-            message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${day.precipitation}\n`;
-        });
-        message += '\n';
-
-        if (data.history && data.history.length > 0) {
-            message += `📅 <b>ИСТОРИЯ ПОГОДЫ ЗА 7 СУТОК:</b>\n`;
-            const reversedHistory = [...data.history].reverse();
-            reversedHistory.forEach(day => {
-                const precipIcon = day.precipitation > 0 ? '🌧️' : '';
-                const dayTemp = weatherService.formatTemperature(day.day_temp);
-                const nightTemp = weatherService.formatTemperature(day.night_temp);
-                message += `${day.date}: День ${dayTemp} / Ночь ${nightTemp}, ${day.condition}, ${precipIcon}${day.precipitation}мм, 💨${day.wind_speed}м/с\n`;
-            });
-            message += '\n';
-        }
-
-        message += data.searchSummary;
-
-        return message;
-    }
-
-    return {
+       return {
         getMenu: () => ({
             title: "🧮 КАЛЬКУЛЯТОРЫ",
             sections: [
@@ -626,70 +282,88 @@ function initialize() {
         },
 
         // 🔮 СНЕЖНЫЙ КАЛЬКУЛЯТОР
-        calculateSnowAge: async (coordinates, disappearanceTime, locationInfo = {}) => {
-            return await snowCalculator.calculateSnowAge(coordinates, disappearanceTime, locationInfo);
-        },
+       // ⏱️❄️ ДАВНОСТЬ СЛЕДА — новая проверенная модель (порт tracker_tool.py)
+       calculateSnowAge: async (coordinates, disappearanceTime, options = {}) => {
+           try {
+               const p = parseDateOnly(disappearanceTime);
+               if (!p) return '❌ Неверная дата пропажи';
+               const season = seasonForDate(p.y, p.m);
+               const depths = options.depths || (options.depth != null ? [options.depth] : null);
+               if (!depths || depths.length < 3 || depths.length > 5 || depths.some(d => isNaN(Number(d)))) {
+                   return '❌ Нужно 3–5 замеров глубины в ЦЕПИ следов (10–15 м друг от друга, см), например: 1.5 1.8 1.6';
+               }
+               const nums = depths.map(Number);
+               const visitDate = isoDate(p);
+               let chain = null;
+               let est = null;
+               if (season) {
+                   chain = tracker.estimateChain(season, visitDate, nums, 'auto');
+                   est = chain['оценка'];
+               }
+               // Адаптер погоды: если по дневнику данных нет — пробуем эпохи Open-Meteo
+               if ((!chain || est.status === 'недостаточно данных') && coordinates && !options.epochs) {
+                   const meteo = await weatherService.getEpochs(
+                       coordinates.lat, coordinates.lon, addDaysISO(visitDate, -30), visitDate
+                   );
+                   if (meteo && meteo.length) {
+                       chain = tracker.estimateChain(season || 'meteo', visitDate, nums, 'auto', meteo);
+                       est = chain['оценка'];
+                   }
+               }
+               if (!chain) return '❌ Недостаточно данных: нет истории погоды (дневник и метео недоступны)';
+               return tracker.formatForBot(est, chain);
+           } catch (e) {
+               console.log('❌ Ошибка калькулятора давности:', e);
+               return `❌ Ошибка расчета: ${e.message}`;
+           }
+       },
 
         // 🌤️ Погода с графиком
-        getWeatherData: async (options = {}, chatId = null, bot = null) => {
-    try {
-        const result = await weatherService.getWeatherData(options);
-        if (!result.success) {
-            return `❌ ${result.error}`;
-        }
+        // 🌤️ Погода с графиком (компактный вывод)
+        getWeatherData: async (options = {}, chatId = null, bot = null) => {
+            try {
+                const result = await weatherService.getWeatherData(options);
+                if (!result.success) {
+                    return `❌ ${result.error}`;
+                }
 
-        const data = result.result;
+                const data = result.result;
+                // Компактный отчёт: штурм / сводка / слои / детали-спойлер
+                const compactReport = formatWeatherCompact(data);
 
-        // Формируем полный текстовый отчет (как было раньше)
-        const fullTextReport = formatWeatherFull(data, weatherService);
-       
-        // Формируем краткую подпись для графика (ограничиваем до 900 символов)
-        const shortCaption = formatWeatherShort(data, weatherService);
+                if (chatId && bot) {
+                    try {
+                        const weatherGraph = new WeatherGraph();
+                        const graphBuffer = await weatherGraph.generateWeatherGraph(
+                            data.history,
+                            data.forecast,
+                            data.location,
+                            data.hourlyPrecipitation,
+                            data.snowData,
+                            data.sunTimes
+                        );
+                        if (graphBuffer) {
+                            // Сначала — текст решения, затем график (легенда графика убрана)
+                            await bot.sendMessage(chatId, compactReport, { parse_mode: 'HTML' });
+                            const graphCaption = `📊 <b>${(data.location || '').toUpperCase()}</b> — температура, осадки, облачность, снежный покров (7 дней + прогноз 2 дня)`;
+                            await bot.sendPhoto(chatId, graphBuffer, { caption: graphCaption, parse_mode: 'HTML' });
+                            return null;
+                        }
+                    } catch (graphError) {
+                        console.log('⚠️ Ошибка генерации графика:', graphError.message);
+                        return compactReport;
+                    }
+                }
 
-        // Пытаемся отправить график
-        if (chatId && bot) {
-            try {
-                const weatherGraph = new WeatherGraph();
-                const graphBuffer = await weatherGraph.generateWeatherGraph(
-    data.history,
-    data.forecast,
-    data.location,
-    data.hourlyPrecipitation,
-    data.snowData  // 🆕 передаем данные о снеге
-);
-
-                if (graphBuffer) {
-                    // Отправляем график с краткой подписью
-                    await bot.sendPhoto(chatId, graphBuffer, {
-                        caption: shortCaption,
-                        parse_mode: 'HTML'
-                    });
-                   
-                    // Отправляем полный текстовый отчет отдельным сообщением
-                    await bot.sendMessage(chatId, fullTextReport, { parse_mode: 'HTML' });
-                   
-                    return null; // Все отправлено
-                }
-            } catch (graphError) {
-                console.log('⚠️ Ошибка генерации графика:', graphError.message);
-                // Если график не удался, отправляем только текст
-                return fullTextReport;
-            }
-        }
-
-        // Fallback: если нет chatId/bot, отправляем только текст
-        return fullTextReport;
-
-    } catch (error) {
-        console.error('❌ Ошибка:', error);
-        return `❌ Ошибка получения погоды: ${error.message}`;
-    }
-},
-
-        getShoeTypes: () => {
+                return compactReport;
+            } catch (error) {
+                console.error('❌ Ошибка:', error);
+                return `❌ Ошибка получения погоды: ${error.message}`;
+            }
+        },        getShoeTypes: () => {
             return shoeSizeCalculator.getFootwearTypesList();
         }
     };
 }
 
-module.exports = { initialize };
+module.exports = { initialize, formatWeatherCompact, getVkpoKit };
