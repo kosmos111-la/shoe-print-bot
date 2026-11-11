@@ -344,6 +344,49 @@ bot.onText(/\/calculators/, async (msg) => {
     }
 });
 
+// 📅 КАЛЕНДАРЬ ДЛЯ ДАТЫ ПРОПАЖИ (давность следа) — дата без ввода времени
+function _spPad2(n) { return n < 10 ? '0' + n : '' + n; }
+function buildCalendarMarkup(viewYear, viewMonth) {
+    const monthNames = ['Январь', 'Февраль', 'Март', 'Апрель', 'Май', 'Июнь', 'Июль', 'Август', 'Сентябрь', 'Октябрь', 'Ноябрь', 'Декабрь'];
+    const weekdayNames = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+    const rows = [
+        [
+            { text: '◀', callback_data: 'snowcal:prev:' + viewYear + '-' + _spPad2(viewMonth + 1) },
+            { text: monthNames[viewMonth] + ' ' + viewYear, callback_data: 'snowcal:none' },
+            { text: '▶', callback_data: 'snowcal:next:' + viewYear + '-' + _spPad2(viewMonth + 1) }
+        ],
+        weekdayNames.map(w => ({ text: w, callback_data: 'snowcal:none' }))
+    ];
+    const offset = (new Date(viewYear, viewMonth, 1).getDay() + 6) % 7; // понедельник = 0
+    const daysInMonth = new Date(viewYear, viewMonth + 1, 0).getDate();
+    const today = new Date();
+    const todayStr = today.getFullYear() + '-' + _spPad2(today.getMonth() + 1) + '-' + _spPad2(today.getDate());
+    let week = [];
+    for (let i = 0; i < offset; i++) week.push({ text: ' ', callback_data: 'snowcal:none' });
+    for (let d = 1; d <= daysInMonth; d++) {
+        const ds = viewYear + '-' + _spPad2(viewMonth + 1) + '-' + _spPad2(d);
+        week.push({ text: (ds === todayStr ? '• ' : '') + d, callback_data: 'snowdate:' + ds });
+        if (week.length === 7) { rows.push(week); week = []; }
+    }
+    if (week.length) {
+        while (week.length < 7) week.push({ text: ' ', callback_data: 'snowcal:none' });
+        rows.push(week);
+    }
+    rows.push([
+        { text: '📅 Сегодня', callback_data: 'snowcal:today' },
+        { text: '⌨️ Ввести вручную', callback_data: 'snowcal:manual' }
+    ]);
+    return { inline_keyboard: rows };
+}
+function parseSnowDateData(data) {
+    const m = /^snowdate:(\d{4})-(\d{2})-(\d{2})$/.exec(data);
+    if (!m) return null;
+    return new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+}
+function formatRuDate(d) {
+    return _spPad2(d.getDate()) + '.' + _spPad2(d.getMonth() + 1) + '.' + d.getFullYear();
+}
+
 // ❄️ Команда калькулятора давности следа на снегу
 bot.onText(/\/calc_snow_age/, async (msg) => {
     const chatId = msg.chat.id;
@@ -362,9 +405,9 @@ bot.onText(/\/calc_snow_age/, async (msg) => {
         '⏱️❄️ <b>КАЛЬКУЛЯТОР ДАВНОСТИ СЛЕДА НА СНЕГУ</b>\n\n' +
         '🎯 <b>Как это работает:</b>\n\n' +
         '1. 📍 <b>Отправьте местоположение</b> (скрепка → Местоположение)\n\n' +
-        '2. 📅 <b>Укажите дату и время пропажи</b>\n' +
-        '<code>2024-01-15 08:00</code>\n' +
-        '<code>15.01.2024 8:00</code>\n\n' +
+        '2. 📅 <b>Укажите дату пропажи</b> (без времени)\n' +
+        '<code>2024-01-15</code>\n' +
+        '<code>15.01.2024</code>\n\n' +
         '3. 📏 <b>Отправьте 3–5 замеров глубины в ЦЕПИ следов</b> (10–15 м друг от друга, см, через пробел)\n' +
         '<code>1.5 1.8 1.6</code>\n\n' +
         '📍 <i>Сначала отправьте местоположение</i>',
@@ -475,11 +518,11 @@ bot.on('location', async (msg) => {
             };
 
             await bot.sendMessage(chatId,
-                '📍 Местоположение получено. Теперь укажите <b>дату и время пропажи</b>:\n\n' +
-                '<code>2024-01-15 08:00</code>\n' +
-                '<code>15.01.2024 8:00</code>\n\n' +
-                '<i>Формат: ГГГГ-ММ-ДД ЧЧ:ММ или ДД.ММ.ГГГГ ЧЧ:ММ</i>',
-                { parse_mode: 'HTML' }
+                '📍 Местоположение получено.\n\n' +
+                '📅 <b>Выберите дату пропажи на календаре</b> (кнопки ниже)\n' +
+                'или введите её текстом <b>без времени</b>:\n\n' +
+                '<code>2024-01-15</code> или <code>15.01.2024</code>',
+                { parse_mode: 'HTML', reply_markup: buildCalendarMarkup(new Date().getFullYear(), new Date().getMonth()) }
             );
             return;
         }
@@ -533,7 +576,7 @@ bot.on('message', async (msg) => {
            const disappearanceTime = parseDateTime(text);
 
            if (!disappearanceTime) {
-               await bot.sendMessage(chatId, '❌ Неверный формат даты. Используйте: <code>2024-01-15 08:00</code>', { parse_mode: 'HTML' });
+               await bot.sendMessage(chatId, '❌ Неверная дата. Используйте: <code>2024-01-15</code> или <code>15.01.2024</code> (без времени)', { parse_mode: 'HTML' });
                return;
            }
 
@@ -2724,6 +2767,78 @@ bot.on('callback_query', async (callbackQuery) => {
             );
         }
 
+        // 📅 КАЛЕНДАРЬ ДАТЫ ПРОПАЖИ (давность следа) — выбор даты без ввода времени
+        else if (data.startsWith('snowcal:') || data.startsWith('snowdate:')) {
+            const context = userContext[userId];
+            if (!context || context.type !== 'snow_age_calc') {
+                await bot.answerCallbackQuery(callbackQuery.id, { text: 'Сначала запустите /calc_snow_age' });
+                return;
+            }
+            if (data === 'snowcal:none') {
+                await bot.answerCallbackQuery(callbackQuery.id);
+                return;
+            }
+            if (data === 'snowcal:manual') {
+                await bot.answerCallbackQuery(callbackQuery.id, { text: 'Введите дату текстом' });
+                await bot.editMessageText(
+                    '📅 <b>Введите дату пропажи текстом</b> (без времени):\n\n' +
+                    '<code>2024-01-15</code>\n' +
+                    '<code>15.01.2024</code>\n\n' +
+                    '<i>Или запустите /calc_snow_age заново, чтобы вернуться к календарю.</i>',
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' }
+                );
+                return;
+            }
+            if (data === 'snowcal:today') {
+                const now = new Date();
+                await bot.editMessageText(
+                    callbackQuery.message.text,
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'HTML', reply_markup: buildCalendarMarkup(now.getFullYear(), now.getMonth()) }
+                );
+                await bot.answerCallbackQuery(callbackQuery.id);
+                return;
+            }
+            if (data.startsWith('snowcal:prev:') || data.startsWith('snowcal:next:')) {
+                const ym = data.split(':')[2];
+                const y = Number(ym.split('-')[0]);
+                const m = Number(ym.split('-')[1]);
+                const target = data.startsWith('snowcal:prev:') ? new Date(y, m - 2, 1) : new Date(y, m, 1);
+                await bot.editMessageText(
+                    callbackQuery.message.text,
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'HTML', reply_markup: buildCalendarMarkup(target.getFullYear(), target.getMonth()) }
+                );
+                await bot.answerCallbackQuery(callbackQuery.id);
+                return;
+            }
+            if (data.startsWith('snowdate:')) {
+                const d = parseSnowDateData(data);
+                if (!d) {
+                    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Ошибка даты' });
+                    return;
+                }
+                if (context.step === 'depths') {
+                    context.disappearanceTime = d;
+                    userContext[userId] = context;
+                    await bot.answerCallbackQuery(callbackQuery.id, { text: 'Дата обновлена: ' + formatRuDate(d) });
+                    return;
+                }
+                userContext[userId] = {
+                    type: 'snow_age_calc',
+                    coordinates: context.coordinates,
+                    disappearanceTime: d,
+                    step: 'depths'
+                };
+                await bot.answerCallbackQuery(callbackQuery.id, { text: '✅ Дата принята: ' + formatRuDate(d) });
+                await bot.editMessageText(
+                    '✅ <b>Дата пропажи:</b> ' + formatRuDate(d) + '\n\n' +
+                    '📏 Теперь отправьте <b>3–5 замеров глубины в ЦЕПИ следов</b> (10–15 м друг от друга, см, через пробел):\n\n' +
+                    '<code>1.5 1.8 1.6</code>\n\n' +
+                    '💡 Берём минимум (исключает намет); разброс > 3 см — «след неравномерный».',
+                    { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' }
+                );
+                return;
+            }
+        }
     } catch (error) {
         console.log('❌ Ошибка обработки callback:', error);
         await bot.answerCallbackQuery(callbackQuery.id, {
