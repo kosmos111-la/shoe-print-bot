@@ -215,8 +215,10 @@ class WeatherGraph {
             ctx.stroke();
         }
 
-        // горизонтальные линии — каждые 5°C по динамической шкале
-        for (let temp = ranges.minTemp; temp <= ranges.maxTemp; temp += 5) {
+        // шаг оси: диапазон <=25°C — 2.5°C, шире — 5°C (расстояние между подписями всегда > 15 px)
+        const spanY = ranges.maxTemp - ranges.minTemp;
+        const step = spanY <= 25 ? 2.5 : 5;
+        for (let temp = ranges.minTemp; temp <= ranges.maxTemp + 1e-9; temp += step) {
             const y = height - ((temp - ranges.minTemp) / ranges.tempRange) * height;
 
             ctx.beginPath();
@@ -308,10 +310,10 @@ class WeatherGraph {
                 const p1 = points[i];
                 const p2 = points[i + 1];
 
-                const cp1x = p1.x - (p2.x - p0.x) / 6;
-                const cp1y = p1.y - (p2.y - p0.y) / 6;
-                const cp2x = p1.x + (p2.x - p0.x) / 6;
-                const cp2y = p1.y + (p2.y - p0.y) / 6;
+                const cp1x = p1.x - (p2.x - p0.x) / 4;
+                const cp1y = p1.y - (p2.y - p0.y) / 4;
+                const cp2x = p1.x + (p2.x - p0.x) / 4;
+                const cp2y = p1.y + (p2.y - p0.y) / 4;
 
                 ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p1.x, p1.y);
             }
@@ -323,7 +325,7 @@ class WeatherGraph {
             const stops = [
                 { t: -30, c: '#1e40af' },
                 { t: -10, c: '#38bdf8' },
-                { t: 0, c: '#ffffff' },
+                { t: 0, c: '#fbbf24' },
                 { t: 10, c: '#f97316' },
                 { t: 30, c: '#ef4444' }
             ];
@@ -333,6 +335,15 @@ class WeatherGraph {
                 grad.addColorStop(pos, s.c);
             }
 
+            const gradGlow = ctx.createLinearGradient(0, height, 0, 0);
+            for (const s of stops) {
+            const gpos = Math.max(0, Math.min(1, (s.t - ranges.minTemp) / span));
+            const grgb = [parseInt(s.c.slice(1, 3), 16), parseInt(s.c.slice(3, 5), 16), parseInt(s.c.slice(5, 7), 16)];
+            gradGlow.addColorStop(gpos, 'rgba(' + grgb[0] + ',' + grgb[1] + ',' + grgb[2] + ',0.3)');
+}
+            ctx.strokeStyle = gradGlow;
+            ctx.lineWidth = 11;
+            ctx.stroke();
             ctx.strokeStyle = grad;
             ctx.lineWidth = 5;
             ctx.stroke();
@@ -362,7 +373,7 @@ class WeatherGraph {
                     ctx.setLineDash([5, 5]);
                     ctx.moveTo(divider.x, 0);
                     ctx.lineTo(divider.x, height);
-                    ctx.stroke();
+            ctx.stroke();
                     ctx.setLineDash([]);
 
                     ctx.fillStyle = this.colors.textMuted;
@@ -416,25 +427,13 @@ class WeatherGraph {
                 const y = height - barHeight;
 
                 const gradient = ctx.createLinearGradient(x, y, x + barWidth, y + barHeight);
-                if (allDays[dayIndex].type === 'forecast') {
-                    gradient.addColorStop(0, '#c084fc');
-                    gradient.addColorStop(1, '#a855f7');
-                } else {
-                    gradient.addColorStop(0, '#06b6d4');
-                    gradient.addColorStop(1, '#0891b2');
-                }
-
-                ctx.fillStyle = gradient;
                 ctx.fillRect(x, y, barWidth, barHeight);
 
                 ctx.strokeStyle = '#ffffff';
                 ctx.lineWidth = 1;
-                ctx.strokeRect(x, y, barWidth, barHeight);
 
-                // 🔥 УБРАНО УСЛОВИЕ: показываем подписи для всех осадков
                 ctx.fillStyle = this.colors.text;
                 ctx.font = '9px "Segoe UI", Arial';
-                ctx.fillText(`${pos.precip.toFixed(1)}мм`, x + barWidth / 2 - 14, y - 5);
             }
         });
     }
@@ -469,11 +468,9 @@ class WeatherGraph {
 
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 1;
-            ctx.strokeRect(x - barWidth / 2, y, barWidth, barHeight);
 
             ctx.fillStyle = this.colors.text;
             ctx.font = '9px "Segoe UI", Arial';
-            ctx.fillText(`${snowForDay.snowDepth} см`, x - barWidth / 2 + 5, y - 3);
 
             if (snowForDay.snowfall > 0) {
                 ctx.fillStyle = '#ffffff';
@@ -489,13 +486,13 @@ class WeatherGraph {
         this.temperaturePoints.forEach(point => {
             ctx.fillStyle = this.colorForTemp(point.temp);
             ctx.beginPath();
-            ctx.arc(point.x, point.y, 7, 0, 2 * Math.PI);
+            ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI);
             ctx.fill();
 
             ctx.strokeStyle = '#ffffff';
             ctx.lineWidth = 2;
             ctx.beginPath();
-            ctx.arc(point.x, point.y, 7, 0, 2 * Math.PI);
+            ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI);
             ctx.stroke();
 
             ctx.fillStyle = '#ffffff';
@@ -624,7 +621,7 @@ class WeatherGraph {
         const stops = [
             { t: -30, c: '#1e40af' },
             { t: -10, c: '#38bdf8' },
-            { t: 0, c: '#ffffff' },
+            { t: 0, c: '#fbbf24' },
             { t: 10, c: '#f97316' },
             { t: 30, c: '#ef4444' }
         ];
