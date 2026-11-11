@@ -57,8 +57,7 @@ class WeatherGraph {
         this.drawDayBands(ctx, allDays, graphWidth, graphHeight);
         this.drawDayNight(ctx, allDays, graphWidth, graphHeight, sunTimes);
         this.drawGrid(ctx, graphWidth, graphHeight, ranges);
-        this.drawSeparator(ctx, allDays, graphWidth, graphHeight);
-        this.drawSmoothTemperatureLine(ctx, allDays, graphWidth, graphHeight, ranges);
+                this.drawSmoothTemperatureLine(ctx, allDays, graphWidth, graphHeight, ranges);
         this.drawTimeDividers(ctx, allDays, graphWidth, graphHeight);
         this.drawPrecipitationBars(ctx, allDays, graphWidth, graphHeight, ranges, hourlyPrecipitation);
         this.drawSnowLayer(ctx, allDays, snowData, graphWidth, graphHeight, ranges);
@@ -336,7 +335,7 @@ class WeatherGraph {
             }
 
             ctx.strokeStyle = grad;
-            ctx.lineWidth = 6;
+            ctx.lineWidth = 15;
             ctx.stroke();
         }
 
@@ -441,6 +440,14 @@ class WeatherGraph {
 
                 ctx.fillStyle = gradient;
                 ctx.fillRect(x, y, barWidth, barHeight);
+
+                // значение осадков над столбцом
+                ctx.fillStyle = '#ffffff';
+                ctx.font = 'bold 11px "Segoe UI", Arial';
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'bottom';
+                const mm = pos.precip >= 1 ? Math.round(pos.precip) : (Math.round(pos.precip * 10) / 10);
+                ctx.fillText(mm + ' мм', pos.x, y - 4);
             }
         });
     }
@@ -488,14 +495,22 @@ class WeatherGraph {
         // белые точки, тонкий тёмный контур для читаемости на светлом фоне
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
-        ctx.arc(point.x, point.y, 7, 0, 2 * Math.PI);
+        ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI);
         ctx.fill();
 
         ctx.strokeStyle = 'rgba(15, 23, 42, 0.55)';
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.arc(point.x, point.y, 7, 0, 2 * Math.PI);
+        ctx.arc(point.x, point.y, 8, 0, 2 * Math.PI);
         ctx.stroke();
+
+        // значение температуры над точкой (под точкой, если верх обрезается)
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 12px "Segoe UI", Arial';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'bottom';
+        const labelY = point.y - 22 < 14 ? point.y + 28 : point.y - 22;
+        ctx.fillText(Math.round(point.temp) + '°', point.x, labelY);
     });
     }
     drawDayBands(ctx, allDays, width, height) {
