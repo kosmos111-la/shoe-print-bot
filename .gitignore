@@ -32,3 +32,8 @@ Thumbs.db
 # Node.js
 node_modules/
 npm-debug.log*
+
+# Debug web: загруженные фото и рантайм-отчёты (не коммитим)
+temp/web/
+data/
+тест.txt

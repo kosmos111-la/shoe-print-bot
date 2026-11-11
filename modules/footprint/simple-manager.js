@@ -1299,7 +1299,19 @@ const result = {
         console.log(`🧹 Очистка сессии ${userId}`);
 
 
-        this.sessionManager?.sessions?.delete(userId);
+        if (this.sessionManager) {
+            // 🔥 ИСПРАВЛЕНИЕ: SessionManager хранит песочницы по sessionId (this.sessions)
+            // и по userId (this.sandboxSessions). Прежнее sessions.delete(userId) удаляло
+            // по НЕВЕРНОМУ ключу — сессия оставалась, а topologyManagers уже удалялся →
+            // после пересборки getTopologyManager(userId) не находил менеджер («модель пуста»).
+            if (this.sessionManager.endSandboxSession) {
+                this.sessionManager.endSandboxSession(userId); // чистит sessions + sandboxSessions
+            } else {
+                const sid = this.sessionManager.sandboxSessions?.get(userId);
+                if (sid) this.sessionManager.sessions?.delete(sid);
+                this.sessionManager.sandboxSessions?.delete(userId);
+            }
+        }
         this.topologyManagers.delete(userId);
         this.userSessions.delete(userId);
 

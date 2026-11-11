@@ -1751,6 +1751,48 @@ if (this.debug) console.log(`      • Глобальная: ${transformSta
 
 this.lastUniqueInPhoto = uniquePhotoPoints;
 
+// 🛡️ ПРЕДОХРАНИТЕЛЬ TRANSFORM — ДО добавления любых точек.
+// Если медианная ошибка проекции > 30px ИЛИ масштаб вне [0.7, 1.3] —
+// transform несостоятелен (ложные пары, растяжение модели).
+// Слияние ОТМЕНЯЕТСЯ ПОЛНОСТЬЮ: точки НЕ добавляются, контур и transform НЕ обновляются.
+let guardError = 0;
+let guardPoints = 0;
+if (finalTransform && finalValidatedMatches && finalValidatedMatches.length >= 2) {
+    const errors = [];
+    for (const match of finalValidatedMatches) {
+        const photoPoint = newExactGraph.nodes.get(match.pointA);
+        const modelPoint = existingModel.graph.nodes.get(match.pointB);
+        if (photoPoint && modelPoint) {
+            const proj = GeometryUtils.applyTransform(photoPoint, finalTransform);
+            errors.push(Math.hypot(modelPoint.x - proj.x, modelPoint.y - proj.y));
+        }
+    }
+    if (errors.length >= 2) {
+        errors.sort((a, b) => a - b);
+        guardError = errors[Math.floor(errors.length / 2)];
+        guardPoints = errors.length;
+    }
+}
+const guardScale = finalTransform ? finalTransform.scale : 1;
+const guardScaleOk = guardScale > 0.7 && guardScale < 1.3;
+const guardErrorOk = guardPoints < 2 || guardError <= 30;
+
+if (!guardScaleOk || !guardErrorOk) {
+    console.log(`\n🛡️ ПРЕДОХРАНИТЕЛЬ: слияние ОТМЕНЕНО — transform несостоятелен: ` +
+        `medianError=${guardError.toFixed(1)}px (по ${guardPoints} парам), scale=${guardScale.toFixed(3)} ` +
+        `(требуется medianError≤30px и 0.7<scale<1.3)`);
+    console.log(`   Модель НЕ изменена: ${existingModel.graph.nodes.size} узлов остаются как есть.`);
+    return {
+        success: false,
+        reason: 'transform_guard',
+        similarity: triangleResult?.similarity || 0,
+        guardError,
+        guardScale,
+        newNodesAdded: 0,
+        message: `transform несостоятелен: medianError=${guardError.toFixed(1)}px, scale=${guardScale.toFixed(3)}`
+    };
+}
+
 // ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ (ПЕРЕДАЁМ uniquePhotoPoints ЯВНО) =====
 if (this.debug) console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
@@ -2087,13 +2129,19 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
                 }
             }
             
-            // 🔥 Если нашли точку в радиусе 5px — СЛИВАЕМ (не добавляем новую)
-            if (closestNode && closestDist < 5) {
-                // Координаты модели НЕ меняем — только увеличиваем подтверждение
-                this._bumpConfirmation(closestNode); // +1 (не более раза за фото)
+            // 🔥 ЖЁСТКАЯ ДЕДУПЛИКАЦИЯ ПЕРЕД ДОБАВЛЕНИЕМ: <2px — игнор, 2..5px — слияние, >=5px — новая точка
+            if (closestNode && closestDist < 2) {
+                if (this.debug) console.log(`      ⏭️ Игнорирую (<2px): (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)}) [dist=${closestDist.toFixed(1)}px]`);
+                continue;
+            }
+            if (closestNode && closestDist < 5) {
+                // СЛИВАЕМ (2..5px): усредняем координаты + confirmationCount++
+                closestNode.x = (closestNode.x + photoPoint.x) / 2;
+                closestNode.y = (closestNode.y + photoPoint.y) / 2;
+                this._bumpConfirmation(closestNode); // +1 (не более раза за фото)
                 closestNode.lastConfirmed = new Date();
                 closestNode.mergedFromPhoto = true;
-                isDuplicate = true;
+                continue;
             }
             if (!isDuplicate) {
     const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
