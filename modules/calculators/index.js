@@ -114,25 +114,63 @@ function _stormReason(data) {
     if (fc.length) {
         const d = Number(fc[0].day_temp), n = Number(fc[0].night_temp);
         if (!isNaN(d) && !isNaN(n) && d - n > 5) reasons.push('резкое похолодание к ночи');
+        const f0c = String(fc[0].condition || '').toLowerCase();
+        if (/гроза|ливень|сильный дождь/i.test(f0c)) reasons.push('сильный дождь/гроза в ближайшие сутки');
     }
-    return reasons.length ? reasons.join('; ') : null;
+    // диапазон шторма: сейчас..+16 ч (почасовые 6 ч + прогноз на сутки)
+    return reasons.length ? [...new Set(reasons)].join('; ') : null;
+}
+
+function _weatherNotes(data) {
+    const notes = [];
+    const cur = data.current || {};
+    const P = Number(cur.precipitation) || 0;
+    const hist = data.history || [];
+    // осадки за последние сутки (вчера) — лес возможно мокрый
+    const y = hist[0];
+    if (y) {
+        const yp = Number(y.precipitation) || 0;
+        const yc = String(y.condition || '').toLowerCase();
+        if (yp > 0 || /дождь|ливень|мокрый|морозный/i.test(yc)) {
+            if (/мокрый|морозный/i.test(yc)) notes.push('⚠️ <b>За сутки шёл мокрый снег/морозный дождь</b> — лес возможно мокрый');
+            else if (!/снег/i.test(yc)) notes.push('⚠️ <b>За сутки шёл дождь</b> — лес возможно мокрый');
+        }
+    }
+    // сухо сейчас и в рабочий диапазон, но осадки по прогнозу позже (+8..+16 ч)
+    const hourly = data.hourly || [];
+    const dryNow = P === 0;
+    const dryRange = hourly.every(h => !(Number(h.precipitation) > 0));
+    const fc = data.forecast || [];
+    const f = fc.find(d => Number(d.precipitation) > 0);
+    if (dryNow && dryRange && f) {
+        const fc_ = String(f.condition || '').toLowerCase();
+        let kind = null;
+        if (/мокрый|морозный/i.test(fc_)) kind = 'мокрый снег/морозный дождь';
+        else if (/дождь|ливень/i.test(fc_)) kind = 'дождь';
+        else if (/снег/i.test(fc_)) kind = 'снег';
+        if (kind) notes.push(`⚠️ <b>По прогнозу — ${kind}</b> после рабочего диапазона (+8 ч) — учтите`);
+    }
+    return notes;
 }
 
 function formatWeatherCompact(data) {
     const cur = data.current || {};
     const T = Number(cur.temperature);
+    const FT = Number(cur.feels_like);
     const W = Number(cur.wind_speed) || 0;
     const P = Number(cur.precipitation) || 0;
     const cond = String(cur.condition || '');
+    const kitT = isNaN(FT) ? T : FT;
     const loc = String(data.location || '').toUpperCase();
     const out = [];
 
     // шапка
     out.push(`🌤️ <b>${loc}</b>`);
 
-    // Блок 1: штурмовое предупреждение (если есть)
+    // Блок 1: штурмовое предупреждение (если есть) + заметки про лес/осадки
     const storm = _stormReason(data);
     if (storm) out.push(`⚠️ <b>ШТУРМОВОЕ ПРЕДУПРЕЖДЕНИЕ:</b> ${storm}`);
+    for (const n of _weatherNotes(data)) out.push(n);
 
     out.push('');
     // Блок 2: сводка
@@ -162,8 +200,8 @@ function formatWeatherCompact(data) {
 
     out.push('');
     // Блок 3: рекомендации по слоям одежды
-    out.push('👕 <b>Рекомендации по слоям одежды:</b>');
-    const kit = getVkpoKit(T, W, P, cond);
+    out.push(`👕 <b>Рекомендации по слоям одежды (по ощущению ${_fmtT(kitT)}):</b>`);
+    const kit = getVkpoKit(kitT, W, P, cond);
     out.push('🏃 <b>В движении (база):</b>');
     out.push(...kit.layers);
     if (kit.backpack) {
