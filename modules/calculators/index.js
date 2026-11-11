@@ -185,12 +185,19 @@ function formatWeatherCompact(data) {
         out.push(`🌅 <b>Восход:</b> ${st.sunriseStr}`);
         out.push(`🌇 <b>Закат:</b> ${st.sunsetStr}`);
         const cloud = Number(cur.cloudiness) || 0;
+    const fmtLoc = (d) => {
+        if (st && st.utcOffsetMs != null) {
+            const w = new Date(d.getTime() + st.utcOffsetMs);
+            return w.toISOString().slice(11, 16);
+        }
+        return d.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' });
+    };
         if (cloud > 50 && st.sunrise instanceof Date && st.sunset instanceof Date) {
               let cf = 1;
               if (cloud > 80) cf = 0.7; else if (cloud > 50) cf = 0.85;
               const dayLen = (st.sunset - st.sunrise) / 1000 / 60 / 60;
               const effSunset = new Date(st.sunset.getTime() - dayLen * (1 - cf) * 3600 * 1000);
-              out.push(`🌆 <b>Эффективное потемнение:</b> ~${effSunset.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' })} (облачность ${cloud}%)`);
+              out.push(`🌆 <b>Эффективное потемнение:</b> ~${fmtLoc(effSunset)} (облачность ${cloud}%)`);
               const now = new Date();
               const hoursLeft = (effSunset - now) / 1000 / 60 / 60;
               if (now >= effSunset) out.push('🌙 <b>Уже темно</b> — нужны фонари');

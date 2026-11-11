@@ -322,13 +322,27 @@ class WeatherService {
 
         let sunTimes = null;
         if (daily && daily.sunrise && daily.sunset) {
-            const sunrise = new Date(daily.sunrise[0]);
-            const sunset = new Date(daily.sunset[0]);
+            // OM (timezone=auto) отдаёт время ЛОКАЦИИ без зоны («2026-11-10T16:24»);
+            // new Date(строка) понял бы её как время СЕРВЕРА и сдвинул бы всё на разницу TZ.
+            // Правильно: строка = локальное время локации, абсолют = строка(UTC) - utc_offset_seconds.
+            const offSec = Number(data.utc_offset_seconds);
+            const hasOff = Number.isFinite(offSec);
+            const parseLocal = (s) => {
+                const iso = /T\d{2}:\d{2}:\d{2}/.test(s) ? s : s + ':00';
+                return new Date(Date.parse(iso + 'Z') - offSec * 1000);
+            };
+            const hhmm = (s) => {
+                const m = /T(\d{2}):(\d{2})/.exec(s);
+                return m ? m[1] + ':' + m[2] : '';
+            };
+            const sunrise = hasOff ? parseLocal(daily.sunrise[0]) : new Date(daily.sunrise[0]);
+            const sunset = hasOff ? parseLocal(daily.sunset[0]) : new Date(daily.sunset[0]);
             sunTimes = {
                 sunrise: sunrise,
                 sunset: sunset,
-                sunriseStr: sunrise.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
-                sunsetStr: sunset.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                sunriseStr: hasOff && hhmm(daily.sunrise[0]) || sunrise.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                sunsetStr: hasOff && hhmm(daily.sunset[0]) || sunset.toLocaleTimeString('ru-RU', { hour: '2-digit', minute: '2-digit' }),
+                utcOffsetMs: hasOff ? offSec * 1000 : null,
                 dayLength: Math.round((sunset - sunrise) / 1000 / 60 / 60 * 10) / 10
             };
         }
