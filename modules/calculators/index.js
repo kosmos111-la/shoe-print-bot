@@ -63,11 +63,11 @@ function getVkpoKit(temp, wind, precip, condition = '') {
     // динамика (в движении) — база: софтшел почти всегда, кроме жары
     let ids;
     if (T < -15) ids = [1, 2, 3, 5, 7];
-    else if (T < 0 && W > 0) ids = [1, 2, 3, 5];
-    else if (T < 0) ids = [1, 2, 5];
-    else if (P > 2) ids = [1, 6];
+    else if (T < 0) ids = [1, 2, 3, 5];
+    else if (P > 2) ids = [1, 5, 6];
     else if (P > 0) ids = [1, 5];
     else if (T >= 20) ids = [1, 4];
+    else if (T < 7) ids = [1, 2, 5];
     else ids = [1, 5];
     // мокрый снег / морозный дождь при морозе — мембрана нужна
     if (T < 0 && /морозный|мокрый/i.test(String(condition || '')) && !ids.includes(6)) {
@@ -76,13 +76,15 @@ function getVkpoKit(temp, wind, precip, condition = '') {
     // статика: утепление для стоянки/штаба — в рюкзак
     let backpack = null;
     if (T >= 20) backpack = null;
-    else if (T < 0) backpack = 7;
-    else backpack = 3;
+    else if (ids.includes(3)) backpack = { layer: null, text: 'пуховая тёплая безрукавка' };
+    else backpack = { layer: 3, text: 'Слой 3: флиска' };
     // головной убор
     let headwear;
-    if (T >= 20) headwear = 'панама';
-    else if (T < 0) headwear = 'тёплая зимняя шапка-ушанка';
-    else headwear = 'лёгкая флисовая шапка';
+    if (T < -15) headwear = 'тёплая зимняя шапка-ушанка';
+    else if (T < 0) headwear = 'лёгкая флисовая шапка';
+    else if (T < 7) headwear = 'лёгкая шапочка';
+    else if (T >= 20) headwear = 'панама';
+    else headwear = 'панама + лёгкая флисовая шапка (в рюкзак)';
     return {
         layers: ids.map(id => `• ${L[id]}`),
         ids: ids,
@@ -165,9 +167,7 @@ function formatWeatherCompact(data) {
     out.push('🏃 <b>В движении (база):</b>');
     out.push(...kit.layers);
     if (kit.backpack) {
-        const bpText = kit.backpack === 7 ? '• Слой 7: утеплённый внешний слой — зимний' : '• Слой 3: флиска';
-        const worn = kit.ids.includes(kit.backpack);
-        out.push(`🎒 <b>Для стоянки/штаба (в рюкзак):</b> ${bpText}${worn ? ' (уже надет — берите запасной/толще)' : ' — утеплиться при остановке'}`);
+        out.push(`🎒 <b>Для стоянки/штаба (в рюкзак):</b> ${kit.backpack.text} — утеплиться при остановке`);
     } else {
         out.push('🎒 <b>Для стоянки/штаба:</b> утепление не нужно (тепло)');
     }
