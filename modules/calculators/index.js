@@ -167,9 +167,9 @@ function formatWeatherCompact(data) {
     // шапка
     out.push(`🌤️ <b>${loc}</b>`);
 
-    // Блок 1: штурмовое предупреждение (если есть) + заметки про лес/осадки
+    // Блок 1: штормовое предупреждение (если есть) + заметки про лес/осадки
     const storm = _stormReason(data);
-    if (storm) out.push(`⚠️ <b>ШТУРМОВОЕ ПРЕДУПРЕЖДЕНИЕ:</b> ${storm}`);
+    if (storm) out.push(`⚠️ <b>ШТОРМОВОЕ ПРЕДУПРЕЖДЕНИЕ:</b> ${storm}`);
     for (const n of _weatherNotes(data)) out.push(n);
 
     out.push('');
