@@ -47,7 +47,7 @@ function _ddmm(s) {
     return str;
 }
 
-function getClothingLayers(temp, wind, precip) {
+function getVkpoKit(temp, wind, precip, condition = '') {
     const T = Number(temp);
     const W = Number(wind) || 0;
     const P = Number(precip) || 0;
@@ -60,20 +60,37 @@ function getClothingLayers(temp, wind, precip) {
         6: 'Слой 6: харшел (мембрана) — защита от ветра и дождя',
         7: 'Слой 7: утеплённый внешний слой — зимний',
     };
+    // динамика (в движении) — база: софтшел почти всегда, кроме жары
     let ids;
-    if (T < -25) ids = [1, 2, 3, 6, 7];
-    else if (T < -15) ids = [1, 2, 3, 5, 7];
+    if (T < -15) ids = [1, 2, 3, 5, 7];
     else if (T < 0 && W > 0) ids = [1, 2, 3, 5];
     else if (T < 0) ids = [1, 2, 5];
     else if (P > 2) ids = [1, 6];
     else if (P > 0) ids = [1, 5];
     else if (T >= 20) ids = [1, 4];
     else ids = [1, 5];
-    const out = ids.map(id => `• ${L[id]}`);
-    if (T < 0) out.push('• Доп: шапка, баф, перчатки');
-    return out;
+    // мокрый снег / морозный дождь при морозе — мембрана нужна
+    if (T < 0 && /морозный|мокрый/i.test(String(condition || '')) && !ids.includes(6)) {
+        ids = [...ids, 6];
+    }
+    // статика: утепление для стоянки/штаба — в рюкзак
+    let backpack = null;
+    if (T >= 20) backpack = null;
+    else if (T < 0) backpack = 7;
+    else backpack = 3;
+    // головной убор
+    let headwear;
+    if (T >= 20) headwear = 'панама';
+    else if (T < 0) headwear = 'тёплая зимняя шапка-ушанка';
+    else headwear = 'лёгкая флисовая шапка';
+    return {
+        layers: ids.map(id => `• ${L[id]}`),
+        ids: ids,
+        backpack: backpack,
+        headwear: headwear,
+        cold: T < 0,
+    };
 }
-
 function _stormReason(data) {
     const reasons = [];
     const cur = data.current || {};
@@ -144,7 +161,17 @@ function formatWeatherCompact(data) {
     out.push('');
     // Блок 3: слои ВКПО
     out.push('👕 <b>Экипировка (ВКПО):</b>');
-    out.push(...getClothingLayers(T, W, P));
+    const kit = getVkpoKit(T, W, P, cond);
+    out.push('🏃 <b>В движении (база):</b>');
+    out.push(...kit.layers);
+    if (kit.backpack) {
+        const bpText = kit.backpack === 7 ? '• Слой 7: утеплённый внешний слой — зимний' : '• Слой 3: флиска';
+        const worn = kit.ids.includes(kit.backpack);
+        out.push(`🎒 <b>Для стоянки/штаба (в рюкзак):</b> ${bpText}${worn ? ' (уже надет — берите запасной/толще)' : ' — утеплиться при остановке'}`);
+    } else {
+        out.push('🎒 <b>Для стоянки/штаба:</b> утепление не нужно (тепло)');
+    }
+    out.push(`🧢 <b>Головной убор:</b> ${kit.headwear}${kit.cold ? ' (+ баф, перчатки)' : ''}`);
 
     out.push('');
     // Блок 4: детали — свёрнутый спойлер (без пустых строк внутри)
@@ -293,4 +320,4 @@ function initialize() {
     };
 }
 
-module.exports = { initialize, formatWeatherCompact, getClothingLayers };
+module.exports = { initialize, formatWeatherCompact, getVkpoKit };
