@@ -231,14 +231,17 @@ function validateConfig(config) {
     return true;
 }
 
-// ВЫЗЫВАЕМ ВАЛИДАЦИЮ
-try {
-    validateConfig(config);
-} catch (error) {
-    console.log('💥 Невозможно запустить систему с некорректной конфигурации');
-    process.exit(1);
+// ВЫЗЫВАЕМ ВАЛИДАЦИЮ (пропускаем в режиме DEBUG_WEB — только веб-интерфейс)
+if (process.env.DEBUG_WEB !== '1') {
+    try {
+        validateConfig(config);
+    } catch (error) {
+        console.log('💥 Невозможно запустить систему с некорректной конфигурации');
+        process.exit(1);
+    }
+} else {
+    console.log('🔍 DEBUG_WEB: пропускаю проверку Telegram');
 }
-
 // =============================================================================
 // 🎯 ИНИЦИАЛИЗАЦИЯ FOOTPRINT MANAGER
 // =============================================================================
@@ -376,7 +379,20 @@ practicalAnalyzer = createPracticalAnalyzerStub();
 animalFilter = createAnimalFilterStub();
 
 const app = express();
-const bot = createBot(config.TELEGRAM_TOKEN);
+// 🔥 DEBUG_WEB: фиктивный бот-заглушка (регистрация команд не падает)
+let bot = null;
+if (process.env.DEBUG_WEB !== '1' && config.TELEGRAM_TOKEN && !config.TELEGRAM_TOKEN.startsWith('0000')) {
+    bot = createBot(config.TELEGRAM_TOKEN);
+} else {
+    console.log('🔍 DEBUG_WEB: бот не запущен — фиктивная заглушка');
+    bot = {
+        on: () => {}, onText: () => {}, sendMessage: async () => {},
+        answerCallbackQuery: async () => {}, editMessageText: async () => {},
+        processUpdate: () => {}, getFile: async () => ({ file_path: '' }),
+        sendPhoto: async () => {}, getMe: async () => ({ username: 'debug' }),
+        getWebHookInfo: async () => ({ url: '', pending_update_count: 0 })
+    };
+}
 // polling не указываем
 
 // 🔧 НАСТРОЙКА EXPRESS
@@ -483,7 +499,9 @@ const commandsHandlerCtx = {
     saveUserLastAnalysis,
     getLastUserAnalysis
 };
-require('./src/handlers/commands.handler')(bot, commandsHandlerCtx);
+if (bot) {
+    require('./src/handlers/commands.handler')(bot, commandsHandlerCtx);
+}
 // =============================================================================
 // 📸 ОБРАБОТКА ФОТО (вынесено в src/handlers/photo.handler.js)
 // =============================================================================
@@ -501,7 +519,19 @@ const photoHandlerCtx = {
     updateUserStats,
     saveUserLastAnalysis
 };
-require('./src/handlers/photo.handler')(bot, photoHandlerCtx);
+if (bot) {
+    require('./src/handlers/photo.handler')(bot, photoHandlerCtx);
+}
+
+// 🔍 ЛОКАЛЬНЫЙ ВЕБ-ИНТЕРФЕЙС ДЛЯ ОТЛАДКИ ЯДРА (без Telegram)
+if (process.env.DEBUG_WEB === '1') {
+    const createDebugServer = require('./src/web/debug-server');
+    const debugApp = createDebugServer(photoHandlerCtx, config);
+    const debugPort = process.env.DEBUG_WEB_PORT || 3001;
+    debugApp.listen(debugPort, () => {
+        console.log(`🔍 Debug UI: http://localhost:${debugPort}`);
+    });
+}
 
 // =============================================================================
 // 🚀 ЗАПУСК СЕРВЕРА
@@ -858,22 +888,24 @@ bot.on('callback_query', async (callbackQuery) => {
 // =============================================================================
 
 
-// Запускаем настройку вебхука через 3 секунды после старта
-setTimeout(() => setupWebhook(bot, config.TELEGRAM_TOKEN), 3000);
-
-// Периодическая проверка вебхука
-setInterval(async () => {
-    try {
-        const info = await bot.getWebHookInfo();
-        if (!info.url || info.pending_update_count > 50) {
-            console.log('⚠️ Вебхук требует внимания, переустанавливаю...');
-            await setupWebhook(bot, config.TELEGRAM_TOKEN);
-        }
-    } catch (error) {
-        console.log('❌ Ошибка проверки вебхука:', error.message);
-    }
-}, 30 * 60 * 1000); // Проверка каждые 30 минут
-
+// Запускаем настройку вебхука через 3 секунды после старта (только не в DEBUG_WEB)
+if (process.env.DEBUG_WEB !== '1' && bot) {
+    setTimeout(() => setupWebhook(bot, config.TELEGRAM_TOKEN), 3000);
+}
+// Периодическая проверка вебхука (только не в DEBUG_WEB)
+if (process.env.DEBUG_WEB !== '1' && bot) {
+    setInterval(async () => {
+        try {
+            const info = await bot.getWebHookInfo();
+            if (!info.url || info.pending_update_count > 50) {
+                console.log('⚠️ Вебхук требует внимания, переустанавливаю...');
+                await setupWebhook(bot, config.TELEGRAM_TOKEN);
+            }
+        } catch (error) {
+            console.log('❌ Ошибка проверки вебхука:', error.message);
+        }
+    }, 30 * 60 * 1000); // Проверка каждые 30 минут
+}
 // Тестовый эндпоинт для проверки
 app.get('/webhook-test', async (req, res) => {
     try {

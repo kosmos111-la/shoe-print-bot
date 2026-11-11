@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🔍 Отладка ядра — следы обуви</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <h1>🔍 Отладка ядра следа обуви</h1>
+    <p class="subtitle">Локальный веб-интерфейс (без Telegram) — <code>DEBUG_WEB=1</code> · пошаговое сравнение</p>
+
+    <div id="dropzone">
+        <div class="dz-inner">
+            🖼 Перетащите фото следа сюда (пачка: первое создаёт модель, остальные сравниваются)<br>
+            <small>или нажмите — выберите файлы</small>
+        </div>
+        <input type="file" id="fileInput" accept="image/*" multiple hidden>
+    </div>
+
+    <div class="controls">
+        <label><input type="checkbox" id="skipAnimal"> Пропустить фильтр лап (animalFilter)</label>
+        <button id="analyzeBtn" disabled>▶️ Запустить анализ</button>
+        <span id="fileCount" class="file-count"></span>
+    </div>
+
+    <div id="preview"></div>
+
+    <div id="result" class="hidden">
+        <!-- Панель сессии -->
+        <div class="session-bar">
+            <button id="addPhotoBtn">➕ Добавить ещё фото</button>
+            <button id="exportBtn">📥 Скачать отчет (PNG)</button>
+            <select id="exportMode" title="Что экспортировать">
+                <option value="all">Вся сетка</option>
+                <option value="current">Текущее сравнение</option>
+            </select>
+            <button id="resetBtn" class="danger">🔄 Сбросить сессию</button>
+            <input type="file" id="addPhotoInput" accept="image/*" hidden>
+            <span id="sessionInfo" class="file-count"></span>
+        </div>
+
+        <!-- Слои (общие для всех холстов) + режим линий -->
+        <div class="canvas-controls">
+            <label><input type="checkbox" id="layer-original" checked> Фото</label>
+            <label><input type="checkbox" id="layer-detections" checked> Полигоны (детекции)</label>
+            <label><input type="checkbox" id="layer-contour" checked> Контур следа</label>
+            <label><input type="checkbox" id="layer-heel" checked> Пятка</label>
+            <label><input type="checkbox" id="layer-toe" checked> Мысок</label>
+            <label><input type="checkbox" id="layer-dragged" checked> Поволока-выволока</label>
+            <label><input type="checkbox" id="layer-topology" checked> Топология (точки+рёбра)</label>
+            <label><input type="checkbox" id="layer-triangles" checked> Якорные треугольники</label>
+            <label><input type="checkbox" id="layer-rays"> Лучи (rays)</label>
+            <label><input type="checkbox" id="layer-ids" checked> ID точек</label>
+            <label><input type="checkbox" id="layer-tracing"> Калька</label>
+            <label><input type="checkbox" id="showAllLines"> Показывать все линии</label>
+            <label class="opacity-slider">Прозрачность фото:
+                <input type="range" id="photoOpacity" min="0" max="100" value="100">
+                <span id="photoOpacityVal">100%</span>
+            </label>
+        </div>
+
+        <!-- Ряды сравнений: [Фото N] | [Супер-модель] + метрики -->
+        <div id="rows"></div>
+
+        <!-- Текстовая легенда (под холстами, без блока на canvas) -->
+        <div class="legend">
+            <span class="lg-item"><span class="lg-dot" style="background:#4169E1"></span> точка модели: 1 подтверждение</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#FFD700"></span> точка модели: 2+ подтверждений</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#00ACC1"></span> точка фото</span>
+            <span class="lg-item"><span class="lg-dot" style="background:#2ECC71"></span> полигон детекции</span>
+            <span class="lg-item"><span class="lg-square" style="background:rgba(170,0,255,.25);border-color:#AA00FF"></span> контур следа (Outline-trail)</span>
+            <span class="lg-item"><span class="lg-square" style="background:rgba(229,57,53,.25);border-color:#E53935"></span> пятка (Heel)</span>
+            <span class="lg-item"><span class="lg-square" style="background:rgba(253,216,53,.3);border-color:#FDD835"></span> мысок (Toe)</span>
+            <span class="lg-item"><span class="lg-square" style="background:rgba(41,182,246,.25);border-color:#29B6F6"></span> поволока-выволока (Dragged)</span>
+            <span class="lg-item"><span class="lg-square" style="background:rgba(255,69,0,.35);border-color:#FF5722"></span> якорный треугольник</span>
+            <span class="lg-item"><span class="lg-line" style="border-top-color:#FFD700"></span> луч success</span>
+            <span class="lg-item"><span class="lg-line" style="border-top-color:#FF5050;border-top-style:dashed"></span> луч failed</span>
+            <span class="lg-item"><span class="lg-square" style="background:rgba(255,255,255,.6);border-color:#bbb"></span> калька</span>
+            <span class="lg-item"><span class="lg-line" style="border-top-color:#FFD700"></span> линия соответствия (matchMap)</span>
+            <span class="lg-item">🖱 колесо — зум · ЛКМ — pan · ПКМ+колесо — вращение · X/Y — зеркало (активный холст) · 2 клика — сброс вида</span>
+        </div>
+
+        <!-- Интерактивный граф (vis.js): финальная супер-модель -->
+        <div id="graphContainer"></div>
+
+        <!-- Лог решений ядра -->
+        <details id="logPanel">
+            <summary>📋 Лог решений ядра <span id="logCount"></span></summary>
+            <div id="logBody"></div>
+        </details>
+
+        <!-- Заметки по пачкам (пропущенные файлы и т.п.) -->
+        <div id="filesResults"></div>
+    </div>
+
+    <div id="errorBox" class="hidden">
+        <h3>❌ Ошибка</h3>
+        <pre id="errorText"></pre>
+    </div>
+
+    <!-- CDN для прототипа; позже можно заменить на локальный файл -->
+    <script src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <script src="app.js"></script>
+</body>
+</html>
