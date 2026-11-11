@@ -304,20 +304,9 @@ class WeatherGraph {
             ctx.beginPath();
             ctx.moveTo(points[0].x, points[0].y);
 
-            for (let i = 1; i < points.length - 1; i++) {
-                const p0 = points[i - 1];
-                const p1 = points[i];
-                const p2 = points[i + 1];
-
-                const cp1x = p1.x - (p2.x - p0.x) / 6;
-                const cp1y = p1.y - (p2.y - p0.y) / 6;
-                const cp2x = p1.x + (p2.x - p0.x) / 6;
-                const cp2y = p1.y + (p2.y - p0.y) / 6;
-
-                ctx.bezierCurveTo(cp1x, cp1y, cp2x, cp2y, p1.x, p1.y);
+            for (let i = 1; i < points.length; i++) {
+                ctx.lineTo(points[i].x, points[i].y);
             }
-
-            ctx.lineTo(points[points.length - 1].x, points[points.length - 1].y);
 
             // градиент линии по температуре
             const grad = ctx.createLinearGradient(0, height, 0, 0);
@@ -336,6 +325,8 @@ class WeatherGraph {
 
             ctx.strokeStyle = grad;
             ctx.lineWidth = 15;
+            ctx.lineJoin = 'round';
+            ctx.lineCap = 'round';
             ctx.stroke();
         }
 
