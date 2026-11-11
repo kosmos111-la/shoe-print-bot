@@ -43,7 +43,7 @@ function formatMeasurementGuide() {
         '4. В каждом следе смотрите на <b>рельеф снега</b>: если снег лежит явно <b>под углом</b> или с бугром — это намет, такой след <b>пропускайте</b>. Ищите следы, где снег лежит <b>визуально ровно</b>.\n',
         '5. Если один след замело или на нём намет — <b>идите дальше по цепи</b>, найдите чистые следы. Не замеряйте «что попало».\n',
         '6. Линейка — <b>любая твёрдая и тонкая</b> (не обязательно металлическая). Пластиковая тоже подойдёт, если не гнётся. Металл из кармана <b>обмерзает</b> — держите её в рукавице или протирайте.\n',
-        '7. Вводите замеры через пробел: например, <code>1.5 1.8 1.6</code>. Бот возьмёт <b>минимум</b> (исключает намет) и покажет <b>разброс</b>.\n',
+        '7. Вводите замеры через пробел, запятую или точку с запятой — разделитель дробной части и точка, и запятая: например, <code>1.5 1.8 1.6</code> или <code>1,5 1,8 1,6</code>. Бот возьмёт <b>минимум</b> (исключает намет) и покажет <b>разброс</b>.\n',
         '8. <b>Все замеры — в РАЗНЫХ следах цепи</b>, а не в одном следе: минимум по каждой точке, среднее по цепи исключает локальные наметы.\n',
         '</blockquote>',
     ].join('');
@@ -387,6 +387,38 @@ function formatRuDate(d) {
     return _spPad2(d.getDate()) + '.' + _spPad2(d.getMonth() + 1) + '.' + d.getFullYear();
 }
 
+// 🔢 ПАРСИНГ ГЛУБИН: и точка, и запятая — десятичный разделитель; список — через пробел, ; или «, »
+function normalizeDepthToken(t) {
+    t = t.trim().replace(/[.,]+$/, ''); // хвостовые разделители: «1,5,» -> «1,5»
+    if (t === '') return NaN;
+    const seps = (t.match(/[.,]/g) || []).length;
+    if (seps > 1) return NaN; // несколько разделителей — это не одно число
+    if (seps === 1) {
+        const pos = Math.max(t.lastIndexOf('.'), t.lastIndexOf(','));
+        return Number(t.slice(0, pos) + '.' + t.slice(pos + 1));
+    }
+    return Number(t);
+}
+function parseDepths(text) {
+    const out = [];
+    for (const raw of text.split(/[\s;]+/)) {
+        const t = raw.trim();
+        if (!t) continue;
+        out.push(normalizeDepthToken(t));
+    }
+    // вторая попытка: «1.5,1.8,1.6» без пробелов — запятая как разделитель списка
+    if (out.length === 0 || out.some(n => isNaN(n))) {
+        const alt = [];
+        for (const part of text.split(/[\s,;]+/)) {
+            const p = part.trim();
+            if (!p) continue;
+            alt.push(normalizeDepthToken(p));
+        }
+        if (alt.length > out.length && !alt.some(n => isNaN(n))) return alt;
+    }
+    return out;
+}
+
 // ❄️ Команда калькулятора давности следа на снегу
 bot.onText(/\/calc_snow_age/, async (msg) => {
     const chatId = msg.chat.id;
@@ -409,7 +441,7 @@ bot.onText(/\/calc_snow_age/, async (msg) => {
         '<code>2024-01-15</code>\n' +
         '<code>15.01.2024</code>\n\n' +
         '3. 📏 <b>Отправьте 3–5 замеров глубины в ЦЕПИ следов</b> (10–15 м друг от друга, см, через пробел)\n' +
-        '<code>1.5 1.8 1.6</code>\n\n' +
+        '<code>1.5 1.8 1.6</code> или <code>1,5 1,8 1,6</code>\n\n' +
         '📍 <i>Сначала отправьте местоположение</i>',
         { parse_mode: 'HTML', reply_markup: { keyboard: [[{ text: "📍 Отправить местоположение", request_location: true }]], resize_keyboard: true, one_time_keyboard: true } }
     );
@@ -591,7 +623,7 @@ bot.on('message', async (msg) => {
            await bot.sendMessage(chatId,
                '📍 Дата принята: <code>' + disappearanceTime.toISOString().slice(0, 10) + '</code>\n\n' +
                '📏 Теперь отправьте <b>3–5 замеров глубины в ЦЕПИ следов</b> (10–15 м друг от друга, см, через пробел):\n\n' +
-               '<code>1.5 1.8 1.6</code>\n\n' +
+               '<code>1.5 1.8 1.6</code> или <code>1,5 1,8 1,6</code>\n\n' +
                '💡 Берём минимум (исключает намет); разброс > 3 см — «след неравномерный».',
                { parse_mode: 'HTML' }
            );
@@ -600,11 +632,10 @@ bot.on('message', async (msg) => {
 
        // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА: шаг 2 — глубины
        if (context && context.type === 'snow_age_calc' && context.step === 'depths') {
-           const tokens = text.replace(/,/g, '.').split(/\s+/).filter(t => t !== '');
-           const depths = tokens.map(Number);
+                      const depths = parseDepths(text);
 
            if (depths.length < 3 || depths.length > 5 || depths.some(d => isNaN(d))) {
-               await bot.sendMessage(chatId, '❌ Нужно 3–5 чисел (глубина в см), например: <code>1.5 1.8 1.6</code>', { parse_mode: 'HTML' });
+               await bot.sendMessage(chatId, '❌ Нужно 3–5 чисел (глубина в см), например: <code>1.5 1.8 1.6</code> или <code>1,5 1,8 1,6</code>', { parse_mode: 'HTML' });
                return;
            }
 
@@ -2832,7 +2863,7 @@ bot.on('callback_query', async (callbackQuery) => {
                 await bot.editMessageText(
                     '✅ <b>Дата пропажи:</b> ' + formatRuDate(d) + '\n\n' +
                     '📏 Теперь отправьте <b>3–5 замеров глубины в ЦЕПИ следов</b> (10–15 м друг от друга, см, через пробел):\n\n' +
-                    '<code>1.5 1.8 1.6</code>\n\n' +
+                    '<code>1.5 1.8 1.6</code> или <code>1,5 1,8 1,6</code>\n\n' +
                     '💡 Берём минимум (исключает намет); разброс > 3 см — «след неравномерный».',
                     { chat_id: chatId, message_id: messageId, parse_mode: 'HTML' }
                 );
