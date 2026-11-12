@@ -604,7 +604,7 @@ bot.on('message', async (msg) => {
 
     try {
        // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА: шаг 1 — дата пропажи
-       if (context && context.type === 'snow_age_calc' && context.step !== 'depths') {
+       if (context && context.type === 'snow_age_calc' && context.step !== 'depths' && context.step !== 'second_visit' && context.step !== 'first_visit') {
            const disappearanceTime = parseDateTime(text);
 
            if (!disappearanceTime) {
@@ -632,25 +632,98 @@ bot.on('message', async (msg) => {
 
        // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА: шаг 2 — глубины
        if (context && context.type === 'snow_age_calc' && context.step === 'depths') {
-                      const depths = parseDepths(text);
+        const depths = parseDepths(text);
 
-           if (depths.length < 3 || depths.length > 5 || depths.some(d => isNaN(d))) {
-               await bot.sendMessage(chatId, '❌ Нужно 3–5 чисел (глубина в см), например: <code>1.5 1.8 1.6</code> или <code>1,5 1,8 1,6</code>', { parse_mode: 'HTML' });
-               return;
-           }
+        if (depths.length < 3 || depths.length > 5 || depths.some(d => isNaN(d))) {
+            await bot.sendMessage(chatId, '❌ Нужно 3–5 чисел (глубина в см), например: <code>1.5 1.8 1.6</code> или <code>1,5 1,8 1,6</code>', { parse_mode: 'HTML' });
+            return;
+        }
 
-           await bot.sendMessage(chatId, '❄️🔮 Анализирую давность следа...');
+        // Шаг 2а — второй визит к тому же следу? (оценка по двум замерам, точность 3-7 ≈ вдвое лучше)
+        userContext[userId] = {
+            type: 'snow_age_calc',
+            coordinates: context.coordinates,
+            disappearanceTime: context.disappearanceTime,
+            depths: depths,
+            step: 'second_visit'
+        };
 
-           const result = await ctx.calculators.calculateSnowAge(context.coordinates, context.disappearanceTime, { depths });
+        await bot.sendMessage(chatId,
+            '📏 Глубины приняты: <code>' + depths.map(d => ('' + d).replace('.', ',')).join(' ') + '</code>\n\n' +
+            '🔁 <b>Это второй визит к тому же следу?</b>\n' +
+            '(этот след уже измеряли в другой день — давность оценится по ДВУМ замерам)\n\n' +
+            '— <b>Да</b>: укажите дату и глубину первого визита (далее)\n' +
+            '— <b>Нет</b>: оценка по одному замеру (как раньше)',
+            { parse_mode: 'HTML', reply_markup: { keyboard: [['🔁 Да, второй визит', '🙅 Нет, первый раз']], resize_keyboard: true, one_time_keyboard: true } }
+        );
+        return;
+    }
 
-           // Очищаем контекст ПОСЛЕ выполнения
-           delete userContext[userId];
+    // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА: шаг 2б — ответ «второй визит?»
+    if (context && context.type === 'snow_age_calc' && context.step === 'second_visit') {
+        const isYes = /^(да|yes|д|y|ага|конечно|🔁)/i.test(text);
+        if (!isYes) {
+            // нет — обычная оценка по одному замеру (как раньше)
+            await bot.sendMessage(chatId, '❄️🔮 Анализирую давность следа...');
 
-           await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
-           return;
-       }
+            const result = await ctx.calculators.calculateSnowAge(context.coordinates, context.disappearanceTime, { depths: context.depths });
 
-        // 🎯 ОБРАБОТКА ПРОСТЫХ КАЛЬКУЛЯТОРОВ
+            // Очищаем контекст ПОСЛЕ выполнения
+            delete userContext[userId];
+
+            await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+            return;
+        }
+
+        userContext[userId] = {
+            type: 'snow_age_calc',
+            coordinates: context.coordinates,
+            disappearanceTime: context.disappearanceTime,
+            depths: context.depths,
+            step: 'first_visit'
+        };
+
+        await bot.sendMessage(chatId,
+            '🔁 Отлично! Укажите <b>дату и глубину ПЕРВОГО визита</b> к этому следу (через пробел):\n\n' +
+            '<code>2024-01-13 1.8</code>\n' +
+            '<code>13.01.2024 1,8</code>\n\n' +
+            '💡 Дата первого визита должна быть РАНЬШЕ даты второго.',
+            { parse_mode: 'HTML' }
+        );
+        return;
+    }
+
+    // 🎯 ОБРАБОТКА КОНТЕКСТА СНЕГА: шаг 2в — дата и глубина первого визита
+    if (context && context.type === 'snow_age_calc' && context.step === 'first_visit') {
+        const dm = /(\d{4})-(\d{2})-(\d{2})/.exec(text);
+        let d1 = null, dateTok = null;
+        if (dm) { d1 = new Date(Date.UTC(+dm[1], +dm[2] - 1, +dm[3])); dateTok = dm[0]; }
+        else {
+            const dm2 = /(\d{1,2})[./](\d{1,2})[./](\d{4})/.exec(text);
+            if (dm2) { d1 = new Date(Date.UTC(+dm2[3], +dm2[2] - 1, +dm2[1])); dateTok = dm2[0]; }
+        }
+        const rest = (dateTok ? text.replace(dateTok, '') : text).trim();
+        const h1 = normalizeDepthToken(rest.split(/[\s,;]+/)[0] || '');
+        if (!d1 || isNaN(d1.getTime()) || isNaN(h1) || (context.disappearanceTime && d1.getTime() >= context.disappearanceTime.getTime())) {
+            await bot.sendMessage(chatId, '❌ Не понял. Дата первого визита должна быть РАНЬШЕ второго. Укажите, например: <code>2024-01-13 1.8</code> или <code>13.01.2024 1,8</code>', { parse_mode: 'HTML' });
+            return;
+        }
+
+        await bot.sendMessage(chatId, '❄️🔮 Анализирую давность следа (два замера)...');
+
+        const result = await ctx.calculators.calculateSnowAge(context.coordinates, context.disappearanceTime, {
+            depths: context.depths,
+            firstVisit: { date: d1.toISOString().slice(0, 10), depth: h1 }
+        });
+
+        // Очищаем контекст ПОСЛЕ выполнения
+        delete userContext[userId];
+
+        await bot.sendMessage(chatId, result, { parse_mode: 'HTML' });
+        return;
+    }
+
+// 🎯 ОБРАБОТКА ПРОСТЫХ КАЛЬКУЛЯТОРОВ
         if (context === 'calc_snow') {
             // ❄️ Калькулятор снега - здесь только глубина снега
             const depth = text.trim();

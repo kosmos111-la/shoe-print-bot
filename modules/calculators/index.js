@@ -293,25 +293,48 @@ function initialize() {
                    return '❌ Нужно 3–5 замеров глубины в ЦЕПИ следов (10–15 м друг от друга, см), например: 1.5 1.8 1.6';
                }
                const nums = depths.map(Number);
-               const visitDate = isoDate(p);
-               let chain = null;
-               let est = null;
-               if (season) {
-                   chain = tracker.estimateChain(season, visitDate, nums, 'auto');
-                   est = chain['оценка'];
-               }
-               // Адаптер погоды: если по дневнику данных нет — пробуем эпохи Open-Meteo
-               if ((!chain || est.status === 'недостаточно данных') && coordinates && !options.epochs) {
-                   const meteo = await weatherService.getEpochs(
-                       coordinates.lat, coordinates.lon, addDaysISO(visitDate, -30), visitDate
-                   );
-                   if (meteo && meteo.length) {
-                       chain = tracker.estimateChain(season || 'meteo', visitDate, nums, 'auto', meteo);
-                       est = chain['оценка'];
-                   }
-               }
-               if (!chain) return '❌ Недостаточно данных: нет истории погоды (дневник и метео недоступны)';
-               return tracker.formatForBot(est, chain);
+                const visitDate = isoDate(p);
+                const fv = options.firstVisit; // { date, depth } — первый визит к тому же следу
+                const isJoint = !!(fv && fv.date && fv.depth != null);
+                const H2 = Math.min(...nums);
+                const spread = Math.max(...nums) - H2;
+                const buildChain = () => ({
+                    n_замеров: depths.length,
+                    n_следов: depths.length,
+                    глубина_мин: H2.toFixed(1),
+                    разброс: spread.toFixed(1),
+                    неравномерный: spread > 3.0,
+                    ...(isJoint ? { второй_визит: 'Первый визит (' + fv.date + '): H1=' + Number(fv.depth).toFixed(1) + ' см' } : {}),
+                });
+                let chain = null;
+                let est = null;
+                if (season) {
+                    if (isJoint) {
+                        // «второй визит»: совместный обратный ход по двум замерам одного следа
+                        est = tracker.estimateAgeJoint(season, fv.date, Number(fv.depth), visitDate, H2, 'auto');
+                        chain = buildChain();
+                    } else {
+                        chain = tracker.estimateChain(season, visitDate, nums, 'auto');
+                        est = chain['оценка'];
+                    }
+                }
+                // Адаптер погоды: если по дневнику данных нет — пробуем эпохи Open-Meteo
+                if ((!chain || est.status === 'недостаточно данных') && coordinates && !options.epochs) {
+                    const meteo = await weatherService.getEpochs(
+                        coordinates.lat, coordinates.lon, addDaysISO(visitDate, -30), visitDate
+                    );
+                    if (meteo && meteo.length) {
+                        if (isJoint) {
+                            est = tracker.estimateAgeJoint(season || 'meteo', fv.date, Number(fv.depth), visitDate, H2, 'auto', meteo);
+                            if (!chain) chain = buildChain();
+                        } else {
+                            chain = tracker.estimateChain(season || 'meteo', visitDate, nums, 'auto', meteo);
+                            est = chain['оценка'];
+                        }
+                    }
+                }
+                if (!chain) return '❌ Недостаточно данных: нет истории погоды (дневник и метео недоступны)';
+                return tracker.formatForBot(est, chain);
            } catch (e) {
                console.log('❌ Ошибка калькулятора давности:', e);
                return `❌ Ошибка расчета: ${e.message}`;
