@@ -9,6 +9,11 @@ const path = require('path');
 // Калибровка на эпохах Open-Meteo (2025-11): KN=0.60, H0=0.50 — recall 0-2 = 0.957 на 2024-25;
 // старая калибровка (KN=0.50, H0=0.20) сохранена в tracker-tool_backup.json.
 const KREF = 0.0264, C = 0.136, KN = 0.60, KTAI = 0.0, H0 = 0.50, EPOCH_DAYS = 0.25;
+// Старение (метаморфоз): скорость оседания слоя умножается на S(age) = 1/(1+(age/τ)^γ),
+// age — возраст слоя в днях. Подтверждено на холдаутах (2023-24 чистый и случайный 70/30,
+// seed 42): MAE 3-7 2.82→2.73, 3-10 3.36→3.27 (чистый); 2.72→2.66, 3.71→3.55 (случайный),
+// 0-2 не ухудшается. Коммит 33.
+const AGING_TAU = 3.0, AGING_GAMMA = 2.0;
 const SEASONS = ['2022-23', '2023-24', '2024-25'];
 
 // ---------- эпохи из дневника (JSON) ----------
@@ -133,7 +138,9 @@ function forward(season, startDate, endDate, crustMode = 'auto', HStart = null, 
         }
         for (const L of layers) {
             if (crustEpoch !== null && L.born < crustEpoch) continue; // заморожен под настом
-            L.h *= Math.exp(-KREF * Math.exp(C * ep.T) * EPOCH_DAYS);
+            const ageDays = (i - L.born) * EPOCH_DAYS; // возраст слоя, дни
+            const S = 1 / (1 + Math.pow(ageDays / AGING_TAU, AGING_GAMMA)); // старение
+            L.h *= Math.exp(-KREF * Math.exp(C * ep.T) * EPOCH_DAYS * S);
         }
         if (ep.type === 'снег') {
             layers.push({ h: KN * ep.P, born: i });
