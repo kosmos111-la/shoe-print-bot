@@ -1,4 +1,4 @@
-// modules/footprint/topology/TopologyManager.js
+﻿// modules/footprint/topology/TopologyManager.js
 // 🎯 УПРАВЛЕНИЕ ТОПОЛОГИЧЕСКИМИ МОДЕЛЯМИ (С ПОДДЕРЖКОЙ ПЕСОЧНИЦЫ)
 // 🔥 ПОЛНАЯ ВЕРСИЯ С ПЕРЕДАЧЕЙ patternData И clusterData
 
@@ -230,7 +230,7 @@ class TopologyManager {
 
         if (result.status === 'created') {
             return 'new_footprint';
-        } else if (result.status === 'enhanced_full' || result.status === 'enhanced_fast' || result.status === 'enhanced_optimal') {
+        } else if (result.status === 'enhanced_full' || result.status === 'enhanced_fast' || result.status === 'enhanced_optimal' || result.status === 'enhanced') {
             return 'same_footprint_enhanced';
         // 🔥 ХАРДКОД УБРАН: используем порог из конфига (0.45)
         } else if (result.similarity >= this.similarityThreshold) {

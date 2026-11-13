@@ -1752,8 +1752,9 @@ if (this.debug) console.log(`      • Глобальная: ${transformSta
 this.lastUniqueInPhoto = uniquePhotoPoints;
 
 // 🛡️ ПРЕДОХРАНИТЕЛЬ TRANSFORM — ДО добавления любых точек.
-// Если медианная ошибка проекции > 30px ИЛИ масштаб вне [0.7, 1.3] —
+// Если медианная ошибка проекции > 30px ИЛИ масштаб вне [0.1, 10] —
 // transform несостоятелен (ложные пары, растяжение модели).
+// Scale-диапазон широкий: снимки бывают с разного расстояния (отпечаток с рук).
 // Слияние ОТМЕНЯЕТСЯ ПОЛНОСТЬЮ: точки НЕ добавляются, контур и transform НЕ обновляются.
 let guardError = 0;
 let guardPoints = 0;
@@ -1774,13 +1775,17 @@ if (finalTransform && finalValidatedMatches && finalValidatedMatches.length >= 2
     }
 }
 const guardScale = finalTransform ? finalTransform.scale : 1;
-const guardScaleOk = guardScale > 0.7 && guardScale < 1.3;
+// Фото могут быть сняты с РАЗНОГО расстояния (в т.ч. отпечаток на грунте с рук) —
+// масштаб фото→модель законно отличается от 1. Главный фильтр качества — medianError≤30px
+// (прежнее раздувание модели имело medianError=306px при scale=2.3). Scale — только грубая
+// санитарная граница.
+const guardScaleOk = guardScale > 0.1 && guardScale < 10;
 const guardErrorOk = guardPoints < 2 || guardError <= 30;
 
 if (!guardScaleOk || !guardErrorOk) {
     console.log(`\n🛡️ ПРЕДОХРАНИТЕЛЬ: слияние ОТМЕНЕНО — transform несостоятелен: ` +
         `medianError=${guardError.toFixed(1)}px (по ${guardPoints} парам), scale=${guardScale.toFixed(3)} ` +
-        `(требуется medianError≤30px и 0.7<scale<1.3)`);
+        `(требуется medianError≤30px и 0.1<scale<10)`);
     console.log(`   Модель НЕ изменена: ${existingModel.graph.nodes.size} узлов остаются как есть.`);
     return {
         success: false,
