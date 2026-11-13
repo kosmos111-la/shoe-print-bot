@@ -1123,8 +1123,10 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         existingModel.morphologyMap
     );
 
-    // ===== ШАГ 8: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ =====
-    if (structures.length > 0 && !fastMode) {
+            if (this.debug) console.log(`   📊 Построено структур: ${structures.length}`);
+
+        // ===== ШАГ 8: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ =====
+        if (structures.length > 0 && !fastMode) {
         if (this.debug) console.log(`\n🔧 ЭТАП 2: Геометрическое расширение структур...`);
 
         const mainStructure = structures[0];
@@ -1279,8 +1281,10 @@ for (const structure of structures) {
         }
     }
 
-    // Если не удалось ни одной структуры - используем якоря
-    if (!finalValidationResult) {
+        if (this.debug) console.log(`   📊 Структур построено: ${structures.length}, валидирована хотя бы одна: ${finalValidationResult ? 'ДА' : 'НЕТ'}`);
+
+    // Если не удалось ни одной структуры - используем якоря
+    if (!finalValidationResult) {
         console.log(`\n⚠️ Структуры не дали результата, используем якоря...`);
 
         finalValidationResult = this.validator.validateAll(

@@ -384,6 +384,13 @@ async function processPredictions(ctx, userId, fileRef, shoeProtectors) {
         }
         logs.push(`   • Совпадений в matchMap: ${photo.matchMap.length}`);
         logs.push(`   • Узлов модели: ${model.stats.totalNodes}, подтверждённых 2+: ${model.stats.confirmed2plus}`);
+        // 🔍 Диагностика: сколько структур реально лежит на модели (не путать с matchedTriangles)
+        const rawModel = getTopologyModel(ctx, userId);
+        const structCount = (rawModel && rawModel.structures) ? rawModel.structures.length : 0;
+        const structTris = structCount > 0
+            ? rawModel.structures.reduce((n, s) => n + (Array.isArray(s.triangles) ? s.triangles.length : (s.triangles instanceof Map ? s.triangles.size : 0)), 0)
+            : 0;
+        logs.push(`   • Структур на модели: ${structCount}, треугольников в них: ${structTris}`);
         logs.push(`   • Решение: ${result.decision || 'unknown'}, сходство: ${((result.similarity || 0) * 100).toFixed(1)}%`);
 
         // 8) Структурированные события для панели лога:
