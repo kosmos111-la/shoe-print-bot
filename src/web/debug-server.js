@@ -567,6 +567,12 @@ function extractPhotoData(predictions) {
             continue;
         }
 
+        // 🛡️ ШАГ 1 (F3a): контурные классы (Heel/Toe/Dragged) — НЕ точки!
+        // Центры блобов (пятка/носок/выволока) ломали бы топологию фото —
+        // Делоне тянул бы рёбра через весь след. Полигоны остаются в predictions.
+        const _pc = String(pred.class || '').toLowerCase().trim();
+        if (_pc === 'heel' || _pc === 'toe' || _pc === 'dragged' || _pc === 'dragged and dragged') continue;
+
         if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
             const xs = pred.points.map(p => p.x);
             const ys = pred.points.map(p => p.y);

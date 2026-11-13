@@ -1,4 +1,4 @@
-// modules/footprint/simple-manager.js
+﻿// modules/footprint/simple-manager.js
 // 🔥 ИНТЕГРИРУЕМ ТОПОЛОГИЧЕСКУЮ СИСТЕМУ (С ПОДДЕРЖКОЙ КОНТУРОВ)
 
 
@@ -1028,7 +1028,24 @@ const result = {
             continue; // Пропускаем, не добавляем в точки
         }
 
-        // Существующая логика для shoe-protector
+                // 🛡️ ШАГ 1 (F3a): контурные классы (Heel/Toe/Dragged) — НЕ точки!
+        // Их «центр» — центр большого блоба (зона пятки/носка/выволоки), он
+        // попадал в топологию протекторов и ломал Делоне гигантскими
+        // треугольниками через весь след. Полигон остаётся в contours, точка — НЕТ.
+        const _cls = String(pred.class || '').toLowerCase().trim();
+        if (_cls === 'heel' || _cls === 'toe' || _cls === 'dragged' || _cls === 'dragged and dragged') {
+            if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
+                contours.push({
+                    id: `contour_${Date.now()}_${i}`,
+                    points: pred.points,
+                    class: pred.class,
+                    confidence: pred.confidence || 0.5
+                });
+            }
+            continue;
+        }
+
+        // Существующая логика для shoe-protector
         if (pred.points && Array.isArray(pred.points) && pred.points.length > 0) {
             const pointId = `pt_${Date.now()}_${i}_${protectorCount}`;
 

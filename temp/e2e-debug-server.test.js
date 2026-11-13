@@ -22,7 +22,9 @@ for (let i = 0; i < 40; i++) {
 }
 const CANNED = [
     { class: 'Outline-trail', confidence: 0.95, points: outlinePoints },
-    ...protectors
+    ...protectors,
+    // 🔥 ШАГ 1 (F3a): контурный класс — в predictions, но НЕ в points (индекс 6 → pt_6 нет)
+    { class: 'Heel', confidence: 0.93, points: [{ x: 40, y: 40 }, { x: 120, y: 40 }, { x: 120, y: 160 }, { x: 40, y: 160 }] }
 ];
 
 const rfServer = http.createServer((req, res) => {
@@ -155,10 +157,11 @@ function postForm(port, pathName, fd) {
         data.allResults[1].file === 'b.png']);
 
     const s1 = data.steps[0];
-    checks.push(['step.photo.predictions — 6 полигонов', s1.photo.predictions.length === 6 &&
+    checks.push(['step.photo.predictions — 7 полигонов (вкл. Heel)', s1.photo.predictions.length === 7 &&
         s1.photo.predictions[1].points.length === 4]);
-    checks.push(['step.photo.points — pt_1..pt_5', s1.photo.points.length === 5 &&
-        s1.photo.points[0].id === 'pt_1' && s1.photo.points[4].id === 'pt_5']);
+    checks.push(['step.photo.points — pt_1..pt_5, Heel исключён (не точка)', s1.photo.points.length === 5 &&
+        s1.photo.points[0].id === 'pt_1' && s1.photo.points[4].id === 'pt_5' &&
+        !s1.photo.points.some(p => p.id === 'pt_6')]);
     checks.push(['step.photo.matchMap — remap', s1.photo.matchMap.length === 2 &&
         s1.photo.matchMap[0].photoId === 'pt_2' && s1.photo.matchMap[0].modelId === 'pt_2' &&
         s1.photo.matchMap[0].score === 1]);
