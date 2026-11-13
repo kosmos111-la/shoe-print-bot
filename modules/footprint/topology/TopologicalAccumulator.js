@@ -1,4 +1,4 @@
-// modules/footprint/topology/TopologicalAccumulator.js
+﻿// modules/footprint/topology/TopologicalAccumulator.js
 // 🏗️ АККУМУЛЯТОР - ФАСАД НАД ModelManager + GraphProcessor
 // 🔥 ОБНОВЛЁННАЯ ВЕРСИЯ ПОСЛЕ ФАЗЫ 4 (ПЕРЕСТРОЕНИЕ ГРАФА)
 
@@ -142,16 +142,17 @@ if (outlineContour) {
                     if (this.debug) console.log(`\n🔄 ЗАПУСК ПЕРЕСТРОЕНИЯ ГРАФА...`);
                     this.graphRebuilder.rebuildModel(existingModel, { photoId });
                     this.stats.rebuildCount++;
-                } else {
-                    // Если не перестраиваем, просто сохраняем transform
-                    existingModel.transform = enhanceResult.transform;
-                   
-                    if (enhanceResult.structures && enhanceResult.structures.length > 0) {
-                        existingModel.structures = enhanceResult.structures;
-                    }
-                }
+                        }
+        // 🔥 ФИКС: transform и structures прикрепляем ВСЕГДА — и при rebuild тоже.
+        // rebuildModel НЕ чистит structures, но без прикрепления после rebuild
+        // следующий шаг отдавал УСТАРЕВШИЕ якорные треугольники/лучи прошлого фото
+        // (на шаге с перестроением модели якорных треугольников не было видно).
+        existingModel.transform = enhanceResult.transform;
 
-                // Сохраняем уникальные точки
+        if (enhanceResult.structures && enhanceResult.structures.length > 0) {
+            existingModel.structures = enhanceResult.structures;
+        }
+        // Сохраняем уникальные точки
                 if (enhanceResult.uniquePhotoPoints) {
                     this.lastUniqueInPhoto = enhanceResult.uniquePhotoPoints;
                 }
