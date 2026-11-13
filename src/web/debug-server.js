@@ -373,7 +373,7 @@ async function processPredictions(ctx, userId, fileRef, shoeProtectors) {
         const rayFailed = photo.rays.filter(r => r.type === 'failed').length;
         logs.push('\n📊 СВОДКА ШАГА (собрано debug-server\'ом):');
         if (mergeRejected) {
-            logs.push('   ⚠️ Слияние ОТКЛОНЕНО — якорные треугольники/лучи не показаны (structures устаревшие с прошлого шага)');
+            logs.push('   ⚠️ Слияние ОТКЛОНЕНО — matchMap/треугольники/лучи не показаны (данные устаревшие с прошлого шага)');
         }
         logs.push(`   • Якорных треугольников: ${photo.matchedTriangles.length}`);
         logs.push(`   • Лучей: success=${raySuccess}, failed=${rayFailed} (${rayFailed > 0 ? 'есть отклонённые кандидаты' : 'все согласованы'})`);
@@ -463,9 +463,12 @@ function buildPhotoPayload(ctx, userId, file, predictions, opts = {}) {
         console.log('⚠️ данные TriangleMatcher для ' + file.originalname + ' не извлечены:', e.message);
     }
 
-    // 🛡️ F2: если слияние этого шага ОТКЛОНЕНО — structures модели устаревшие
-    // (с прошлого успешного шага), их НЕ показываем на холстах текущего фото.
+    // 🛡️ F2: если слияние этого шага ОТКЛОНЕНО — данные модели устаревшие
+    // (с прошлого успешного шага): structures, лучи И matchMap (lastTriangleResult
+    // не обновляется при отказе). Их НЕ показываем на холстах текущего фото —
+    // иначе hover/match-линии указывали бы на «неправильные места» в модели.
     if (opts.mergeRejected) {
+        payload.matchMap = [];
         payload.matchedTriangles = [];
         payload.rays = [];
         payload.mergeRejected = true;   // справка для фронта/лога

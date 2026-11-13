@@ -46,6 +46,7 @@ function detectMergeRejected(logs) {
 }
 function buildPayloadReplica(payload, mergeRejected) {
     if (mergeRejected) {
+        payload.matchMap = [];
         payload.matchedTriangles = [];
         payload.rays = [];
         payload.mergeRejected = true;
@@ -96,10 +97,10 @@ check('F2: лог с validation_failed → rejected',
     detectMergeRejected(['⚠️ Улучшение модели не удалось: validation_failed']) === true);
 check('F2: чистый лог → not rejected',
     detectMergeRejected(['📊 Лучей: success=92, failed=0', '🎯 Решение: same_footprint']) === false);
-const payload = { matchedTriangles: [['pt_1', 'pt_2', 'pt_3']], rays: [{ x1: 1 }] };
+const payload = { matchMap: [{ photoId: 'pt_2', modelId: 'm_2' }], matchedTriangles: [['pt_1', 'pt_2', 'pt_3']], rays: [{ x1: 1 }] };
 const cleared = buildPayloadReplica({ ...payload }, true);
-check('F2: rejected → matchedTriangles/rays очищены, mergeRejected=true',
-    cleared.matchedTriangles.length === 0 && cleared.rays.length === 0 && cleared.mergeRejected === true);
+check('F2: rejected → matchMap/треугольники/лучи очищены, mergeRejected=true',
+    cleared.matchMap.length === 0 && cleared.matchedTriangles.length === 0 && cleared.rays.length === 0 && cleared.mergeRejected === true);
 
 console.log(fail === 0 ? '\n🎉 F1+F2 OK' : `\n💥 FAIL: ${fail}`);
 process.exit(fail ? 1 : 0);
