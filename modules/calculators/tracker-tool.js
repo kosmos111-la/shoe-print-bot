@@ -189,6 +189,17 @@ function estimateAge(season, D, H, crustMode = 'auto', minHistory = 10, external
     let tStar = 0;
     for (let i = 1; i <= tm; i++) if (errs[i] < errs[tStar]) tStar = i; // первый минимум (как argmin)
     const emin = errs[tStar];
+    // МУЛЬТИДИАПАЗОННОСТЬ (логика вывода; модель/патчи не меняются): все непрерывные диапазоны t,
+    // где err(t) <= emin + 1.0 см — включая отдельные от интервала вокруг t*. Если их несколько —
+    // ответ неоднозначен, отдаём все варианты (честный интерфейс).
+    const ranges = [];
+    for (let t = 0; t <= tm; t++) {
+        if (errs[t] <= emin + 1.0) {
+            if (ranges.length && t === ranges[ranges.length - 1][1] + 1) ranges[ranges.length - 1][1] = t;
+            else ranges.push([t, t]);
+        }
+    }
+    res.ranges = ranges;
     // непрерывный интервал правдоподобных t вокруг t*
     let lo = tStar;
     while (lo > 0 && errs[lo - 1] <= emin + 1.0) lo--;
@@ -242,6 +253,10 @@ function estimateAge(season, D, H, crustMode = 'auto', minHistory = 10, external
     }
     res.status = 'ok';
     res.age = tStar;
+    if (ranges.length > 1) {
+        res.warnings.push('возможные варианты: ' + ranges.map(r => r[0] + '–' + r[1] + ' дн').join('; ') + ' — давность неоднозначна');
+        res.ambiguous = true;
+    }
     res.warnings = Array.from(new Set(res.warnings));
     return res;
 }
@@ -387,11 +402,21 @@ function formatForBot(est, chainResult = null) {
         if ((chainResult.n_следов || chainResult.n_замеров) < 3) lines.push('⚠️ Замеров меньше 3 — цепь неполная, точность ниже.');
         if (chainResult.неравномерный) lines.push('⚠️ Разброс > 3 см — возможен намет или разные условия. Проверьте, что замеры в разных следах цепи.');
     }
+    const ranges = est.ranges && est.ranges.length ? est.ranges : null;
+    const multi = ranges && ranges.length > 1;
     if (est.status === 'недостаточно данных') lines.push('🎯 Давность: недостаточно данных');
     else if (est.status === 'неопределима') lines.push('🎯 Давность: неопределима');
     else if (est.status === 'диапазон') lines.push(`🎯 Давность: ≈${est.age_range[0]}–${est.age_range[1]} дней`);
+    else if (multi) lines.push(`🎯 Давность: ${ranges.map(r => `≈${r[0]}–${r[1]} дней`).join(' ИЛИ ')}`);
     else lines.push(`🎯 Давность: ≈${est.age} дней`);
     if (est.nast_date) lines.push(`🧊 Наст по архиву: ~${est.nast_date}`);
+    // пометка точности по диапазону ответа: 0-2 — высокая, 3-7 — средняя, 10+ — низкая
+    const loRef = multi ? ranges[0][0] : (est.age_range ? est.age_range[0] : est.age);
+    if (est.status !== 'недостаточно данных' && est.status !== 'неопределима' && loRef !== null && loRef !== undefined) {
+        const acc = loRef <= 2 ? 'высокая (0-2 дня)' : loRef <= 7 ? 'средняя (3-7 дней)' : 'низкая (10+ дней)';
+        lines.push(`📊 Точность: ${acc}`);
+        if (multi && ranges.some(r => r[1] - r[0] > 7)) lines.push('⚠️ Низкая точность: один из вариантов шире 7 дней');
+    }
     for (const w of est.warnings || []) lines.push(`⚠️ ${w}`);
     return lines.join('\n');
 }
