@@ -1,4 +1,4 @@
-// modules/footprint/validation/ValidationModule.js
+﻿// modules/footprint/validation/ValidationModule.js
 // 🔍 ПАРАЛЛЕЛЬНЫЙ МОДУЛЬ ВАЛИДАЦИИ (векторный, без пикселей)
 
 const GeometryUtils = require('../topology/utils/GeometryUtils');
@@ -84,7 +84,15 @@ class ValidationModule {
             y: centerB.y - (centerA.x * scale * Math.sin(rotation) + centerA.y * scale * Math.cos(rotation))
         };
 
-        // ===== ФИЛЬТРАЦИЯ ВЫБРОСОВ ПО ОШИБКЕ ПРОЕКЦИИ =====
+        // ===== 🔥 ШАГ 3 (ВАРИАНТ B): РОБАСТНЫЙ КОНСЕНСУС =====
+        // Медианный фильтр ниже не работает, когда >50% якорей мусорные (медиана
+        // мусорная → порог median*1.5 огромный → мусор не отсеивается). Ищем
+        // согласованное подмножество: если найдено (≥3 inliers) — берём его transform.
+        const consensusTransform = this._robustConsensusFit(pointsA, pointsB);
+        if (consensusTransform) {
+            return consensusTransform;
+        }
+        // ===== ФИЛЬТРАЦИЯ ВЫБРОСОВ ПО ОШИБКЕ ПРОЕКЦИИ =====
         const errors = [];
         for (let i = 0; i < pointsA.length; i++) {
             const pA = pointsA[i];
@@ -182,7 +190,120 @@ class ValidationModule {
         return transform;
     }
 
-    /**
+        // ===== ШАГ 3 (ВАРИАНТ B): РОБАСТНЫЙ КОНСЕНСУС ПО ТОЧЕЧНЫМ ПАРАМ =====
+    // Медианная фильтрация не работает, когда >50% якорей мусорные (медиана
+    // мусорная → порог огромный). Вместо неё: систематический перебор ВСЕХ троек
+    // якорей → фит подобия по каждой → подсчёт inliers (ошибка ≤ 10px) → берём
+    // тройку с НАИБОЛЬШИМ числом inliers → пересчёт по всем inliers (до 3 итераций
+    // уточнения). Детерминированно: комбинации в порядке возрастания индексов,
+    // при равенстве inliers — меньше суммарная ошибка. Для чистых фото консенсус =
+    // все якоря (результат тот же, что у медианного фильтра); для грязных —
+    // правильное подмножество (напр. 6 хороших из 24 мусорных).
+    // Возвращает transform или null (если согласованного подмножества ≥3 нет —
+    // вызывающий падает на прежний медианный фильтр).
+    _robustConsensusFit(pointsA, pointsB) {
+        if (!pointsA || !pointsB || pointsA.length < 3 || pointsB.length !== pointsA.length) return null;
+
+        // Защита от комбинаторного взрыва: обычно якорей ≤ 24 (C(24,3)=2024).
+        // При n > ~53 (C(n,3) > 25000) — падаем на медианный фильтр.
+        const n = pointsA.length;
+        if (n * (n - 1) * (n - 2) / 6 > 25000) return null;
+
+        // Фит подобия по точечным парам (тот же метод, что в ИТЕРАЦИИ 1/2 выше):
+        // scale = среднее отношений расстояний, rotation через atan2 сумм, translation через центры.
+        const fit = (a, b) => {
+            const ca = GeometryUtils.calculateCentroid(a);
+            const cb = GeometryUtils.calculateCentroid(b);
+            let scaleSum = 0, scaleCount = 0;
+            for (let i = 0; i < a.length; i++) {
+                for (let j = i + 1; j < a.length; j++) {
+                    const da = GeometryUtils.distance(a[i], a[j]);
+                    const db = GeometryUtils.distance(b[i], b[j]);
+                    if (da > 0 && db > 0) { scaleSum += db / da; scaleCount++; }
+                }
+            }
+            if (scaleCount === 0) return null;
+            const scale = scaleSum / scaleCount;
+            const caCent = a.map(p => ({ x: p.x - ca.x, y: p.y - ca.y }));
+            const cbCent = b.map(p => ({ x: p.x - cb.x, y: p.y - cb.y }));
+            let sinSum = 0, cosSum = 0;
+            for (let i = 0; i < caCent.length; i++) {
+                const sx = caCent[i].x * scale, sy = caCent[i].y * scale;
+                sinSum += sx * cbCent[i].y - sy * cbCent[i].x;
+                cosSum += sx * cbCent[i].x + sy * cbCent[i].y;
+            }
+            const rotation = Math.atan2(sinSum, cosSum);
+            const tx = cb.x - (ca.x * scale * Math.cos(rotation) - ca.y * scale * Math.sin(rotation));
+            const ty = cb.y - (ca.x * scale * Math.sin(rotation) + ca.y * scale * Math.cos(rotation));
+            return { scale, rotation, translation: { x: tx, y: ty } };
+        };
+
+        // Проекция точки по transform (тот же вид, что в calculateTransform)
+        const project = (p, t) => ({
+            x: p.x * t.scale * Math.cos(t.rotation) - p.y * t.scale * Math.sin(t.rotation) + t.translation.x,
+            y: p.x * t.scale * Math.sin(t.rotation) + p.y * t.scale * Math.cos(t.rotation) + t.translation.y
+        });
+
+        const INLIER_PX = 10;   // жёсткий порог inlier (совпадает с min-10px медианного фильтра)
+
+        const errorsOf = (t) => {
+            const e = [];
+            for (let i = 0; i < n; i++) {
+                const pr = project(pointsA[i], t);
+                e.push({ i, error: GeometryUtils.distance(pr, pointsB[i]) });
+            }
+            return e;
+        };
+
+        let bestFit = null;
+        let bestInliers = 0;
+        let bestErrorSum = Infinity;
+
+        // Систематический перебор всех троек (i < j < k), детерминированно
+        outer:
+        for (let i = 0; i < n - 2; i++) {
+            for (let j = i + 1; j < n - 1; j++) {
+                for (let k = j + 1; k < n; k++) {
+                    const t = fit([pointsA[i], pointsA[j], pointsA[k]], [pointsB[i], pointsB[j], pointsB[k]]);
+                    if (!t) continue;
+                    const errs = errorsOf(t);
+                    const cnt = errs.filter(x => x.error <= INLIER_PX).length;
+                    const errSum = errs.reduce((s, x) => s + x.error, 0);
+                    if (cnt > bestInliers || (cnt === bestInliers && cnt > 0 && errSum < bestErrorSum)) {
+                        bestInliers = cnt;
+                        bestFit = t;
+                        bestErrorSum = errSum;
+                    }
+                    if (cnt === n) break outer;   // идеальный консенсус — искать больше нечего
+                }
+            }
+        }
+
+        if (!bestFit || bestInliers < 3) return null;
+
+        // Пересчёт по inliers лучшей тройки, до 3 итераций уточнения
+        let curFit = bestFit;
+        let finalInliers = bestInliers;
+        for (let pass = 0; pass < 3; pass++) {
+            const errs = errorsOf(curFit);
+            const inlierIdx = errs.filter(x => x.error <= INLIER_PX).map(x => x.i);
+            if (inlierIdx.length < 3) break;
+            finalInliers = inlierIdx.length;
+            const refined = fit(inlierIdx.map(i => pointsA[i]), inlierIdx.map(i => pointsB[i]));
+            if (!refined) break;
+            curFit = refined;
+        }
+
+        if (finalInliers < 3) return null;
+
+        console.log(`   🔥 РОБАСТНЫЙ КОНСЕНСУС: ${finalInliers}/${n} якорей (ошибка ≤ ${INLIER_PX}px)`);
+        console.log(`   • Масштаб: ${curFit.scale.toFixed(3)}`);
+        console.log(`   • Поворот: ${(curFit.rotation * 180 / Math.PI).toFixed(1)}°`);
+        console.log(`   • Сдвиг: (${curFit.translation.x.toFixed(1)}, ${curFit.translation.y.toFixed(1)})`);
+        return curFit;
+    }
+
+    /**
      * Валидирует точку из первого следа
      * @param {Object} pointA - точка из первого следа
      * @param {Array} candidatesB - все точки из второго следа
