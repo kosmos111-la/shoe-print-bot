@@ -690,6 +690,7 @@ function renderSide(step, side, flags) {
         // rays — лучи от вершин якорных треугольников (success жёлтые, failed красные)
         if (flags.rays) {
             for (const ray of photo.rays || []) {
+                if (ray.transformInvalid) continue;   // 🛡️ F1: конец в модельных координатах без валидного transform
                 if (ray.type === 'failed') {
                     ctx.strokeStyle = 'rgba(255, 80, 80, 0.75)';
                     ctx.setLineDash([4 * u, 4 * u]);

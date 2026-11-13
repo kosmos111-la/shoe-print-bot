@@ -50,11 +50,11 @@ const fakeModel = {
         edges: new Set([coreId1 + '--' + coreId2, coreId2 + '--' + coreId4, coreId1 + '--' + coreId4])
     },
     metadata: { name: 'Тест-модель', photoCount: 2, outlineContours: [] },
-    transform: { scale: 0.05, rotation: 0.01, translation: { x: 100, y: 50 } },
+    transform: { scale: 1.0, rotation: 0.01, translation: { x: 100, y: 50 } },
     structures: [
         {
             id: 's1',
-            transform: { scale: 0.05, rotation: 0.01, translation: { x: 100, y: 50 } },
+            transform: { scale: 1.0, rotation: 0.01, translation: { x: 100, y: 50 } },
             triangles: new Map([
                 ['tri_1', { id: 'tri_1', p1: { id: coreId1 }, p2: { id: coreId2 }, p3: { id: coreId4 } }],
                 ['tri_2', { id: 'tri_2', p1: { id: coreId2 }, p2: { id: coreId4 }, p3: { id: coreId1 } }]
@@ -199,7 +199,7 @@ function postForm(port, pathName, fd) {
     checks.push(['step.model.triangles [[pt_1,pt_2,pt_4]]', JSON.stringify(s1.model.triangles) === '[["pt_1","pt_2","pt_4"]]']);
     checks.push(['step.model.stats {totalNodes,edges,confirmed2plus}', s1.model.stats.totalNodes === 3 &&
         s1.model.stats.edges === 3 && s1.model.stats.confirmed2plus === 2]);
-    checks.push(['step.transform', s1.transform && s1.transform.scale === 0.05 && s1.transform.tx === 100]);
+    checks.push(['step.transform', s1.transform && s1.transform.scale === 1.0 && s1.transform.tx === 100]);
 
     const s3 = addData.step;
     checks.push(['add-photo: step.file = c.png', s3.photo.file === 'c.png']);

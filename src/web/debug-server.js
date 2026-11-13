@@ -354,8 +354,16 @@ async function processPredictions(ctx, userId, fileRef, shoeProtectors) {
             null  // chatId
         );
 
+        // 🛡️ F2: шаг, на котором слияние ОТКЛОНЕНО (transform_guard / validation_failed /
+        // transform_failed). Модель НЕ менялась, а structures в ней — УСТАРЕВШИЕ с прошлого
+        // успешного шага: их координаты относятся к ДРУГОМУ фото, рисовать их на холстах
+        // текущего фото нельзя (каша, лучи в угол).
+        const mergeRejected = logs.some(l =>
+            /ПРЕДОХРАНИТЕЛЬ: слияние ОТМЕНЕНО|transform_guard|validation_failed|transform_failed|Улучшение модели не удалось/.test(l)
+        );
+
         // 5) Данные фото + matchMap (снимаем СРАЗУ после обработки — соответствие именно этого шага)
-        const photo = buildPhotoPayload(ctx, userId, fileRef, shoeProtectors);
+        const photo = buildPhotoPayload(ctx, userId, fileRef, shoeProtectors, { mergeRejected });
 
         // 6) Супер-модель после шага
         const model = collectModelData(ctx, userId);
@@ -364,6 +372,9 @@ async function processPredictions(ctx, userId, fileRef, shoeProtectors) {
         const raySuccess = photo.rays.filter(r => r.type === 'success').length;
         const rayFailed = photo.rays.filter(r => r.type === 'failed').length;
         logs.push('\n📊 СВОДКА ШАГА (собрано debug-server\'ом):');
+        if (mergeRejected) {
+            logs.push('   ⚠️ Слияние ОТКЛОНЕНО — якорные треугольники/лучи не показаны (structures устаревшие с прошлого шага)');
+        }
         logs.push(`   • Якорных треугольников: ${photo.matchedTriangles.length}`);
         logs.push(`   • Лучей: success=${raySuccess}, failed=${rayFailed} (${rayFailed > 0 ? 'есть отклонённые кандидаты' : 'все согласованы'})`);
         if (model.transform) {
@@ -416,7 +427,7 @@ async function processPredictions(ctx, userId, fileRef, shoeProtectors) {
 // ============================================================
 // 🔥 ДАННЫЕ ОДНОГО ФОТО ДЛЯ ХОЛСТА
 // ============================================================
-function buildPhotoPayload(ctx, userId, file, predictions) {
+function buildPhotoPayload(ctx, userId, file, predictions, opts = {}) {
     const extracted = extractPhotoData(predictions); // точки с id pt_<индекс>
 
     const payload = {
@@ -450,6 +461,14 @@ function buildPhotoPayload(ctx, userId, file, predictions) {
         payload.rays = serializeRays(model);
     } catch (e) {
         console.log('⚠️ данные TriangleMatcher для ' + file.originalname + ' не извлечены:', e.message);
+    }
+
+    // 🛡️ F2: если слияние этого шага ОТКЛОНЕНО — structures модели устаревшие
+    // (с прошлого успешного шага), их НЕ показываем на холстах текущего фото.
+    if (opts.mergeRejected) {
+        payload.matchedTriangles = [];
+        payload.rays = [];
+        payload.mergeRejected = true;   // справка для фронта/лога
     }
 
     return payload;
@@ -633,19 +652,32 @@ function serializeRays(model) {
     const graphNodes = model && model.graph && model.graph.nodes;
     for (const s of (model && model.structures) || []) {
         const t = s.transform || null;
+        // 🛡️ F1: валиден ли transform структуры для обратной трансформации модельного конца.
+        // Мусорный transform (scale вне разумных пределов / нет поворота) кидал бы модельные
+        // концы лучей в угол/кучку — такой луч НЕ инверсируем и помечаем для фронта.
+        const tValid = !!(t && t.scale > 0 && t.scale >= 0.5 && t.scale <= 2 &&
+                         Number.isFinite(t.rotation));
         for (const r of (s.rays || [])) {
             const from = r.fromPoint;
             const to = r.toPoint;
             if (!from || !to) continue;
 
-            let toX = to.x, toY = to.y, toIsModel = false;
+            let toX = to.x, toY = to.y, toIsModel = false, transformInvalid = false;
             if (graphNodes && to.id !== undefined && to.id !== null &&
                 (graphNodes instanceof Map ? graphNodes.has(to.id)
                                            : Object.prototype.hasOwnProperty.call(graphNodes, to.id))) {
                 // toPoint — узел графа МОДЕЛИ → приводим в координаты фото
-                const inv = inverseApplyTransform({ x: to.x, y: to.y }, t);
-                toX = inv.x; toY = inv.y;
-                toIsModel = true;
+                if (tValid) {
+                    const inv = inverseApplyTransform({ x: to.x, y: to.y }, t);
+                    toX = inv.x; toY = inv.y;
+                    toIsModel = true;
+                } else {
+                    // transform структуры мусорный/отсутствует — координаты недостоверны.
+                    // НЕ инверсируем (иначе луч улетает в угол); фронт пропустит такой луч.
+                    toX = to.x; toY = to.y;
+                    toIsModel = true;
+                    transformInvalid = true;
+                }
             }
 
             out.push({
@@ -655,6 +687,7 @@ function serializeRays(model) {
                 x1: from.x, y1: from.y,              // координаты фото (вершина треугольника)
                 x2: toX, y2: toY,                    // координаты фото (внешняя точка, при необходимости приведена)
                 toIsModel: toIsModel,                // справка: конец был в координатах модели
+                transformInvalid: transformInvalid,  // 🛡️ F1: конец модельный, transform мусорный — не рисовать
                 distance: r.distance || 0,
                 transform: serializeTransform(t)     // справка: фото → модель
             });
