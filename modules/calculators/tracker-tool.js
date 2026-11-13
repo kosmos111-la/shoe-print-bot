@@ -15,6 +15,10 @@ const KREF = 0.0264, C = 0.136, KN = 0.60, KTAI = 0.0, H0 = 0.50, EPOCH_DAYS = 0
 // 0-2 не ухудшается. Коммит 33.
 const AGING_TAU = 3.0, AGING_GAMMA = 2.0;
 const SEASONS = ['2022-23', '2023-24', '2024-25'];
+// Адаптивная ширина мультидиапазонности (коммит 35): tol(t) = MAE(возрастной группы t) × factor.
+// MAE-градация по дням (test 2024-25, агрегаты 0-2/3-7/10-14/15+): 1.5 / 2.5 / 4.0 / 5.0 см.
+// factor=0.5: свежие следы — узкие диапазоны (±1 д), старые (10-14) — широкие (±4 д).
+const ADAPTIVE = { factor: 0.5, mae: (t) => (t <= 2 ? 1.5 : t <= 7 ? 2.5 : t <= 14 ? 4.0 : 5.0) };
 
 // ---------- эпохи из дневника (JSON) ----------
 const _DIARY = JSON.parse(
@@ -190,17 +194,19 @@ function estimateAge(season, D, H, crustMode = 'auto', minHistory = 10, external
     for (let i = 1; i <= tm; i++) if (errs[i] < errs[tStar]) tStar = i; // первый минимум (как argmin)
     const emin = errs[tStar];
     // МУЛЬТИДИАПАЗОННОСТЬ (логика вывода; модель/патчи не меняются): все непрерывные диапазоны t,
-    // где err(t) <= emin + 1.0 см — включая отдельные от интервала вокруг t*. Если их несколько —
-    // ответ неоднозначен, отдаём все варианты (честный интерфейс).
+    // где err(t) <= emin + tol(t). tol адаптивный: tol(t) = MAE(возрастной группы t) × factor —
+    // узкий для 0-2, шире для 10-14. Если диапазонов несколько — ответ неоднозначен, отдаём все
+    // варианты (честный интерфейс).
+    const tolOf = (t) => ADAPTIVE.mae(t) * ADAPTIVE.factor;
     const ranges = [];
     for (let t = 0; t <= tm; t++) {
-        if (errs[t] <= emin + 1.0) {
+        if (errs[t] <= emin + tolOf(t)) {
             if (ranges.length && t === ranges[ranges.length - 1][1] + 1) ranges[ranges.length - 1][1] = t;
             else ranges.push([t, t]);
         }
     }
     res.ranges = ranges;
-    // непрерывный интервал правдоподобных t вокруг t*
+    // непрерывный интервал правдоподобных t вокруг t* (фикс. tol=1.0 — как в патчах, не меняется)
     let lo = tStar;
     while (lo > 0 && errs[lo - 1] <= emin + 1.0) lo--;
     let hi = tStar;
@@ -422,6 +428,6 @@ function formatForBot(est, chainResult = null) {
 }
 
 module.exports = {
-    SEASONS, forward, estimateAge, estimateAgeJoint, estimateChain, nastDates, tmaxEpochs,
+    SEASONS, ADAPTIVE, forward, estimateAge, estimateAgeJoint, estimateChain, nastDates, tmaxEpochs,
     formatEstimate, formatForBot, isNastEpoch,
 };
