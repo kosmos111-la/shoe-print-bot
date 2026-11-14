@@ -514,11 +514,13 @@ function collectModelData(ctx, userId) {
         }
 
         if (model && model.graph) {
+            // Единая карта меток (уникальность) для графа, треугольников и matchMap
+            const coreLabels = buildModelLabelMap(model);
             // Граф: длинные id ядра → короткие pt_<индекс> (единая схема на клиенте)
-            out.graph = relabelGraph(serializeGraph(model.graph));
+            out.graph = relabelGraph(serializeGraph(model.graph), coreLabels);
             // Треугольники (тройки id, координаты модели)
             out.triangles = serializeTriangles(vizData && vizData.triangles)
-                .map(tri => tri.map(id => shortPointId(id)));
+                .map(tri => tri.map(id => coreLabels.get(id) || shortPointId(id)));
 
             out.stats = {
                 totalNodes: out.graph.nodes.length,
@@ -624,6 +626,7 @@ function remapCurrentMatchMap(ctx, userId) {
     const raw = model && model.lastTriangleResult && model.lastTriangleResult.matchMap;
     if (!raw) return [];
 
+    const coreLabels = buildModelLabelMap(model);   // та же карта, что у графа/треугольников
     const out = [];
     const entries = raw instanceof Map ? raw.entries() : Object.entries(raw);
     for (const [photoId, match] of entries) {
@@ -632,7 +635,7 @@ function remapCurrentMatchMap(ctx, userId) {
         if (idx === null) continue;              // формат id ядра изменился — пропускаем пару
         out.push({
             photoId: `pt_${idx}`,
-            modelId: shortPointId(match.modelId),
+            modelId: coreLabels.get(match.modelId) || shortPointId(match.modelId),
             pairNumber: match.pairNumber,
             status: match.status,
             score: match.confidence ?? match.score ?? 0   // для строк [Match]
@@ -746,16 +749,39 @@ function shortPointId(id) {
     return id.slice(-12);
 }
 
-// Переводит сериализованный граф (id ядра) на короткие id
-function relabelGraph(ser) {
-    const labelMap = new Map();
-    for (const n of ser.nodes) {
+// Единая карта коротких id для узлов МОДЕЛИ с гарантией УНИКАЛЬНОСТИ.
+// Регулярные узлы: pt_<индекс>; новые (node_...): метка по originalPhotoId;
+// при коллизии — суффикс от исходного id (например pt_31_ab12).
+// Одна и та же карта используется для графа, треугольников и matchMap —
+// иначе id в ответе расходились бы (vis.js: «item with id pt_39 already exists»).
+function buildModelLabelMap(model) {
+    const map = new Map();
+    const used = new Set();
+    const nodes = model && model.graph && model.graph.nodes;
+    if (!nodes) return map;
+    const iter = nodes instanceof Map ? nodes.values()
+        : (Array.isArray(nodes) ? nodes : Object.values(nodes || {}));
+    for (const n of iter) {
+        if (!n || !n.id) continue;
         let lab = shortPointId(n.id);
-        // 🔥 новые узлы (node_...) — подписываем по исходной точке фото (pt_<индекс>)
         if (!lab.startsWith('pt_') && n.originalPhotoId) {
-            const srcLab = shortPointId(n.originalPhotoId);
-            if (srcLab && srcLab.startsWith('pt_')) lab = srcLab;
+            const src = shortPointId(n.originalPhotoId);
+            if (src && src.startsWith('pt_')) lab = src;
         }
+        if (used.has(lab)) {
+            lab = `${lab}_${String(n.id).slice(-4)}`;   // коллизия — уникальный суффикс
+        }
+        used.add(lab);
+        map.set(n.id, lab);
+    }
+    return map;
+}
+
+// Переводит сериализованный граф (id ядра) на короткие id
+function relabelGraph(ser, coreLabels) {
+    const labelMap = coreLabels || new Map();
+    for (const n of ser.nodes) {
+        const lab = labelMap.get(n.id) || shortPointId(n.id);
         labelMap.set(n.id, lab);
         n.coreId = n.id;
         n.id = lab;

@@ -115,7 +115,7 @@ class StructureManager {
         this.mergeBySimilarity(structuresList, graphA, graphB);
        
         const largeStructures = Array.from(this.structures.values())
-            .filter(s => s.triangleIds.size >= 3);
+            .filter(s => s.triangleIds.size >= 1);   // 🔥 ФИКС: >=3 отбрасывал однотреугольные структуры грязного фото
        
         if (this.debug) {
             console.log(`\n📊 ИТОГ СБОРКИ:`);
