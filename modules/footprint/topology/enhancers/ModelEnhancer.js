@@ -1241,6 +1241,7 @@ for (const structure of structures) {
     let finalValidationResult = null;
     let allValidatedPoints = [];
     let finalTransform = null;
+    let bestValidatedTotal = 0;   // 🔥 ФИКС: выбор структуры по числу подтверждённых точек
 
     for (const structure of structures) {
         if (structure.triangleIds.size === 0) continue;
@@ -1266,11 +1267,17 @@ for (const structure of structures) {
 
             structure.transform = validationResult.transform;
 
-            if (!finalValidationResult || (validationResult.transform &&
-                Math.abs(validationResult.transform.scale - 1) < Math.abs(finalValidationResult.transform?.scale - 1))) {
+            // 🔥 ФИКС: выбор по числу подтверждённых точек (а не scale ближе к 1 —
+            // на грязном фото истинный scale ~0.175, эвристика брала ~0.286)
+            const validatedTotal = (validationResult.results
+                ? (validationResult.results.confirmed?.length || 0) + (validationResult.results.anchors?.length || 0)
+                : 0);
+
+            if (!finalValidationResult || validatedTotal > bestValidatedTotal) {
                 finalValidationResult = validationResult;
-                finalTransform = validationResult.transform;
-            }
+                finalTransform = validationResult.transform;
+                bestValidatedTotal = validatedTotal;
+                            }
 
             if (this.debug) {
                 console.log(`      ✅ Структура ${structure.id} успешно валидирована`);
@@ -1763,34 +1770,51 @@ this.lastUniqueInPhoto = uniquePhotoPoints;
 // Слияние ОТМЕНЯЕТСЯ ПОЛНОСТЬЮ: точки НЕ добавляются, контур и transform НЕ обновляются.
 let guardError = 0;
 let guardPoints = 0;
+const guardInlierPx = 10;
+let guardInlierMatches = [];
 if (finalTransform && finalValidatedMatches && finalValidatedMatches.length >= 2) {
-    const errors = [];
     for (const match of finalValidatedMatches) {
         const photoPoint = newExactGraph.nodes.get(match.pointA);
         const modelPoint = existingModel.graph.nodes.get(match.pointB);
         if (photoPoint && modelPoint) {
+            guardPoints++;
             const proj = GeometryUtils.applyTransform(photoPoint, finalTransform);
-            errors.push(Math.hypot(modelPoint.x - proj.x, modelPoint.y - proj.y));
+            const err = Math.hypot(modelPoint.x - proj.x, modelPoint.y - proj.y);
+            if (err <= guardInlierPx) {
+                guardInliers++;
+                guardInlierMatches.push(match);
+            }
         }
     }
-    if (errors.length >= 2) {
-        errors.sort((a, b) => a - b);
-        guardError = errors[Math.floor(errors.length / 2)];
-        guardPoints = errors.length;
+    if (guardPoints >= 2) {
+        const errs = [];
+        for (const match of finalValidatedMatches) {
+            const photoPoint = newExactGraph.nodes.get(match.pointA);
+            const modelPoint = existingModel.graph.nodes.get(match.pointB);
+            if (photoPoint && modelPoint) {
+                const proj = GeometryUtils.applyTransform(photoPoint, finalTransform);
+                errs.push(Math.hypot(modelPoint.x - proj.x, modelPoint.y - proj.y));
+            }
+        }
+        errs.sort((a, b) => a - b);
+        guardError = errs[Math.floor(errs.length / 2)];
     }
 }
 const guardScale = finalTransform ? finalTransform.scale : 1;
-// Фото могут быть сняты с РАЗНОГО расстояния (в т.ч. отпечаток на грунте с рук) —
-// масштаб фото→модель законно отличается от 1. Главный фильтр качества — medianError≤30px
-// (прежнее раздувание модели имело medianError=306px при scale=2.3). Scale — только грубая
-// санитарная граница.
+// Фото могут быть сняты с РАЗНОГО расстояния — масштаб фото→модель законно отличается от 1.
+// 🔥 ФИКС (C): проверяем СОГЛАСОВАННОЕ ПОДМНОЖЕСТВО (≥5 пар с ошибкой ≤10px), а не медиану по
+// всем: мусорные «по форме» якоря не должны топить хороший merge (фото 4: medianError=245px из-за
+// примеси, при том что консенсус по хорошим = 1.9px). Прежний блот-кейс (medianError=306px) —
+// мусор без согласованного подмножества — по-прежнему отклоняется.
+let guardInliers = 0;
+for (const m of guardInlierMatches) guardInliers++;
 const guardScaleOk = guardScale > 0.1 && guardScale < 10;
-const guardErrorOk = guardPoints < 2 || guardError <= 30;
+const guardErrorOk = guardPoints < 5 || guardInliers >= 5;
 
 if (!guardScaleOk || !guardErrorOk) {
     console.log(`\n🛡️ ПРЕДОХРАНИТЕЛЬ: слияние ОТМЕНЕНО — transform несостоятелен: ` +
-        `medianError=${guardError.toFixed(1)}px (по ${guardPoints} парам), scale=${guardScale.toFixed(3)} ` +
-        `(требуется medianError≤30px и 0.1<scale<10)`);
+        `согласованных пар ${guardInliers}/${guardPoints} (ошибка ≤ ${guardInlierPx}px), scale=${guardScale.toFixed(3)} ` +
+        `(требуется ≥5 согласованных пар и 0.1<scale<10)`);
     console.log(`   Модель НЕ изменена: ${existingModel.graph.nodes.size} узлов остаются как есть.`);
     return {
         success: false,
@@ -1799,12 +1823,13 @@ if (!guardScaleOk || !guardErrorOk) {
         guardError,
         guardScale,
         newNodesAdded: 0,
-        message: `transform несостоятелен: medianError=${guardError.toFixed(1)}px, scale=${guardScale.toFixed(3)}`
+        message: `transform несостоятелен: согласованных пар ${guardInliers}/${guardPoints}, scale=${guardScale.toFixed(3)}`
     };
 }
 
-// ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ (ПЕРЕДАЁМ uniquePhotoPoints ЯВНО) =====
-if (this.debug) console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
+finalValidatedMatches = guardInlierMatches;   // 🔥 ФИКС (D): сливаем только согласованные пары
+
+// ===== ШАГ 13: ОБНОВЛЕНИЕ МОДЕЛИ (ПЕРЕДАЁМ uniquePhotoPoints ЯВНО) =====if (this.debug) console.log(`\n📤 Передаём в updateModelWithOptimalMatches: ${finalValidatedMatches?.length || 0} точек`);
 
 const updateResult = this._updateModel(
     existingModel,

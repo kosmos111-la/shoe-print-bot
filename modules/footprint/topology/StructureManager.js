@@ -114,8 +114,8 @@ class StructureManager {
 
         this.mergeBySimilarity(structuresList, graphA, graphB);
        
-        const largeStructures = Array.from(this.structures.values())
-            .filter(s => s.triangleIds.size >= 1);   // 🔥 ФИКС: >=3 отбрасывал однотреугольные структуры грязного фото
+        const allStructures = Array.from(this.structures.values()).filter(s => s.triangleIds.size >= 1);
+        const largeStructures = allStructures.filter(s => s.triangleIds.size >= 3);
        
         if (this.debug) {
             console.log(`\n📊 ИТОГ СБОРКИ:`);
@@ -130,7 +130,9 @@ class StructureManager {
             });
         }
        
-        return largeStructures;
+                // 🔥 ФИКС: если есть крупные — показываем только их (чистые фото);
+        // если нет — все однотреугольные (грязное фото: разрозненные якоря — это и есть найденные соответствия).
+        return largeStructures.length > 0 ? largeStructures : allStructures;
     }
    
     mergeBySimilarity(structures, graphA, graphB) {

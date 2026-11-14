@@ -744,6 +744,8 @@ function parsePredIndex(id) {
 // Длинный id ядра → короткий pt_<индекс> (fallback: хвост id)
 function shortPointId(id) {
     if (!id) return id;
+    // контурный якорь — читабельная метка (вместо хвоста 'ur_anchor_71')
+    if (String(id).startsWith('contour_anchor')) return `anchor_${String(id).split('_').pop()}`;
     const parts = id.split('_');
     if (parts[0] === 'pt' && parts.length >= 4) return `pt_${parts[parts.length - 2]}`;
     return id.slice(-12);
