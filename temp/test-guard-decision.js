@@ -1,7 +1,9 @@
 // Тест: расширенный scale-диапазон guard'а + статус 'enhanced' → same_footprint_enhanced
-function guardPasses(guardScale, guardError, guardPoints) {
+// Guard теперь проверяет СОГЛАСОВАННОЕ ПОДМНОЖЕСТВО (≥5 пар с ошибкой ≤10px),
+// а не медиану по всем якорям.
+function guardPasses(guardScale, guardInliers, guardPoints) {
     const guardScaleOk = guardScale > 0.1 && guardScale < 10;
-    const guardErrorOk = guardPoints < 2 || guardError <= 30;
+    const guardErrorOk = guardPoints < 5 || guardInliers >= 5;
     return guardScaleOk && guardErrorOk;
 }
 
@@ -20,20 +22,20 @@ let fail = 0;
 const check = (n, ok) => { console.log((ok ? '  OK  ' : '  FAIL'), n); if (!ok) fail++; };
 
 // --- Guard ---
-// Случай из лога: scale 0.157, medianError 13.8px → РАНЬШЕ отклонялось, ТЕПЕРЬ проходит
-check('scale 0.157 + medianError 13.8 → ПРОПУСК (было отклонение)', guardPasses(0.157, 13.8, 18) === true);
+// Случай из лога: scale 0.157, 18 согласованных из 18 → ПРОПУСК
+check('scale 0.157, inliers 18/18 → ПРОПУСК', guardPasses(0.157, 18, 18) === true);
 // Границы
-check('scale 0.1 → отклонено (нижняя граница)', guardPasses(0.1, 5, 18) === false);
-check('scale 10 → отклонено (верхняя граница)', guardPasses(10, 5, 18) === false);
-check('scale 0.11 → пропуск', guardPasses(0.11, 5, 18) === true);
-check('scale 9.9 → пропуск', guardPasses(9.9, 5, 18) === true);
-// Error-гейт остаётся главным: прежний блот-кейс (scale 2.3, medianError 306) всё ещё отклоняется
-check('прежний блот-кейс (scale 2.3, medianError 306) → отклонено (error-гейт)',
-    guardPasses(2.3, 306, 20) === false);
-check('medianError 31 → отклонено', guardPasses(1.0, 31, 20) === false);
-check('medianError 30 → пропуск', guardPasses(1.0, 30, 20) === true);
-// <2 пар — не проверяем (guardErrorOk true)
-check('мало пар → пропуск по error-гейту', guardPasses(0.5, 999, 1) === true);
+check('scale 0.1 → отклонено (нижняя граница)', guardPasses(0.1, 18, 18) === false);
+check('scale 10 → отклонено (верхняя граница)', guardPasses(10, 18, 18) === false);
+check('scale 0.11 → пропуск', guardPasses(0.11, 18, 18) === true);
+check('scale 9.9 → пропуск', guardPasses(9.9, 18, 18) === true);
+// Консенсус-гейт: прежний блот-кейс (мусор, мало согласованных) → отклонение
+check('блот-кейс (1 inlier из 20, scale 2.3) → отклонено', guardPasses(2.3, 1, 20) === false);
+check('грязное фото (6 inliers из 29) → пропуск', guardPasses(0.175, 6, 29) === true);
+check('фото 2 (100 inliers из 107) → пропуск', guardPasses(0.963, 100, 107) === true);
+check('мало согласованных (4 из 10) → отклонено', guardPasses(1.0, 4, 10) === false);
+check('ровно 5 согласованных → пропуск', guardPasses(1.0, 5, 10) === true);
+check('мало пар (<5) → пропуск', guardPasses(0.5, 3, 3) === true);
 
 // --- Decision ---
 check('status enhanced (успешное слияние) → same_footprint_enhanced',

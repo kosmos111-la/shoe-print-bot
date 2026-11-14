@@ -1769,6 +1769,7 @@ this.lastUniqueInPhoto = uniquePhotoPoints;
 // Scale-диапазон широкий: снимки бывают с разного расстояния (отпечаток с рук).
 // Слияние ОТМЕНЯЕТСЯ ПОЛНОСТЬЮ: точки НЕ добавляются, контур и transform НЕ обновляются.
 let guardError = 0;
+let guardInliers = 0;
 let guardPoints = 0;
 const guardInlierPx = 10;
 let guardInlierMatches = [];
@@ -1806,8 +1807,7 @@ const guardScale = finalTransform ? finalTransform.scale : 1;
 // всем: мусорные «по форме» якоря не должны топить хороший merge (фото 4: medianError=245px из-за
 // примеси, при том что консенсус по хорошим = 1.9px). Прежний блот-кейс (medianError=306px) —
 // мусор без согласованного подмножества — по-прежнему отклоняется.
-let guardInliers = 0;
-for (const m of guardInlierMatches) guardInliers++;
+
 const guardScaleOk = guardScale > 0.1 && guardScale < 10;
 const guardErrorOk = guardPoints < 5 || guardInliers >= 5;
 
