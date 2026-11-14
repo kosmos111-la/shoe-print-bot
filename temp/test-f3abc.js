@@ -97,5 +97,22 @@ check('E: transform ≈ истинный (scale/rot/сдвиг)',
     e !== null && Math.abs(e.scale - 0.175) < 0.05 && Math.abs(e.rotation - (-0.712)) < 0.05 &&
     Math.abs(e.translation.x - (-61.7)) < 25 && Math.abs(e.translation.y - 387.9) < 25);
 
-console.log(fail === 0 ? '\n🎉 A+B+C+D+E OK' : `\n💥 FAIL: ${fail}`);
+// ===== F: контур следа как ограничитель (Фаза 10.6) =====
+function pointInOutline(px, py, outlinePoints) {
+    if (!outlinePoints || outlinePoints.length < 3) return true;
+    let inside = false;
+    for (let i = 0, j = outlinePoints.length - 1; i < outlinePoints.length; j = i++) {
+        const xi = outlinePoints[i].x, yi = outlinePoints[i].y;
+        const xj = outlinePoints[j].x, yj = outlinePoints[j].y;
+        if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+    }
+    return inside;
+}
+const square = [{ x: 0, y: 0 }, { x: 100, y: 0 }, { x: 100, y: 100 }, { x: 0, y: 100 }];
+check('F: точка внутри → true', pointInOutline(50, 50, square) === true);
+check('F: точка снаружи → false', pointInOutline(150, 50, square) === false);
+check('F: точка за контуром (далеко) → false', pointInOutline(300, 300, square) === false);
+check('F: нет контура → true (не ограничиваем)', pointInOutline(50, 50, null) === true);
+
+console.log(fail === 0 ? '\n🎉 A+B+C+D+E+F OK' : `\n💥 FAIL: ${fail}`);
 process.exit(fail ? 1 : 0);

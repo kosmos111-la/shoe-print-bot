@@ -2129,6 +2129,19 @@ _extractPointsFromModel(model) {
 * Обновление модели новыми соответствиями
 */
 _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) {
+        // 🔥 ФАЗА 10.6: контур следа как ОГРАНИЧИТЕЛЬ — точки за контуром не добавляем
+        const _outlinePoints = model.metadata?.outlineContour?.points
+            || (model.metadata?.outlineContours?.length ? model.metadata.outlineContours[model.metadata.outlineContours.length - 1].points : null);
+        const _pointInOutline = (px, py) => {
+            if (!_outlinePoints || _outlinePoints.length < 3) return true;   // нет контура — не ограничиваем
+            let inside = false;
+            for (let i = 0, j = _outlinePoints.length - 1; i < _outlinePoints.length; j = i++) {
+                const xi = _outlinePoints[i].x, yi = _outlinePoints[i].y;
+                const xj = _outlinePoints[j].x, yj = _outlinePoints[j].y;
+                if (((yi > py) !== (yj > py)) && (px < (xj - xi) * (py - yi) / (yj - yi) + xi)) inside = !inside;
+            }
+            return inside;
+        };
         let confirmedExisting = 0;
         let newNodesAdded = 0;
        
@@ -2196,7 +2209,12 @@ _updateModel(model, newGraph, matches, newMorphology, uniquePhotoPoints = null) 
                 continue;
             }
             if (!isDuplicate) {
-    const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
+    // 🔥 ФАЗА 10.6: точка за контуром следа — ложная деталь, не добавляем
+            if (!_pointInOutline(photoPoint.x, photoPoint.y)) {
+                if (this.debug) console.log(`      ⏭️ Точка за контуром, пропущена: (${photoPoint.x.toFixed(1)}, ${photoPoint.y.toFixed(1)})`);
+                continue;
+            }
+            const newNodeId = `node_${Date.now()}_${newNodesAdded}_${Math.random().toString(36).substr(2, 4)}`;
     model.graph.nodes.set(newNodeId, {
         id: newNodeId,
         x: photoPoint.x,
