@@ -1763,6 +1763,23 @@ if (this.debug) console.log(`      • Глобальная: ${transformSta
 
 this.lastUniqueInPhoto = uniquePhotoPoints;
 
+// 🔥 ФИКС: финальный transform — робастный консенсус по ФИНАЛЬНЫМ парам.
+// Выбор структуры с одиночными (3-якорными) структурами ненадёжен на грязном фото:
+// мусорная структура могла «подтвердить» больше точек и стать finalTransform,
+// из-за чего guard видел 0/25 согласованных при истинном консенсусе 7/24 (1.9px).
+const _ftA = [], _ftB = [];
+for (const _m of finalValidatedMatches) {
+    const _pA = newExactGraph.nodes.get(_m.pointA);
+    const _pB = existingModel.graph.nodes.get(_m.pointB);
+    if (_pA && _pB) { _ftA.push({ x: _pA.x, y: _pA.y }); _ftB.push({ x: _pB.x, y: _pB.y }); }
+}
+if (_ftA.length >= 3) {
+    const _consFinal = this._robustConsensusFit(_ftA, _ftB);
+    if (_consFinal) {
+        finalTransform = _consFinal;
+        console.log(`   🔧 ФИНАЛЬНЫЙ TRANSFORM (консенсус по ${_ftA.length} парам): scale=${_consFinal.scale.toFixed(3)}, rot=${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);
+    }
+}
 // 🛡️ ПРЕДОХРАНИТЕЛЬ TRANSFORM — ДО добавления любых точек.
 // Если медианная ошибка проекции > 30px ИЛИ масштаб вне [0.1, 10] —
 // transform несостоятелен (ложные пары, растяжение модели).
