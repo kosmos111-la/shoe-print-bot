@@ -284,6 +284,26 @@ async function processPhotoFile(ctx, config, file, query, userId) {
 
     const predictions = rf.data.predictions || [];
 
+    // 🔍 Диагностика тегов Roboflow (для Фазы 5 — тип грунта):
+    // отдаёт ли API что-то кроме predictions (tags/labels/ground и т.п.)
+    try {
+        const rfKeys = Object.keys(rf.data || {});
+        console.log(`📦 Roboflow ответ: ключи = [${rfKeys.join(', ')}]`);
+        if (predictions[0] && typeof predictions[0] === 'object') {
+            const pKeys = Object.keys(predictions[0]);
+            console.log(`   • prediction[0] ключи: [${pKeys.join(', ')}]`);
+            if (pKeys.includes('tags') || pKeys.includes('labels')) {
+                console.log(`   • 🏷️ Тег найден: ${JSON.stringify(predictions[0].tags || predictions[0].labels)}`);
+            }
+        }
+        const tagKeys = rfKeys.filter(k => /tag|label|ground|soil|surface/i.test(k));
+        if (tagKeys.length > 0) {
+            console.log(`   • 🏷️ Поля-кандидаты тегов: ${tagKeys.join(', ')} = ${JSON.stringify(rf.data[tagKeys[0]])}`);
+        }
+    } catch (e) {
+        console.log('⚠️ диагностика тегов:', e.message);
+    }
+
     // 2) Постобработка (как бот)
     const processed = smartPostProcessing(predictions);
 
