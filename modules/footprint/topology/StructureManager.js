@@ -110,7 +110,9 @@ class StructureManager {
             }
         }
        
-        this.mergeBySimilarity(structuresList, graphA, graphB);
+                console.log(`   🏗️ buildStructures: seeds=${anchorTriangles?.length || 0}, allTriangles=${allTriangles?.length || 0}, структур построено: ${structuresList.length}`);
+
+        this.mergeBySimilarity(structuresList, graphA, graphB);
        
         const largeStructures = Array.from(this.structures.values())
             .filter(s => s.triangleIds.size >= 3);

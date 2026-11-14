@@ -750,7 +750,12 @@ function shortPointId(id) {
 function relabelGraph(ser) {
     const labelMap = new Map();
     for (const n of ser.nodes) {
-        const lab = shortPointId(n.id);
+        let lab = shortPointId(n.id);
+        // 🔥 новые узлы (node_...) — подписываем по исходной точке фото (pt_<индекс>)
+        if (!lab.startsWith('pt_') && n.originalPhotoId) {
+            const srcLab = shortPointId(n.originalPhotoId);
+            if (srcLab && srcLab.startsWith('pt_')) lab = srcLab;
+        }
         labelMap.set(n.id, lab);
         n.coreId = n.id;
         n.id = lab;
@@ -800,7 +805,9 @@ function serializeGraph(graphObj) {
                     id: n.id,
                     x: n.x,
                     y: n.y,
-                    confirmationCount: n.confirmationCount || 1
+                    confirmationCount: n.confirmationCount || 1,
+                    // 🔥 источник: новые узлы модели (node_...) несут id исходной точки фото
+                    originalPhotoId: n.originalPhotoId
                 });
             }
         };

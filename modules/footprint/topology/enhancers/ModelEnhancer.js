@@ -1109,6 +1109,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
 
     if (this.debug) console.log(`   • Создано якорных треугольников: ${anchorTrianglesMap.size}`);
 
+	console.log(`   📊 Якорных треугольников в карте: ${anchorTrianglesMap.size} (групп по triangleId: ${anchorsByTriangle.size}`);
     const candidateTriangles = allGraphTriangles.filter(t => !anchorTriangleIds.has(t.id));
     if (this.debug) console.log(`   • Треугольников-кандидатов для расширения: ${candidateTriangles.length}`);
 
@@ -1123,7 +1124,7 @@ async enhance(existingModel, newExactGraph, newMorphology, originalPoints, optio
         existingModel.morphologyMap
     );
 
-            if (this.debug) console.log(`   📊 Построено структур: ${structures.length}`);
+            console.log(`   📊 Построено структур: ${structures.length}`);
 
         // ===== ШАГ 8: ГЕОМЕТРИЧЕСКОЕ РАСШИРЕНИЕ =====
         if (structures.length > 0 && !fastMode) {
@@ -1281,7 +1282,7 @@ for (const structure of structures) {
         }
     }
 
-        if (this.debug) console.log(`   📊 Структур построено: ${structures.length}, валидирована хотя бы одна: ${finalValidationResult ? 'ДА' : 'НЕТ'}`);
+        console.log(`   📊 Структур построено: ${structures.length}, валидирована хотя бы одна: ${finalValidationResult ? 'ДА' : 'НЕТ'}`);
 
     // Если не удалось ни одной структуры - используем якоря
     if (!finalValidationResult) {
