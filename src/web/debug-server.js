@@ -835,7 +835,8 @@ function serializeGraph(graphObj) {
                     y: n.y,
                     confirmationCount: n.confirmationCount || 1,
                     // 🔥 источник: новые узлы модели (node_...) несут id исходной точки фото
-                    originalPhotoId: n.originalPhotoId
+                    originalPhotoId: n.originalPhotoId,
+                    addedFrom: n.addedFrom   // 'new_photo_point' — ещё не подтверждён (1 фото)
                 });
             }
         };

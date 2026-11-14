@@ -745,7 +745,12 @@ function renderSide(step, side, flags) {
             }
             for (const n of model.graph.nodes) {
                 const conf = n.confirmationCount || 0;
-                let fill = modelPointColor(conf), ring = '#FFF', rad = (4 + (conf >= 2 ? 2 : 0)) * u, rw = 1 * u;
+                // 🔥 «новые» узлы (добавлены с одного фото, ещё не подтверждены) — полый круг,
+                // чтобы не путать их с подтверждёнными точками модели
+                const isNewNode = n.addedFrom === 'new_photo_point' && conf < 2;
+                let fill = isNewNode ? 'rgba(65, 105, 225, 0.15)' : modelPointColor(conf);
+                let ring = isNewNode ? 'rgba(65, 105, 225, 0.7)' : '#FFF';
+                let rad = (4 + (conf >= 2 ? 2 : 0)) * u, rw = (isNewNode ? 1.5 : 1) * u;
                 if (fs && fs.mode === 'hover') {
                     if (n.id === fs.pointId) { fill = '#FFD700'; ring = '#E53935'; rad = 7 * u; rw = 2 * u; }
                     else if (fs.neighbors.has(n.id)) { fill = '#FFD700'; ring = '#FFD700'; rad = 6 * u; rw = 1.5 * u; }
