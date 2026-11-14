@@ -1774,7 +1774,7 @@ for (const _m of finalValidatedMatches) {
     if (_pA && _pB) { _ftA.push({ x: _pA.x, y: _pA.y }); _ftB.push({ x: _pB.x, y: _pB.y }); }
 }
 if (_ftA.length >= 3) {
-    const _consFinal = this._robustConsensusFit(_ftA, _ftB);
+    const _consFinal = this.validator._robustConsensusFit(_ftA, _ftB);   // метод живёт в ValidationModule
     if (_consFinal) {
         finalTransform = _consFinal;
         console.log(`   🔧 ФИНАЛЬНЫЙ TRANSFORM (консенсус по ${_ftA.length} парам): scale=${_consFinal.scale.toFixed(3)}, rot=${(finalTransform.rotation * 180 / Math.PI).toFixed(1)}°`);

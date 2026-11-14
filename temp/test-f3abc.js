@@ -67,5 +67,35 @@ function filterInliers(pairs, transform) {
 const d = filterInliers(dirtyPairs, { scale: 0.175 });
 check('D: в слияние идут только согласованные (6 из 29)', d.length === 6);
 
-console.log(fail === 0 ? '\n🎉 A+B+C+D OK' : `\n💥 FAIL: ${fail}`);
+// ===== E: финальный консенсус по парам (реальный ValidationModule) =====
+const VM = require('../modules/footprint/validation/ValidationModule');
+const vm = Object.create(VM.prototype);
+// фото 4: 25 финальных пар — 7 хороших (истинный transform scale 0.175, rot -0.712, tx -61.7, ty 387.9)
+const T4 = { scale: 0.175, rotation: -0.712, translation: { x: -61.7, y: 387.9 } };
+const apply4 = (p, t) => ({
+    x: p.x * t.scale * Math.cos(t.rotation) - p.y * t.scale * Math.sin(t.rotation) + t.translation.x,
+    y: p.x * t.scale * Math.sin(t.rotation) + p.y * t.scale * Math.cos(t.rotation) + t.translation.y
+});
+const seed4 = 1234;
+let s4 = seed4;
+const rnd4 = () => (s4 = (s4 * 1103515245 + 12345) % 2147483648) / 2147483648;
+const ftA = [], ftB = [];
+for (let i = 0; i < 7; i++) {   // хорошие
+    const p = { x: 200 + i * 70, y: 180 + (i % 2) * 55 };
+    ftA.push(p);
+    const q = apply4(p, T4);
+    q.x += rnd4() - 0.5; q.y += rnd4() - 0.5;
+    ftB.push(q);
+}
+for (let i = 0; i < 18; i++) {  // мусорные
+    ftA.push({ x: 800 + rnd4() * 800, y: 800 + rnd4() * 800 });
+    ftB.push({ x: 2000 + rnd4() * 800, y: 2000 + rnd4() * 800 });
+}
+const e = vm._robustConsensusFit(ftA, ftB);
+check('E: финальный консенсус по 25 парам → найден (не null)', e !== null);
+check('E: transform ≈ истинный (scale/rot/сдвиг)',
+    e !== null && Math.abs(e.scale - 0.175) < 0.05 && Math.abs(e.rotation - (-0.712)) < 0.05 &&
+    Math.abs(e.translation.x - (-61.7)) < 25 && Math.abs(e.translation.y - 387.9) < 25);
+
+console.log(fail === 0 ? '\n🎉 A+B+C+D+E OK' : `\n💥 FAIL: ${fail}`);
 process.exit(fail ? 1 : 0);
